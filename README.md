@@ -122,19 +122,16 @@ Bias multiplier   = 1 + (K × S2 × 0.02)
 ---
 
 # 🔀 DonutWidenMerge
-
 Advanced model merging nodes implementing the TIES+WIDEN algorithm with memory-efficient batch processing.
 
 ## Features
-
 - **Memory-optimized TIES+WIDEN merging** - Handles large models without VRAM overflow
 - **Batch processing** - Configurable batch sizes for optimal performance
 - **Intelligent parameter selection** - Automatically identifies most important parameters to merge
-- **User-controlled merge strength** - Precise control over merge intensity through intuitive parameters
+- **Simplified controls** - Streamlined parameters for easier use while maintaining flexibility
 - **Support for both UNet and CLIP models** - Complete workflow integration
 
 ## Available Nodes
-
 ### DonutWidenMergeUNet
 Merges two UNet models using the TIES+WIDEN algorithm.
 
@@ -144,63 +141,72 @@ Merges two CLIP models using the TIES+WIDEN algorithm.
 ## Parameters
 
 ### Core Merge Strength
-
-#### `above_average_value_ratio` (0.1 - 2.0, default: 1.0)
-Primary merge strength multiplier controlling how much influence the "other" model has.
-
+#### `merge_strength` (0.1 - 3.0, default: 1.0)
+Primary merge strength controlling how much influence the "other" model has on the base model.
 - **0.5** - Subtle merge, preserves base model characteristics
 - **1.0** - Balanced merge, equal influence from both models
 - **1.5** - Strong merge, other model dominates
 - **2.0** - Very aggressive merge, can completely override base features
+- **3.0** - Maximum strength, dramatic transformations
 
 #### `temperature` (0.1 - 10.0, default: 0.8) 
 Controls merge "confidence" through inverse scaling. Lower = more aggressive.
-
 - **0.5** - Cold merge: 2x strength, very aggressive changes
 - **0.8** - Cool merge: 1.25x strength, moderate confidence  
 - **1.0** - Neutral: No temperature scaling
 - **2.0** - Hot merge: 0.5x strength, gentle blending
 
-#### `score_calibration_value` (0.1 - 10.0, default: 1.0)
-Final strength multiplier applied after all calculations - acts as global volume control.
-
 ### Advanced Controls
-
-#### `trim_eps` (0.0 - 0.1, default: 0.00005)
-Threshold for removing small parameter changes (noise filtering).
+#### `threshold` (0.0 - 0.1, default: 0.00005)
+Threshold for removing small parameter changes (noise filtering and merge cutoff).
 
 #### `enable_ties` (Boolean, default: True)
 Enables TIES algorithm for intelligent conflict resolution when models disagree.
+
+#### `forced_merge_ratio` (0.0 - 1.0, default: 0.0)
+Ratio of parameters to force merge regardless of threshold. Set to 0 to disable forced merging.
 
 #### `batch_size` (10 - 100, default: 30)
 Memory management - how many parameters to process simultaneously.
 
 ## Mathematical Formula
-
 ```
-strength = above_average_value_ratio × (1.0 / temperature) × score_calibration_value
-merged_parameter = base_parameter + (other_parameter - base_parameter) × strength
+effective_strength = merge_strength × (1.0 / temperature)
+merged_parameter = base_parameter + (other_parameter - base_parameter) × effective_strength
 ```
 
 ## Recommended Settings
 
 ### Style Transfer (Dramatic Changes)
 ```
-above_average_value_ratio: 1.5-2.0
+merge_strength: 1.5-2.5
 temperature: 0.4-0.6  
-score_calibration_value: 1.2-1.5
-trim_eps: 0.00005
+threshold: 0.00005
 enable_ties: True
+forced_merge_ratio: 0.1-0.2
 ```
 
 ### Fine-tuning Blend (Subtle Improvements)
 ```
-above_average_value_ratio: 0.8-1.2
+merge_strength: 0.8-1.2
 temperature: 0.8-1.0
-score_calibration_value: 1.0
-trim_eps: 0.0001
+threshold: 0.0001
 enable_ties: True
+forced_merge_ratio: 0.0
 ```
+
+### Memory-Constrained Environments
+```
+batch_size: 10-20
+(Reduce batch size if experiencing VRAM issues)
+```
+
+## What's New
+- **Simplified parameters**: Reduced complexity while maintaining full functionality
+- **Unified strength control**: Single `merge_strength` parameter replaces multiple strength controls
+- **Streamlined thresholding**: Combined noise filtering and merge thresholds into one parameter
+- **Cleaner forced merge control**: `forced_merge_ratio` replaces boolean toggle for better granular control
+- **Removed unused features**: Eliminated parameters that weren't being utilized
 
 ---
 
