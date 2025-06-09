@@ -6,7 +6,7 @@ from tqdm import tqdm
 from .utils.sdxl_safetensors import ensure_same_device
 
 class TaskVector:
-    def __init__(self, base_model, finetuned_model, exclude_param_names_regex):
+    def __init__(self, base_model, finetuned_model):
         base_state = base_model.state_dict()
         finetuned_state = finetuned_model.state_dict()
 
@@ -20,29 +20,19 @@ class TaskVector:
         print(f"[TaskVector] param count: {len(self.task_vector_param_dict)}")
 
 class MergingMethod:
-    def __init__(self, merging_method_name: str, vram_limit_bytes: int = None):
+    def __init__(self, merging_method_name: str):
         self.method = merging_method_name
-        self.vram_limit = vram_limit_bytes
-
-    def _choose_device(self):
-        if torch.cuda.is_available() and self.vram_limit is not None:
-            dev = torch.cuda.current_device()
-            free, _ = torch.cuda.mem_get_info(dev)
-            if free >= self.vram_limit:
-                return torch.device("cuda")
-        return torch.device("cpu")
 
     def widen_merging(
         self,
         merged_model: nn.Module,
         models_to_merge: list,
-        exclude_param_names_regex: list,
-        above_average_value_ratio: float = 1.0,
-        score_calibration_value: float = 1.0,
-        trim_eps: float = 5e-5,
+        merge_strength: float = 1.0,
         temperature: float = 0.8,
         enable_ties: bool = True,
+        threshold: float = 0.00005,
         batch_size: int = 30,
+        forced_merge_ratio: float = 0.1,
     ):
         """Memory-efficient TIES+WIDEN with batch processing"""
         device = torch.device("cpu")
@@ -66,35 +56,39 @@ class MergingMethod:
         actually_merged = 0
 
         # Calculate importance scores for forcing merges (lightweight operation)
-        print("[Memory] Calculating parameter importance scores...")
         importance_scores = {}
 
-        for name in tqdm(common_names[:100], desc="[Importance] Sampling"):
-            try:
-                base_param = dict(merged_model.named_parameters())[name].detach().cpu()
-                other_params = [dict(model.named_parameters())[name].detach().cpu() for model in models_to_merge]
+        if forced_merge_ratio > 0:
+            print("[Memory] Calculating parameter importance scores...")
+            for name in tqdm(common_names[:100], desc="[Importance] Sampling"):
+                try:
+                    base_param = dict(merged_model.named_parameters())[name].detach().cpu()
+                    other_params = [dict(model.named_parameters())[name].detach().cpu() for model in models_to_merge]
 
-                total_diff = 0.0
-                for other_param in other_params:
-                    if base_param.shape == other_param.shape:
-                        diff = torch.norm(other_param - base_param).item()
-                        total_diff += diff
+                    total_diff = 0.0
+                    for other_param in other_params:
+                        if base_param.shape == other_param.shape:
+                            diff = torch.norm(other_param - base_param).item()
+                            total_diff += diff
 
-                importance_scores[name] = total_diff
+                    importance_scores[name] = total_diff
 
-                # Clean up immediately
-                del base_param, other_params
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    # Clean up immediately
+                    del base_param, other_params
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
-            except Exception:
-                importance_scores[name] = 0.0
+                except Exception:
+                    importance_scores[name] = 0.0
 
-        # Determine forced merge parameters (top 10% by default)
-        sorted_names = sorted(importance_scores.items(), key=lambda x: -x[1])
-        min_merge_count = max(1, int(len(common_names) * 0.1))  # Force at least 10%
-        forced_merge_set = set(n for n, _ in sorted_names[:min_merge_count])
-
-        print(f"[{self.method}] Will force merge {len(forced_merge_set)} most important parameters")
+        # Determine forced merge parameters
+        forced_merge_set = set()
+        if forced_merge_ratio > 0:
+            sorted_names = sorted(importance_scores.items(), key=lambda x: -x[1])
+            min_merge_count = max(1, int(len(common_names) * forced_merge_ratio))
+            forced_merge_set = set(n for n, _ in sorted_names[:min_merge_count])
+            print(f"[{self.method}] Will force merge {len(forced_merge_set)} most important parameters ({forced_merge_ratio*100:.1f}%)")
+        else:
+            print(f"[{self.method}] Forced merging disabled")
 
         # Process parameters in batches
         for batch_start in range(0, len(common_names), batch_size):
@@ -133,7 +127,7 @@ class MergingMethod:
 
             # Apply TIES trimming to batch if enabled
             if enable_ties and batch_task_vectors:
-                batch_task_vectors = self._apply_batch_ties_trimming(batch_task_vectors, trim_eps)
+                batch_task_vectors = self._apply_batch_ties_trimming(batch_task_vectors, threshold)
                 if len(batch_task_vectors) > 1:
                     batch_deltas = self._apply_batch_sign_election(batch_task_vectors, batch_names)
                 else:
@@ -143,7 +137,7 @@ class MergingMethod:
                 batch_deltas = {name: torch.stack([tv[name] for tv in batch_task_vectors])
                               for name in batch_names if all(name in tv for tv in batch_task_vectors)}
 
-            # Process the batch with USER-CONTROLLED merging
+            # Process the batch
             for name in batch_names:
                 if name not in batch_base_params or name not in batch_deltas:
                     merged_params[name] = dict(merged_model.named_parameters())[name].detach().cpu()
@@ -154,16 +148,32 @@ class MergingMethod:
                     base_param = batch_base_params[name]
                     delta = batch_deltas[name]
 
-                    # USER-CONTROLLED merging - parameters determine strength
+                    # Check if this parameter should be merged
+                    should_merge = False
+                    merge_type = "SKIP"
+
                     if name in forced_merge_set:
-                        # Use above_average_value_ratio for forced parameters
-                        strength = above_average_value_ratio
+                        # Always merge forced parameters
+                        should_merge = True
+                        merge_type = "FORCED"
+                    else:
+                        # Check threshold for non-forced parameters
+                        delta_magnitude = torch.norm(delta).item()
+                        if delta_magnitude > threshold:
+                            should_merge = True
+                            merge_type = "THRESHOLD"
 
-                        # Temperature scaling (user controls this)
+                    if should_merge:
+                        # Apply merging with temperature and strength
+                        if merge_type == "FORCED":
+                            # Use full strength for forced parameters
+                            strength = merge_strength
+                        else:
+                            # Use reduced strength for threshold parameters
+                            strength = merge_strength * 0.5
+
+                        # Temperature scaling
                         strength *= (1.0 / temperature)
-
-                        # Score calibration (user controls this)
-                        strength *= score_calibration_value
 
                         merged = base_param + delta.sum(0) * strength
                         merged_params[name] = merged
@@ -171,31 +181,10 @@ class MergingMethod:
 
                         if actually_merged <= 10:
                             diff_magnitude = torch.norm(merged - base_param).item()
-                            print(f"[FORCED] {name}: strength={strength:.2f}, diff_mag={diff_magnitude:.6f}")
+                            print(f"[{merge_type}] {name}: strength={strength:.2f}, diff_mag={diff_magnitude:.6f}")
                     else:
-                        # Threshold-based merging with user-controlled strength
-                        delta_magnitude = torch.norm(delta).item()
-                        merge_threshold = trim_eps * 100  # Use trim_eps to control threshold
-
-                        if delta_magnitude > merge_threshold:
-                            # Base strength comes from above_average_value_ratio
-                            strength = above_average_value_ratio * 0.5  # Scale down for non-forced
-
-                            # Temperature scaling (user parameter)
-                            strength *= (1.0 / temperature)
-
-                            # Score calibration scaling (user parameter)
-                            strength *= score_calibration_value
-
-                            merged = base_param + delta.sum(0) * strength
-                            merged_params[name] = merged
-                            actually_merged += 1
-
-                            if actually_merged <= 10:
-                                final_diff = torch.norm(merged - base_param).item()
-                                print(f"[MERGE] {name}: delta_mag={delta_magnitude:.6f}, strength={strength:.2f}, final_diff={final_diff:.6f}")
-                        else:
-                            merged_params[name] = base_param
+                        # Skip merging, keep original parameter
+                        merged_params[name] = base_param
 
                 except Exception as e:
                     print(f"[WARNING] Failed to process {name}: {e}")
@@ -214,22 +203,28 @@ class MergingMethod:
 
         total = len(common_names)
         skipped_small = total - actually_merged - fell_back
-        print(f"[{self.method}] Results:")
-        print(f"  - Successfully merged: {actually_merged} / {total} parameters")
-        print(f"  - Failed (errors): {fell_back}")
-        print(f"  - Skipped (too small): {skipped_small}")
-        print(f"  - Forced merges: {len(forced_merge_set)}")
+
+        # Create results string and print it
+        results_text = f"""[{self.method}] Results:
+  - Successfully merged: {actually_merged} / {total} parameters
+  - Failed (errors): {fell_back}
+  - Skipped (below threshold): {skipped_small}
+  - Forced merges: {len(forced_merge_set)}"""
+
+        print(results_text)
 
         merged_params = ensure_same_device(merged_params, "cpu")
-        return merged_params
 
-    def _apply_batch_ties_trimming(self, task_vectors, trim_eps):
+        # Return both merged params and results string
+        return merged_params, results_text
+
+    def _apply_batch_ties_trimming(self, task_vectors, threshold):
         """Apply TIES trimming to a batch of task vectors"""
         trimmed_vectors = []
         for tv_dict in task_vectors:
             trimmed_dict = {}
             for name, delta in tv_dict.items():
-                mask = torch.abs(delta) >= trim_eps
+                mask = torch.abs(delta) >= threshold
                 trimmed_dict[name] = delta * mask.float()
             trimmed_vectors.append(trimmed_dict)
         return trimmed_vectors
@@ -261,22 +256,24 @@ class DonutWidenMergeUNet:
             "required": {
                 "model_base": ("MODEL",),
                 "model_other": ("MODEL",),
-                "above_average_value_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0, "step": 0.1}),
-                "score_calibration_value": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
                 "temperature": ("FLOAT", {"default": 0.8, "min": 0.1, "max": 10.0, "step": 0.1}),
                 "enable_ties": ("BOOLEAN", {"default": True}),
             },
             "optional": {
-                "trim_eps": ("FLOAT", {"default": 0.00005, "min": 0.0, "max": 0.1, "step": 0.00001}),
+                "threshold": ("FLOAT", {"default": 0.00005, "min": 0.0, "max": 1.0, "step": 0.00001}),
                 "batch_size": ("INT", {"default": 30, "min": 10, "max": 100, "step": 10}),
+                "forced_merge_ratio": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
-    RETURN_TYPES = ("MODEL",)
+    RETURN_TYPES = ("MODEL", "STRING")
+    RETURN_NAMES = ("model", "merge_results")
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, model_base, model_other, above_average_value_ratio, score_calibration_value, temperature, enable_ties, trim_eps=0.00005, batch_size=30):
+    def execute(self, model_base, model_other, merge_strength, temperature, enable_ties,
+                threshold=0.00005, batch_size=30, forced_merge_ratio=0.1):
         # Create isolated copies to avoid modifying originals
         import copy
 
@@ -302,23 +299,22 @@ class DonutWidenMergeUNet:
         temp_other_model = TempModel(isolated_other_state)
 
         merger = MergingMethod("DonutWidenMergeUNet")
-        merged_dict = merger.widen_merging(
+        merged_dict, results_text = merger.widen_merging(
             merged_model=temp_base_model,
             models_to_merge=[temp_other_model],
-            exclude_param_names_regex=[],
-            above_average_value_ratio=above_average_value_ratio,
-            score_calibration_value=score_calibration_value,
-            trim_eps=trim_eps,
+            merge_strength=merge_strength,
             temperature=temperature,
             enable_ties=enable_ties,
+            threshold=threshold,
             batch_size=batch_size,
+            forced_merge_ratio=forced_merge_ratio,
         )
 
         # Create merged model
         model_merged = copy.deepcopy(model_base)
         model_merged.model.load_state_dict(merged_dict, strict=False)
 
-        return (model_merged,)
+        return (model_merged, results_text)
 
 
 class DonutWidenMergeCLIP:
@@ -330,22 +326,24 @@ class DonutWidenMergeCLIP:
             "required": {
                 "clip_base": ("CLIP",),
                 "clip_other": ("CLIP",),
-                "above_average_value_ratio": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0, "step": 0.1}),
-                "score_calibration_value": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
                 "temperature": ("FLOAT", {"default": 0.8, "min": 0.1, "max": 10.0, "step": 0.1}),
                 "enable_ties": ("BOOLEAN", {"default": True}),
             },
             "optional": {
-                "trim_eps": ("FLOAT", {"default": 0.00005, "min": 0.0, "max": 0.1, "step": 0.00001}),
+                "threshold": ("FLOAT", {"default": 0.00005, "min": 0.0, "max": 1.0, "step": 0.00001}),
                 "batch_size": ("INT", {"default": 30, "min": 10, "max": 100, "step": 10}),
+                "forced_merge_ratio": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
 
-    RETURN_TYPES = ("CLIP",)
+    RETURN_TYPES = ("CLIP", "STRING")
+    RETURN_NAMES = ("clip", "merge_results")
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, clip_base, clip_other, above_average_value_ratio, score_calibration_value, temperature, enable_ties, trim_eps=0.00005, batch_size=30):
+    def execute(self, clip_base, clip_other, merge_strength, temperature, enable_ties,
+                threshold=0.00005, batch_size=30, forced_merge_ratio=0.1):
         # Create isolated copies to avoid modifying originals
         import copy
 
@@ -378,16 +376,15 @@ class DonutWidenMergeCLIP:
         temp_other_model = TempModel(isolated_other_state)
 
         merger = MergingMethod("DonutWidenMergeCLIP")
-        merged_dict = merger.widen_merging(
+        merged_dict, results_text = merger.widen_merging(
             merged_model=temp_base_model,
             models_to_merge=[temp_other_model],
-            exclude_param_names_regex=[],
-            above_average_value_ratio=above_average_value_ratio,
-            score_calibration_value=score_calibration_value,
-            trim_eps=trim_eps,
+            merge_strength=merge_strength,
             temperature=temperature,
             enable_ties=enable_ties,
+            threshold=threshold,
             batch_size=batch_size,
+            forced_merge_ratio=forced_merge_ratio,
         )
 
         # Create merged CLIP model
@@ -398,7 +395,7 @@ class DonutWidenMergeCLIP:
         if enc_merged is not None:
             enc_merged.load_state_dict(merged_dict, strict=False)
 
-        return (clip_merged,)
+        return (clip_merged, results_text)
 
 
 NODE_CLASS_MAPPINGS = {
