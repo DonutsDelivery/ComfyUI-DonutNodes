@@ -124,32 +124,32 @@ Bias multiplier   = 1 + (K × S2 × 0.02)
 # 🔀 DonutWidenMerge
 TIES+WIDEN model merging with memory management and multi-model support.
 
-## Features
-- Zero-accumulation memory management keeps RAM usage constant
-- Supports merging up to 12 models simultaneously  
-- Batch processing with sizes up to 9999 parameters
-- Memory monitoring with automatic safety cutoffs
-- Works with UNet and CLIP models
+## ✨ Features
+- 🧠 Zero-accumulation memory management keeps RAM usage constant
+- 🔢 Supports merging up to 12 models simultaneously  
+- 📦 Batch processing with sizes up to 9999 parameters
+- 📊 Memory monitoring with automatic safety cutoffs
+- 🎨 Works with UNet and CLIP models
 
-## Nodes
+## 🛠️ Nodes
 ### DonutWidenMergeUNet
 Merges UNet models using TIES+WIDEN algorithm. Takes a base model plus up to 11 additional models.
 
 ### DonutWidenMergeCLIP  
 Same functionality for CLIP models.
 
-### DonutFillerModel / DonutFillerClip
+### 🎭 DonutFillerModel / DonutFillerClip
 Placeholder nodes for unused model slots when merging fewer than 12 models.
 
-## Parameters
-### merge_strength (0.1 - 10.0, default: 1.0)
+## ⚙️ Parameters
+### 💪 merge_strength (0.1 - 10.0, default: 1.0)
 Controls how much the other models influence the base model.
 - 0.5 - Subtle changes
 - 1.0 - Balanced merge
 - 1.5 - Strong influence from other models
 - 2.0+ - Aggressive merging
 
-### temperature (0.1 - 10.0, default: 0.8) 
+### 🌡️ temperature (0.1 - 10.0, default: 0.8) 
 Inverse multiplier for merge strength. Lower values increase merge intensity.
 - 0.4 - 2.5x effective strength
 - 0.6 - 1.67x effective strength  
@@ -157,72 +157,72 @@ Inverse multiplier for merge strength. Lower values increase merge intensity.
 - 1.0 - No scaling
 - 2.0 - 0.5x effective strength
 
-### enable_ties (default: True)
+### 🤝 enable_ties (default: True)
 Uses TIES algorithm for conflict resolution when models disagree on parameter changes.
 
-### threshold (default: 0.00005)
+### 🎯 threshold (default: 0.00005)
 Minimum magnitude for parameter changes. Smaller changes are ignored.
 
-### forced_merge_ratio (0.0 - 1.0, default: 0.1)
+### 🔒 forced_merge_ratio (0.0 - 1.0, default: 0.1)
 Fraction of most important parameters to merge regardless of threshold.
 
-### batch_size (10 - 9999, default: 75/100)
+### 📦 batch_size (10 - 9999, default: 75/100)
 Number of parameters processed simultaneously. Auto-scales based on available memory:
-- >30GB available: up to 500 parameters/batch
-- >20GB available: up to 200 parameters/batch  
-- >15GB available: up to 100 parameters/batch
-- <8GB available: smaller batches
+- 🚀 >30GB available: up to 500 parameters/batch
+- ⚡ >20GB available: up to 200 parameters/batch  
+- 💨 >15GB available: up to 100 parameters/batch
+- 🐌 <8GB available: smaller batches
 
-## How it works
+## 🧮 How it works
 ```
 effective_strength = merge_strength × (1.0 / temperature)
 merged_parameter = base_parameter + (task_vector × effective_strength)
 ```
 
 For multiple models, TIES algorithm:
-1. Calculates task vectors (difference from base model)
-2. Trims values below threshold
-3. Resolves conflicts using majority voting
-4. Applies remaining changes
+1. 📐 Calculates task vectors (difference from base model)
+2. ✂️ Trims values below threshold
+3. 🗳️ Resolves conflicts using majority voting
+4. ✅ Applies remaining changes
 
-## Example configurations
-### Subtle blending (2-3 models)
+## 📋 Example configurations
+### 🕊️ Subtle blending (2-3 models)
 - merge_strength: 0.8-1.2
 - temperature: 0.8-1.0
 - threshold: 0.0001
 - forced_merge_ratio: 0.0-0.1
 
-### Style transfer (2-4 models)
+### 🎨 Style transfer (2-4 models)
 - merge_strength: 1.5-2.5
 - temperature: 0.4-0.6
 - threshold: 0.00005
 - forced_merge_ratio: 0.1-0.2
 
-### Large ensemble (8-12 models)
+### 🌈 Large ensemble (8-12 models)
 - merge_strength: 0.8-1.2
 - temperature: 0.6-0.8
 - threshold: 0.00001
 - forced_merge_ratio: 0.15-0.25
 
-## Memory management
+## 💾 Memory management
 The implementation uses zero-accumulation processing - parameters are written directly to the target model instead of being accumulated in memory. This keeps RAM usage constant regardless of model size.
 
 Memory monitoring runs every batch and will:
-- Reduce batch size if memory usage approaches limits
-- Terminate safely if memory becomes critical
-- Return partial results if emergency stop is triggered
+- 📉 Reduce batch size if memory usage approaches limits
+- 🛑 Terminate safely if memory becomes critical
+- 💾 Return partial results if emergency stop is triggered
 
-## Technical notes
-### Changes from previous versions
-- Fixed memory accumulation issue that caused RAM usage to grow during merging
-- Increased model support from 6 to 12 models
-- Raised batch size limit from 100 to 9999 parameters
-- Added real-time memory monitoring and safety systems
+## 🔧 Technical notes
+### 📝 Changes from previous versions
+- 🐛 Fixed memory accumulation issue that caused RAM usage to grow during merging
+- 🔢 Increased model support from 2 to 12 models
+- 📈 Raised batch size limit to 9999 parameters
+- 🚨 Added real-time memory monitoring and safety systems
 
-### Performance characteristics
-- Memory usage remains flat throughout merge process
-- Processing time scales with batch size and number of models
-- Large batch sizes significantly reduce overhead for big models
+### ⚡ Performance characteristics
+- 📊 Memory usage remains flat throughout merge process
+- ⏱️ Processing time scales with batch size and number of models
+- 🚀 Large batch sizes significantly reduce overhead for big models
 
 ---
 
