@@ -122,107 +122,106 @@ Bias multiplier   = 1 + (K × S2 × 0.02)
 ---
 
 # 🔀 DonutWidenMerge
-TIES+WIDEN model merging with memory management and multi-model support.
 
-## ✨ Features
-- 🧠 Zero-accumulation memory management keeps RAM usage constant
-- 🔢 Supports merging up to 12 models simultaneously  
-- 📦 Batch processing with sizes up to 9999 parameters
-- 📊 Memory monitoring with automatic safety cutoffs
-- 🎨 Works with UNet and CLIP models
+Advanced model merging using the WIDEN algorithm, optimized for SDXL diffusion models with memory-efficient processing.
+
+## ✨ Overview
+
+DonutWidenMerge combines multiple AI models into a single model by intelligently selecting and blending the most important parameter changes. Unlike simple averaging, it uses the WIDEN algorithm to identify which parameters matter most and how they should be combined.
+
+The node analyzes each parameter in your models, classifies them by their role in the neural network (attention layers, convolutions, etc.), and applies specialized merging logic for each type. This results in merged models that preserve the strengths of each input model while maintaining stability.
+
+## 🧮 How WIDEN Works
+
+1. **Analysis** - For each parameter, the algorithm computes how much it changed from the base model and in what direction
+2. **Classification** - Parameters are classified by their role (attention, convolution, normalization, etc.)
+3. **Ranking** - Changes are ranked by significance using layer-specific criteria
+4. **Selection** - Only the most significant changes that exceed certain thresholds are merged
+5. **Weighting** - Selected changes are weighted based on their importance and layer type
+
+This selective approach prevents the "muddy" results often seen with simple model averaging.
 
 ## 🛠️ Nodes
-### DonutWidenMergeUNet
-Merges UNet models using TIES+WIDEN algorithm. Takes a base model plus up to 11 additional models.
 
-### DonutWidenMergeCLIP  
-Same functionality for CLIP models.
+### DonutWidenMergeUNet
+Merges UNet models using WIDEN algorithm with SDXL-specific optimizations. Takes a base model plus up to 11 additional models.
+
+### DonutWidenMergeCLIP
+Same WIDEN functionality optimized for CLIP text encoders.
 
 ### 🎭 DonutFillerModel / DonutFillerClip
 Placeholder nodes for unused model slots when merging fewer than 12 models.
 
 ## ⚙️ Parameters
-### 💪 merge_strength (0.1 - 10.0, default: 1.0)
-Controls how much the other models influence the base model.
-- 0.5 - Subtle changes
-- 1.0 - Balanced merge
-- 1.5 - Strong influence from other models
-- 2.0+ - Aggressive merging
 
-### 🌡️ temperature (0.1 - 10.0, default: 0.8) 
-Inverse multiplier for merge strength. Lower values increase merge intensity.
-- 0.4 - 2.5x effective strength
-- 0.6 - 1.67x effective strength  
-- 0.8 - 1.25x effective strength
-- 1.0 - No scaling
-- 2.0 - 0.5x effective strength
+### 💪 merge_strength (0.1 - 3.0, default: 1.0)
+Controls the overall intensity of the merge. Higher values make the other models influence the base model more strongly.
 
-### 🤝 enable_ties (default: True)
-Uses TIES algorithm for conflict resolution when models disagree on parameter changes.
+- **0.5** - Subtle influence, preserves base model character
+- **1.0** - Balanced merge (recommended starting point)  
+- **1.5** - Strong influence from other models
+- **2.0+** - Very aggressive, may cause instability
 
-### 🎯 threshold (default: 0.00005)
-Minimum magnitude for parameter changes. Smaller changes are ignored.
+### 🎯 widen_threshold (0.1 - 3.0, default: 1.0)
+Determines how picky the algorithm is about which parameters to merge. Higher values mean fewer parameters get merged, but they're more significant.
 
-### 🔒 forced_merge_ratio (0.0 - 1.0, default: 0.1)
-Fraction of most important parameters to merge regardless of threshold.
+- **0.5** - Less selective, merges more parameters
+- **1.0** - Balanced selection (recommended)
+- **1.5** - More selective, only obvious improvements
+- **2.0+** - Very selective, minimal changes
 
-### 📦 batch_size (10 - 9999, default: 75/100)
-Number of parameters processed simultaneously. Auto-scales based on available memory:
-- 🚀 >30GB available: up to 500 parameters/batch
-- ⚡ >20GB available: up to 200 parameters/batch  
-- 💨 >15GB available: up to 100 parameters/batch
-- 🐌 <8GB available: smaller batches
+### 🔧 widen_calibration (0.1 - 3.0, default: 1.0)
+Adjusts how the algorithm weighs parameter importance. This affects which parameters are considered most valuable to merge.
 
-## 🧮 How it works
-```
-effective_strength = merge_strength × (1.0 / temperature)
-merged_parameter = base_parameter + (task_vector × effective_strength)
-```
+- **0.5** - Conservative weighting
+- **1.0** - Standard weighting (recommended)
+- **1.5** - Aggressive weighting, emphasizes standout changes
+- **2.0+** - Very aggressive, may over-emphasize some changes
 
-For multiple models, TIES algorithm:
-1. 📐 Calculates task vectors (difference from base model)
-2. ✂️ Trims values below threshold
-3. 🗳️ Resolves conflicts using majority voting
-4. ✅ Applies remaining changes
+### 🔄 enable_renorm (True/False, default: True)
+Renormalization helps keep the merged model stable by adjusting parameter magnitudes to reasonable ranges. Usually should stay enabled.
 
-## 📋 Example configurations
-### 🕊️ Subtle blending (2-3 models)
-- merge_strength: 0.8-1.2
-- temperature: 0.8-1.0
-- threshold: 0.0001
-- forced_merge_ratio: 0.0-0.1
+### 📐 renorm_mode ("magnitude", "calibrate", "none")
+How to stabilize the merged parameters:
 
-### 🎨 Style transfer (2-4 models)
-- merge_strength: 1.5-2.5
-- temperature: 0.4-0.6
-- threshold: 0.00005
-- forced_merge_ratio: 0.1-0.2
+- **"magnitude"** - Simple and fast stabilization (recommended)
+- **"calibrate"** - More sophisticated but slower stabilization  
+- **"none"** - No stabilization (may cause instability)
 
-### 🌈 Large ensemble (8-12 models)
-- merge_strength: 0.8-1.2
-- temperature: 0.6-0.8
-- threshold: 0.00001
-- forced_merge_ratio: 0.15-0.25
+### 📦 batch_size (10 - 500, default: 50/75)
+Not used in current zero-accumulation implementation, kept for compatibility.
 
-## 💾 Memory management
-The implementation uses zero-accumulation processing - parameters are written directly to the target model instead of being accumulated in memory. This keeps RAM usage constant regardless of model size.
+## 📋 Usage Examples
 
-Memory monitoring runs every batch and will:
-- 📉 Reduce batch size if memory usage approaches limits
-- 🛑 Terminate safely if memory becomes critical
-- 💾 Return partial results if emergency stop is triggered
+### 🕊️ Basic Usage
+Start with all defaults and only adjust `merge_strength`:
+- Use **0.8-1.2** for subtle merges
+- Use **1.0-1.5** for balanced merges
+- Use **1.5-2.0** for strong merges
 
-## 🔧 Technical notes
-### 📝 Changes from previous versions
-- 🐛 Fixed memory accumulation issue that caused RAM usage to grow during merging
-- 🔢 Increased model support from 2 to 12 models
-- 📈 Raised batch size limit to 9999 parameters
-- 🚨 Added real-time memory monitoring and safety systems
+### 🎨 Fine-Tuning
+- If the default merge is too aggressive, increase `widen_threshold` to **1.2-1.5**
+- If it's too conservative, decrease `widen_threshold` to **0.7-0.9**
 
-### ⚡ Performance characteristics
-- 📊 Memory usage remains flat throughout merge process
-- ⏱️ Processing time scales with batch size and number of models
-- 🚀 Large batch sizes significantly reduce overhead for big models
+### 🌈 Many Models (8-12)
+When merging many models, use lower `merge_strength` (**0.8-1.0**) to prevent overwhelming the base model.
+
+## 💾 Memory Management
+
+The node uses "zero-accumulation" processing - it works on one parameter at a time instead of loading everything into memory:
+
+- 📊 Memory usage stays constant regardless of model size
+- 🚀 Can merge large models on systems with limited RAM
+- 🛑 Automatically monitors memory and stops safely if needed
+- 💨 No memory leaks or accumulation during processing
+
+## 🔧 Technical Notes
+
+- 🧠 Implements full zero-accumulation processing for minimal memory footprint
+- 🎯 SDXL-optimized with layer-specific thresholds and importance weighting
+- 🔢 Supports up to 12 model merging simultaneously
+- 📊 Real-time memory monitoring with automatic safety cutoffs
+- 🔄 Smart caching prevents redundant processing of identical merges
 
 ---
 
