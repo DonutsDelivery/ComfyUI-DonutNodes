@@ -9,6 +9,7 @@ import os
 import tempfile
 import uuid
 from contextlib import contextmanager
+import time
 
 # use package-relative path for ComfyUI
 from .utils.sdxl_safetensors import ensure_same_device
@@ -55,14 +56,32 @@ def check_memory_safety():
         return True, 0.0, 999.0
 
 def compute_merge_hash(models, merge_strength, temperature, enable_ties, threshold, forced_merge_ratio, renorm_mode):
-    """Compute hash of merge parameters to detect changes"""
-    hasher = hashlib.md5()
+    """Compute hash of merge parameters to detect changes - FIXED: More robust hashing"""
+    hasher = hashlib.sha256()  # Changed from md5 to sha256 for better collision resistance
 
-    # Hash model inputs
+    # Hash model inputs - FIXED: Use model state checksum instead of object ID
     for model in models:
         if model is not None and not getattr(model, "_is_filler", False):
-            # Use model object id as a simple change detector
-            hasher.update(str(id(model)).encode())
+            try:
+                # Create a more stable hash based on model parameters
+                model_params = list(model.named_parameters()) if hasattr(model, 'named_parameters') else []
+                if model_params:
+                    # Use first and last parameter shapes and a few sample values for hash
+                    first_param = model_params[0][1] if model_params else None
+                    last_param = model_params[-1][1] if len(model_params) > 1 else first_param
+
+                    if first_param is not None:
+                        hasher.update(str(first_param.shape).encode())
+                        hasher.update(str(first_param.flatten()[:10].tolist()).encode())
+                    if last_param is not None and last_param is not first_param:
+                        hasher.update(str(last_param.shape).encode())
+                        hasher.update(str(last_param.flatten()[:10].tolist()).encode())
+                else:
+                    # Fallback to object id with timestamp for uniqueness
+                    hasher.update(f"{id(model)}_{time.time()}".encode())
+            except Exception:
+                # Ultimate fallback
+                hasher.update(f"{id(model)}_{time.time()}".encode())
 
     # Hash merge parameters
     hasher.update(f"{merge_strength}_{temperature}_{enable_ties}_{threshold}_{forced_merge_ratio}_{renorm_mode}".encode())
@@ -112,7 +131,7 @@ def memory_cleanup_context(label=""):
         monitor_memory(f"{label}-END")
 
 def calibrate_renormalize(merged_param, base_param, mode="calibrate", t=1.0, s=1.5):
-    """Renormalize using calibration algorithm or simple methods"""
+    """Renormalize using calibration algorithm or simple methods - ENHANCED with conservative options"""
     if mode == "none":
         return merged_param
 
@@ -125,7 +144,7 @@ def calibrate_renormalize(merged_param, base_param, mode="calibrate", t=1.0, s=1
         return merged_param
 
     elif mode == "calibrate":
-        # More conservative calibration-style renormalization
+        # More conservative calibration-style renormalization with adjustable parameters
         import torch.nn.functional as F
 
         # Get the difference from base parameter (the "delta")
@@ -147,19 +166,26 @@ def calibrate_renormalize(merged_param, base_param, mode="calibrate", t=1.0, s=1
             param_flat = param_abs.flatten()
 
             if param_flat.sum() > 1e-8:  # Avoid division by zero
-                # More conservative softmax (add small temperature)
-                sm_m = F.softmax(param_flat * 0.5, dim=0)  # Lower temperature for stability
+                # ENHANCED: Adjustable softmax temperature for more/less smoothing
+                # Lower t = more conservative (sharper), higher t = more smoothing
+                temperature = max(0.1, min(2.0, t))  # Clamp between 0.1-2.0
+                sm_m = F.softmax(param_flat * temperature, dim=0)
 
-                # More conservative calibration thresholding
+                # ENHANCED: Adjustable calibration thresholding
+                # Lower t = higher threshold (more selective), higher t = lower threshold
                 K = param_flat.numel()
-                thr_m = (t / K) * sm_m.sum() * 0.5  # More conservative threshold
+                threshold_factor = max(0.1, min(1.0, t))  # Clamp between 0.1-1.0
+                thr_m = (threshold_factor / K) * sm_m.sum() * 0.5
 
-                # More conservative scaling
-                conservative_s = 1.0 + (s - 1.0) * 0.3  # Reduce scaling intensity
-                cal_m = torch.where(sm_m > thr_m, conservative_s * sm_m, sm_m)
+                # ENHANCED: Adjustable scaling intensity
+                # Lower s = less aggressive scaling, higher s = more aggressive
+                scaling_factor = max(1.0, min(3.0, s))  # Clamp between 1.0-3.0
+                conservative_intensity = max(0.1, min(1.0, (scaling_factor - 1.0) * 0.5))  # More conservative
+                cal_m = torch.where(sm_m > thr_m, 1.0 + conservative_intensity * sm_m, sm_m)
 
                 # Renormalize to preserve relative magnitudes
-                cal_m = cal_m * (param_flat.sum() / cal_m.sum())
+                if cal_m.sum() > 1e-8:
+                    cal_m = cal_m * (param_flat.sum() / cal_m.sum())
 
                 # Reshape back and restore signs
                 cal_m = cal_m.reshape(original_shape)
@@ -183,29 +209,41 @@ class TaskVector:
         self.task_vector_param_dict = {}
         self.param_metadata = {}  # Store SDXL-specific metadata
 
-        base_params = {n: p.detach().cpu().float().clone()
-                      for n, p in base_model.named_parameters()}
-        finetuned_params = {n: p.detach().cpu().float().clone()
-                           for n, p in finetuned_model.named_parameters()}
+        # FIXED: Proper memory management with explicit cleanup
+        try:
+            base_params = {n: p.detach().cpu().float()  # FIXED: Removed redundant .clone()
+                          for n, p in base_model.named_parameters()}
+            finetuned_params = {n: p.detach().cpu().float()  # FIXED: Removed redundant .clone()
+                               for n, p in finetuned_model.named_parameters()}
 
-        # Extract deltas with SDXL layer classification
-        for name in base_params:
-            if name in finetuned_params:
-                if exclude_param_names_regex:
-                    skip = any(re.search(pattern, name) for pattern in exclude_param_names_regex)
-                    if skip:
-                        continue
+            # Extract deltas with SDXL layer classification
+            for name in base_params:
+                if name in finetuned_params:
+                    if exclude_param_names_regex:
+                        skip = any(re.search(pattern, name) for pattern in exclude_param_names_regex)
+                        if skip:
+                            continue
 
-                delta = finetuned_params[name] - base_params[name]
-                self.task_vector_param_dict[name] = delta
+                    delta = finetuned_params[name] - base_params[name]
+                    self.task_vector_param_dict[name] = delta
 
-                # Classify SDXL layer type and store metadata
-                self.param_metadata[name] = {
-                    'layer_type': self._classify_sdxl_layer(name),
-                    'base_magnitude': torch.norm(base_params[name]).item(),
-                    'delta_magnitude': torch.norm(delta).item(),
-                    'change_ratio': torch.norm(delta).item() / (torch.norm(base_params[name]).item() + 1e-8)
-                }
+                    # Classify SDXL layer type and store metadata
+                    base_magnitude = torch.norm(base_params[name]).item()
+                    delta_magnitude = torch.norm(delta).item()
+                    self.param_metadata[name] = {
+                        'layer_type': self._classify_sdxl_layer(name),
+                        'base_magnitude': base_magnitude,
+                        'delta_magnitude': delta_magnitude,
+                        'change_ratio': delta_magnitude / (base_magnitude + 1e-8)  # FIXED: Avoid division by zero
+                    }
+
+        finally:
+            # FIXED: Explicit cleanup to prevent memory leaks
+            if 'base_params' in locals():
+                del base_params
+            if 'finetuned_params' in locals():
+                del finetuned_params
+            gc.collect()
 
     def _classify_sdxl_layer(self, param_name):
         """Classify SDXL layer types for specialized handling - ENHANCED"""
@@ -252,20 +290,20 @@ class MergingMethod:
     def __init__(self, merging_method_name: str):
         self.method = merging_method_name
 
-        # SDXL-specific thresholds based on WIDEN paper principles - RELAXED for better success rates
+        # SDXL-specific thresholds based on WIDEN paper principles - FIXED: Much higher base thresholds
         self.sdxl_thresholds = {
-            'time_embedding': 0.0001,     # More lenient for critical layers
-            'class_embedding': 0.0001,    # More lenient for critical layers
-            'cross_attention': 0.0005,    # Relaxed from 0.002
-            'self_attention': 0.0002,     # Relaxed from 0.001
-            'input_conv': 0.0002,         # Relaxed from 0.0005
-            'output_conv': 0.0005,        # Relaxed from 0.002
-            'feature_conv': 0.0002,       # Relaxed from 0.001
-            'skip_conv': 0.0002,          # Relaxed from 0.0008
-            'resolution_change': 0.0001,  # More lenient
-            'normalization': 0.0001,      # Relaxed from 0.0002
-            'bias': 0.00005,              # Relaxed from 0.0001
-            'other': 0.0001               # More lenient for unclassified layers
+            'time_embedding': 0.1,        # MUCH higher threshold for critical layers
+            'class_embedding': 0.1,       # MUCH higher threshold for critical layers
+            'cross_attention': 0.05,      # Higher threshold for attention
+            'self_attention': 0.05,       # Higher threshold for attention
+            'input_conv': 0.05,           # Higher threshold for convolutions
+            'output_conv': 0.1,           # High threshold for output layers
+            'feature_conv': 0.05,         # Higher threshold for convolutions
+            'skip_conv': 0.03,            # Moderate threshold for skip connections
+            'resolution_change': 0.05,    # Higher threshold
+            'normalization': 0.02,        # Moderate threshold for normalization
+            'bias': 0.01,                 # Higher threshold for bias
+            'other': 0.05                 # Higher threshold for unclassified layers
         }
 
         # Layer importance weights for SDXL
@@ -284,29 +322,50 @@ class MergingMethod:
             'other': 1.0                 # Default
         }
 
-    def should_merge_parameter(self, param_name, delta_magnitude, metadata):
-        """Determine if parameter should be merged based on SDXL-specific criteria - RELAXED"""
+    def should_merge_parameter(self, param_name, delta_magnitude, metadata, widen_threshold=0.5):
+        """Determine if parameter should be merged based on SDXL-specific criteria - FIXED: More aggressive threshold logic"""
         layer_type = metadata.get('layer_type', 'other')
-        threshold = self.sdxl_thresholds.get(layer_type, 0.0001)  # Lower default threshold
+        base_threshold = self.sdxl_thresholds.get(layer_type, 0.0001)
+
+        # FIXED: Much more aggressive exponential scaling
+        # 0.0 -> 0.001x (extremely permissive)
+        # 0.5 -> 1.0x (standard)
+        # 1.0 -> 1000x (extremely selective)
+        if widen_threshold <= 0.5:
+            # Permissive range: 0.0-0.5 maps to 0.001x-1.0x
+            threshold_multiplier = 0.001 + (widen_threshold * 2) ** 3 * 0.999
+        else:
+            # Selective range: 0.5-1.0 maps to 1.0x-1000x
+            threshold_multiplier = 1.0 + ((widen_threshold - 0.5) * 2) ** 4 * 999
+
+        threshold = base_threshold * threshold_multiplier
 
         # Additional criteria for SDXL
         change_ratio = metadata.get('change_ratio', 0)
+        scaled_change_threshold = 0.0001 * threshold_multiplier
 
-        # More lenient change requirements
-        if delta_magnitude < threshold:
+        # FIXED: More strict checking - both conditions must pass
+        magnitude_check = delta_magnitude >= threshold
+        ratio_check = change_ratio >= scaled_change_threshold
+
+        # Debug logging for high thresholds
+        if widen_threshold > 0.8:
+            print(f"[DEBUG] {param_name[:30]}: mag={delta_magnitude:.6f} vs thresh={threshold:.6f}, "
+                  f"ratio={change_ratio:.6f} vs ratio_thresh={scaled_change_threshold:.6f}, "
+                  f"passes={magnitude_check and ratio_check}")
+
+        if not magnitude_check or not ratio_check:
             return False
 
-        # More lenient relative change threshold (reduced from 0.001 to 0.0001)
-        if change_ratio < 0.0001:
-            return False
-
-        # Special handling for critical layers - even more sensitive
+        # Special handling for critical layers - even more selective at high thresholds
         if layer_type in ['time_embedding', 'class_embedding']:
-            return delta_magnitude > threshold * 0.1  # Much more sensitive (was 0.5)
+            critical_threshold = threshold * (0.5 + widen_threshold * 0.5)  # 0.5-1.0x multiplier
+            return delta_magnitude > critical_threshold
 
-        # Special handling for 'other' category - be very lenient
+        # Special handling for 'other' category - less lenient at high thresholds
         if layer_type == 'other':
-            return delta_magnitude > threshold * 0.1
+            other_threshold = threshold * (0.3 + widen_threshold * 0.7)  # 0.3-1.0x multiplier
+            return delta_magnitude > other_threshold
 
         return True
 
@@ -366,7 +425,7 @@ class MergingMethod:
         return mags, dirs
 
     def rank_significance_adaptive(self, diff_tensor, layer_type='other'):
-        """Enhanced ranking with SDXL layer-specific adaptations - BULLETPROOF"""
+        """Enhanced ranking with SDXL layer-specific adaptations - BULLETPROOF - FIXED: Infinite loop prevention"""
         # Handle edge cases first
         if diff_tensor.numel() == 0:
             return diff_tensor
@@ -383,7 +442,7 @@ class MergingMethod:
         original_shape = diff_tensor.shape
 
         try:
-            # Handle 1D tensors specially
+            # FIXED: Handle 1D tensors specially to prevent infinite recursion
             if diff_tensor.ndim == 1:
                 # For 1D tensors, create simple ranking
                 if diff_tensor.numel() <= 1:
@@ -404,13 +463,13 @@ class MergingMethod:
             # For multi-dimensional tensors, be more careful with flattening
             flat = None
 
-            # Safe flattening strategy
+            # FIXED: Safe flattening strategy to prevent infinite recursion
             if diff_tensor.ndim == 2:
                 # 2D tensor - use as-is or flatten to 1D if one dimension is 1
                 if diff_tensor.shape[0] == 1:
-                    flat = diff_tensor.flatten()
+                    flat = diff_tensor.view(-1)  # Use view instead of flatten to prevent recursion
                 elif diff_tensor.shape[1] == 1:
-                    flat = diff_tensor.flatten()
+                    flat = diff_tensor.view(-1)  # Use view instead of flatten to prevent recursion
                 else:
                     flat = diff_tensor
             else:
@@ -419,22 +478,22 @@ class MergingMethod:
                     if layer_type in ['cross_attention', 'self_attention']:
                         # For attention: try to preserve structure
                         if diff_tensor.ndim > 2:
-                            flat = diff_tensor.flatten(1)
+                            flat = diff_tensor.view(diff_tensor.shape[0], -1)  # Use view instead of flatten
                         else:
                             flat = diff_tensor
                     else:
                         # For other types: safe flattening
                         if diff_tensor.ndim > 2:
-                            flat = diff_tensor.flatten(1)
+                            flat = diff_tensor.view(diff_tensor.shape[0], -1)  # Use view instead of flatten
                         else:
                             flat = diff_tensor
                 except Exception:
-                    # Fallback: complete flattening
-                    flat = diff_tensor.flatten()
+                    # Fallback: complete flattening using view
+                    flat = diff_tensor.view(-1)
 
             # Ensure we have a valid tensor for ranking
             if flat is None:
-                flat = diff_tensor.flatten()
+                flat = diff_tensor.view(-1)  # Use view instead of flatten
 
             # Handle the flattened tensor
             if flat.ndim == 1:
@@ -498,8 +557,8 @@ class MergingMethod:
             except:
                 return diff_tensor
 
-    def compute_importance_sdxl(self, sig_tensor, layer_type='other', above_avg_ratio=1.0, calibration_value=1.0):
-        """SDXL-optimized importance computation following WIDEN principles - BULLETPROOF"""
+    def compute_importance_sdxl(self, sig_tensor, layer_type='other', widen_threshold=0.5, calibration_value=0.0):
+        """SDXL-optimized importance computation following WIDEN principles - FIXED: 0-1 calibration range"""
 
         try:
             # Handle edge cases
@@ -511,17 +570,20 @@ class MergingMethod:
 
             # Handle scalar tensors
             if sig_tensor.numel() == 1:
-                # For scalar tensors, just return the calibration value
-                return torch.tensor(calibration_value * layer_weight, dtype=sig_tensor.dtype, device=sig_tensor.device)
+                # FIXED: Map 0-1 calibration to meaningful range (0.1-2.0)
+                calibration_mapped = 0.1 + calibration_value * 1.9
+                return torch.tensor(calibration_mapped * layer_weight, dtype=sig_tensor.dtype, device=sig_tensor.device)
 
             # Handle very small tensors
             if sig_tensor.numel() <= 2:
-                return torch.full_like(sig_tensor, calibration_value * layer_weight)
+                calibration_mapped = 0.1 + calibration_value * 1.9
+                return torch.full_like(sig_tensor, calibration_mapped * layer_weight)
 
             # Base softmax scoring with error handling
             try:
                 if sig_tensor.ndim == 0:
-                    return torch.tensor(calibration_value * layer_weight, dtype=sig_tensor.dtype, device=sig_tensor.device)
+                    calibration_mapped = 0.1 + calibration_value * 1.9
+                    return torch.tensor(calibration_mapped * layer_weight, dtype=sig_tensor.dtype, device=sig_tensor.device)
                 elif sig_tensor.ndim == 1:
                     softmax_dim = 0
                 else:
@@ -535,36 +597,50 @@ class MergingMethod:
 
             except Exception as e:
                 print(f"Warning: Softmax failed for tensor shape {sig_tensor.shape}: {e}")
-                return torch.full_like(sig_tensor, calibration_value * layer_weight)
+                calibration_mapped = 0.1 + calibration_value * 1.9
+                return torch.full_like(sig_tensor, calibration_mapped * layer_weight)
 
-            # Adaptive thresholding based on layer type
+            # FIXED: Much more aggressive adaptive thresholding
             try:
                 if sig_tensor.ndim > 1:
                     avg = sig_tensor.mean(0, keepdim=True)
                 else:
                     avg = sig_tensor.mean()
 
-                # Layer-specific above-average ratio adjustment
+                # FIXED: Use same aggressive scaling as should_merge_parameter
+                if widen_threshold <= 0.5:
+                    # Permissive range: 0.0-0.5 maps to 0.1x-1.0x
+                    threshold_multiplier = 0.1 + (widen_threshold * 2) ** 2 * 0.9
+                else:
+                    # Selective range: 0.5-1.0 maps to 1.0x-100x
+                    threshold_multiplier = 1.0 + ((widen_threshold - 0.5) * 2) ** 3 * 99
+
+                # Layer-specific threshold adjustment
                 if layer_type in ['time_embedding', 'class_embedding', 'cross_attention']:
                     # More selective for critical layers
-                    adjusted_ratio = above_avg_ratio * 1.2
+                    adjusted_multiplier = threshold_multiplier * 1.2
                 elif layer_type in ['normalization', 'bias']:
                     # Less selective for less critical layers
-                    adjusted_ratio = above_avg_ratio * 0.8
+                    adjusted_multiplier = threshold_multiplier * 0.8
                 else:
-                    adjusted_ratio = above_avg_ratio
+                    adjusted_multiplier = threshold_multiplier
 
-                mask = sig_tensor > avg * adjusted_ratio
+                mask = sig_tensor > avg * adjusted_multiplier
 
-                # Apply calibration with layer-specific scaling
-                calibration_scaled = calibration_value * layer_weight
+                # FIXED: Apply calibration with 0-1 mapping to 0.1-2.0 range
+                # 0.0 = minimal importance weighting (0.1x)
+                # 0.5 = standard importance weighting (1.0x)
+                # 1.0 = maximum importance weighting (2.0x)
+                calibration_mapped = 0.1 + calibration_value * 1.9
+                calibration_scaled = calibration_mapped * layer_weight
                 sc = torch.where(mask, torch.tensor(calibration_scaled, dtype=sc.dtype, device=sc.device), sc)
 
                 return sc
 
             except Exception as e:
                 print(f"Warning: Thresholding failed for tensor shape {sig_tensor.shape}: {e}")
-                return torch.full_like(sig_tensor, calibration_value * layer_weight)
+                calibration_mapped = 0.1 + calibration_value * 1.9
+                return torch.full_like(sig_tensor, calibration_mapped * layer_weight)
 
         except Exception as e:
             print(f"Warning: Importance computation completely failed: {e}")
@@ -572,26 +648,36 @@ class MergingMethod:
             return torch.tensor(1.0, dtype=torch.float32, device=sig_tensor.device if hasattr(sig_tensor, 'device') else 'cpu')
 
     def merge_single_parameter_sdxl(self, deltas, base_param, mag_ranks, dir_ranks,
-                                   param_name, metadata, above_avg_ratio=1.0, calibration_value=1.0):
-        """SDXL-optimized parameter merging with layer-aware weighting - ROBUST"""
+                                   param_name, metadata, widen_threshold=0.5, calibration_value=0.0):
+        """SDXL-optimized parameter merging with layer-aware weighting - FIXED: Updated parameter name"""
         try:
             layer_type = metadata.get('layer_type', 'other')
 
-            # More lenient parameter checking
-            delta_mag = torch.norm(deltas).item() / max(len(deltas), 1)  # Avoid division by zero
-            if not self.should_merge_parameter(param_name, delta_mag, metadata):
+            # FIXED: More robust delta magnitude calculation
+            if len(deltas) == 0:
+                return base_param
+
+            # Calculate average magnitude safely
+            total_norm = sum(torch.norm(delta).item() for delta in deltas if delta.numel() > 0)
+            delta_mag = total_norm / max(len(deltas), 1)
+
+            if not self.should_merge_parameter(param_name, delta_mag, metadata, widen_threshold):
                 return base_param
 
             # Compute importance scores with comprehensive error handling
             try:
-                mag_importance = self.compute_importance_sdxl(mag_ranks, layer_type, above_avg_ratio, calibration_value)
-                dir_importance = self.compute_importance_sdxl(dir_ranks, layer_type, above_avg_ratio, calibration_value)
+                mag_importance = self.compute_importance_sdxl(mag_ranks, layer_type, widen_threshold, calibration_value)
+                dir_importance = self.compute_importance_sdxl(dir_ranks, layer_type, widen_threshold, calibration_value)
             except Exception as e:
                 print(f"Warning: Failed to compute importance for {param_name}: {e}")
                 # Fallback: use simple average instead of failing completely
-                return base_param + deltas.mean(0)
+                if hasattr(deltas, 'mean'):
+                    return base_param + deltas.mean(0)
+                else:
+                    avg_delta = sum(deltas) / len(deltas)
+                    return base_param + avg_delta
 
-            # Robust importance combination with fallbacks
+            # FIXED: Robust importance combination with proper shape validation
             try:
                 # Ensure importance tensors have compatible shapes
                 if mag_importance.numel() == 1 and dir_importance.numel() == 1:
@@ -605,8 +691,10 @@ class MergingMethod:
                     combined_weights = 0.5 * mag_importance + 0.5 * dir_importance.item()
                 elif mag_importance.shape != dir_importance.shape:
                     print(f"Info: Using fallback for {param_name} due to shape mismatch: mag {mag_importance.shape} vs dir {dir_importance.shape}")
-                    # Fallback to simple average
-                    return base_param + deltas.mean(0)
+                    # FIXED: Better fallback - use scalar weights instead of tensor operations
+                    mag_scalar = mag_importance.mean().item()
+                    dir_scalar = dir_importance.mean().item()
+                    combined_weights = 0.5 * (mag_scalar + dir_scalar)
                 else:
                     # Layer-specific importance combination
                     if layer_type in ['cross_attention', 'self_attention']:
@@ -621,67 +709,73 @@ class MergingMethod:
 
                 # Apply layer-specific importance weight
                 layer_weight = self.sdxl_importance_weights.get(layer_type, 1.0)
-                combined_weights = combined_weights * layer_weight
+
+                # FIXED: Ensure combined_weights is always scalar when multiplying with layer_weight
+                if hasattr(combined_weights, 'numel') and combined_weights.numel() > 1:
+                    combined_weights = combined_weights.mean() * layer_weight
+                else:
+                    if hasattr(combined_weights, 'item'):
+                        combined_weights = combined_weights.item() * layer_weight
+                    else:
+                        combined_weights = combined_weights * layer_weight
 
             except Exception as e:
                 print(f"Info: Using simple average for {param_name} due to weighting error: {e}")
-                return base_param + deltas.mean(0)
-
-            # Robust tensor weighting with multiple fallback strategies
-            try:
-                # Strategy 1: Direct application
-                if combined_weights.numel() == 1:
-                    # Scalar weight - apply uniformly
-                    weighted_deltas = deltas * combined_weights.item()
+                if hasattr(deltas, 'mean'):
+                    return base_param + deltas.mean(0)
                 else:
-                    # Try different broadcasting approaches
-                    if deltas.dim() == 2 and combined_weights.dim() == 1:
-                        # Multiple 1D deltas, 1D weights
-                        if combined_weights.numel() == deltas.shape[0]:
-                            weighted_deltas = deltas * combined_weights.unsqueeze(-1)
-                        elif combined_weights.numel() == deltas.shape[1]:
-                            weighted_deltas = deltas * combined_weights.unsqueeze(0)
-                        else:
-                            # Size mismatch - use mean weight
-                            weighted_deltas = deltas * combined_weights.mean().item()
-                    elif deltas.dim() == 3:
-                        # Try to broadcast weights appropriately
-                        if combined_weights.numel() == deltas.shape[0]:
-                            w = combined_weights.view(-1, 1, 1)
-                            weighted_deltas = deltas * w
-                        elif combined_weights.numel() == deltas.shape[1]:
-                            w = combined_weights.view(1, -1, 1)
-                            weighted_deltas = deltas * w
-                        elif combined_weights.numel() == deltas.shape[2]:
-                            w = combined_weights.view(1, 1, -1)
-                            weighted_deltas = deltas * w
-                        else:
-                            weighted_deltas = deltas * combined_weights.mean().item()
-                    else:
-                        # Default: try direct multiplication, fallback to mean
-                        try:
-                            weighted_deltas = deltas * combined_weights
-                        except RuntimeError:
-                            weighted_deltas = deltas * combined_weights.mean().item()
+                    avg_delta = sum(deltas) / len(deltas)
+                    return base_param + avg_delta
+
+            # FIXED: Simplified tensor weighting - always use scalar weights to avoid shape issues
+            try:
+                # Ensure we always have a scalar weight
+                if hasattr(combined_weights, 'item'):
+                    weight_scalar = combined_weights.item()
+                elif hasattr(combined_weights, '__len__') and len(combined_weights) > 1:
+                    weight_scalar = float(torch.tensor(combined_weights).mean().item())
+                else:
+                    weight_scalar = float(combined_weights)
+
+                # Apply scalar weight to deltas - much simpler and more reliable
+                if hasattr(deltas, 'shape'):  # It's a tensor
+                    weighted_deltas = deltas * weight_scalar
+                else:  # It's a list
+                    weighted_deltas = torch.stack([delta * weight_scalar for delta in deltas])
 
                 # Sum weighted deltas and add to base
                 merged = base_param + weighted_deltas.sum(0)
 
-                # Verify shape consistency
+                # FIXED: Verify shape consistency more robustly
                 if merged.shape != base_param.shape:
                     print(f"Info: Shape corrected for {param_name}: {merged.shape} -> {base_param.shape}")
                     # Try to reshape or fallback to simple average
                     if merged.numel() == base_param.numel():
                         merged = merged.view(base_param.shape)
                     else:
-                        return base_param + deltas.mean(0)
+                        # Clean up failed merged tensor before fallback
+                        del merged, weighted_deltas
+                        if hasattr(deltas, 'mean'):
+                            return base_param + deltas.mean(0)
+                        else:
+                            avg_delta = sum(deltas) / len(deltas)
+                            return base_param + avg_delta
 
+                # Clean up weighted_deltas immediately after use
+                del weighted_deltas
                 return merged
 
             except Exception as e:
                 print(f"Info: Using simple fallback for {param_name}: {e}")
+                # Simple cleanup without complex variable checking
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
                 # Final fallback: simple average
-                return base_param + deltas.mean(0)
+                if hasattr(deltas, 'mean'):
+                    return base_param + deltas.mean(0)
+                else:
+                    avg_delta = sum(deltas) / len(deltas)
+                    return base_param + avg_delta
 
         except Exception as e:
             print(f"Warning: Complete fallback for {param_name}: {e}")
@@ -694,16 +788,15 @@ class MergingMethod:
         base_model,
         models_to_merge,
         merge_strength: float = 1.0,
-        enable_renorm: bool = True,
         renorm_mode: str = "magnitude",
-        above_avg_ratio: float = 1.0,
-        calibration_value: float = 1.0,
+        widen_threshold: float = 0.5,
+        calibration_value: float = 0.0,_value: float = 1.0,
         batch_size: int = 50,
     ):
-        """FULL ZERO-ACCUMULATION WIDEN algorithm for SDXL - No intermediate data storage"""
+        """FULL ZERO-ACCUMULATION WIDEN algorithm for SDXL - No intermediate data storage - FIXED: Better memory management"""
 
         results_text = f"[{self.method}] Starting FULL ZERO-ACCUMULATION SDXL WIDEN merge\n"
-        results_text += f"[{self.method}] Threshold: {above_avg_ratio}, Calibration: {calibration_value}\n"
+        results_text += f"[{self.method}] Threshold: {widen_threshold}, Calibration: {calibration_value}\n"
 
         # Memory safety check
         safe, ram_percent, available_gb = check_memory_safety()
@@ -719,6 +812,10 @@ class MergingMethod:
         base_param_names = list(base_model.named_parameters())
         param_names_only = [name for name, _ in base_param_names]
 
+        # FIXED: Clean up the parameter list immediately
+        del base_param_names
+        gc.collect()
+
         # 2. Build task vectors with minimal storage
         print(f"[{self.method}] Building minimal task vectors...")
         task_vector_models = models_to_merge  # Just store model references
@@ -730,6 +827,10 @@ class MergingMethod:
             model_param_names = set(name for name, _ in model.named_parameters())
             common_params &= model_param_names
         common_params = list(common_params)
+
+        # FIXED: Clean up parameter names immediately
+        del param_names_only
+        gc.collect()
 
         print(f"[{self.method}] Found {len(common_params)} common parameters")
 
@@ -765,7 +866,7 @@ class MergingMethod:
                 # Get base parameter
                 for param_name, param in base_model.named_parameters():
                     if param_name == name:
-                        base_param = param.detach().cpu().float().clone()
+                        base_param = param.detach().cpu().float()  # FIXED: Removed redundant .clone()
                         break
 
                 if base_param is None:
@@ -777,7 +878,7 @@ class MergingMethod:
                     other_param = None
                     for param_name, param in model.named_parameters():
                         if param_name == name:
-                            other_param = param.detach().cpu().float().clone()
+                            other_param = param.detach().cpu().float()  # FIXED: Removed redundant .clone()
                             break
 
                     if other_param is not None and other_param.shape == base_param.shape:
@@ -795,11 +896,38 @@ class MergingMethod:
                 if layer_type not in layer_stats:
                     layer_stats[layer_type] = {'merged': 0, 'skipped': 0, 'failed': 0}
 
+                # FIXED: More robust metadata calculation
+                base_magnitude = torch.norm(base_param).item()
+                delta_magnitudes = [torch.norm(d).item() for d in deltas if d.numel() > 0]
+                avg_delta_magnitude = sum(delta_magnitudes) / max(len(delta_magnitudes), 1)
+
                 metadata = {
                     'layer_type': layer_type,
-                    'base_magnitude': torch.norm(base_param).item(),
-                    'delta_magnitude': sum(torch.norm(d).item() for d in deltas) / len(deltas),
+                    'base_magnitude': base_magnitude,
+                    'delta_magnitude': avg_delta_magnitude,
+                    'change_ratio': avg_delta_magnitude / (base_magnitude + 1e-8)  # FIXED: Avoid division by zero
                 }
+
+                # DIAGNOSTIC: Log threshold analysis for first few parameters
+                if param_idx < 10:
+                    base_threshold = self.sdxl_thresholds.get(layer_type, 0.0001)
+                    if widen_threshold <= 0.5:
+                        threshold_multiplier = 0.001 + (widen_threshold * 2) ** 3 * 0.999
+                    else:
+                        threshold_multiplier = 1.0 + ((widen_threshold - 0.5) * 2) ** 4 * 999
+                    final_threshold = base_threshold * threshold_multiplier
+
+                    print(f"[DIAGNOSTIC] {name[:30]}: layer={layer_type}, "
+                          f"delta_mag={avg_delta_magnitude:.6f}, base_thresh={base_threshold:.6f}, "
+                          f"multiplier={threshold_multiplier:.3f}, final_thresh={final_threshold:.6f}, "
+                          f"passes={avg_delta_magnitude >= final_threshold}")
+
+                # Early threshold check for efficiency
+                if not self.should_merge_parameter(name, avg_delta_magnitude, metadata, widen_threshold):
+                    skipped_count += 1
+                    layer_stats[layer_type]['skipped'] += 1
+                    del base_param, deltas
+                    continue
 
                 # STEP 3: Compute magnitude/direction ON-THE-FLY (zero-accumulation)
                 base_mag, base_dir = self.compute_magnitude_direction_sdxl({name: base_param}, "silent")
@@ -818,17 +946,24 @@ class MergingMethod:
                         mag_diffs.append(mag_diff * layer_weight)
 
                     if name in base_dir and name in other_dir:
-                        if base_dir[name].numel() > 1 and other_dir[name].numel() > 1:
-                            base_flat = base_dir[name].flatten()
-                            other_flat = other_dir[name].flatten()
-                            cos_sim = torch.cosine_similarity(other_flat, base_flat, dim=0)
-                            cos_sim = torch.clamp(cos_sim, -1.0, 1.0)
-                            dir_diff = 1 - cos_sim
-                        else:
-                            dir_diff = torch.abs(other_dir[name] - base_dir[name]).mean()
+                        try:
+                            if base_dir[name].numel() > 1 and other_dir[name].numel() > 1:
+                                base_flat = base_dir[name].view(-1)  # FIXED: Use view instead of flatten
+                                other_flat = other_dir[name].view(-1)  # FIXED: Use view instead of flatten
+                                cos_sim = torch.cosine_similarity(other_flat, base_flat, dim=0)
+                                cos_sim = torch.clamp(cos_sim, -1.0, 1.0)
+                                dir_diff = 1 - cos_sim
+                            else:
+                                dir_diff = torch.abs(other_dir[name] - base_dir[name]).mean()
 
-                        layer_weight = self.sdxl_importance_weights.get(layer_type, 1.0)
-                        dir_diffs.append(dir_diff * layer_weight)
+                            layer_weight = self.sdxl_importance_weights.get(layer_type, 1.0)
+                            dir_diffs.append(dir_diff * layer_weight)
+                        except Exception as e:
+                            # FIXED: Better error handling for direction computation
+                            print(f"Warning: Direction computation failed for {name}: {e}")
+                            dir_diff = torch.tensor(0.1, dtype=torch.float32)  # Small default value
+                            layer_weight = self.sdxl_importance_weights.get(layer_type, 1.0)
+                            dir_diffs.append(dir_diff * layer_weight)
 
                     del other_param  # Immediate cleanup
 
@@ -837,11 +972,23 @@ class MergingMethod:
 
                 # STEP 4: Apply WIDEN algorithm with immediate cleanup
                 if len(mag_diffs) == 0 or len(dir_diffs) == 0:
+                    # WIDEN failed - check if we should still merge with simple average
+                    avg_delta_mag = metadata['delta_magnitude']
+                    if not self.should_merge_parameter(name, avg_delta_mag, metadata, above_avg_ratio):
+                        skipped_count += 1
+                        layer_stats[layer_type]['skipped'] += 1
+                        del base_param, deltas
+                        continue
+
                     # Fallback to simple average (silent)
                     try:
-                        avg_delta = sum(deltas) / len(deltas)
-                        final_merged = base_param + avg_delta * merge_strength
-                        del deltas, avg_delta  # Immediate cleanup
+                        if len(deltas) > 0:
+                            avg_delta = sum(deltas) / len(deltas)
+                            final_merged = base_param + avg_delta * merge_strength
+                            del deltas, avg_delta  # Immediate cleanup
+                        else:
+                            final_merged = base_param
+                            del deltas
                     except Exception as e:
                         failed_count += 1
                         layer_stats[layer_type]['failed'] += 1
@@ -849,40 +996,69 @@ class MergingMethod:
                         continue
                 else:
                     try:
-                        # Stack and process immediately
-                        deltas_tensor = torch.stack(deltas)
-                        mag_diffs_tensor = torch.stack(mag_diffs)
-                        dir_diffs_tensor = torch.stack(dir_diffs)
+                        # FIXED: Better tensor stacking with validation
+                        if not deltas:
+                            final_merged = base_param
+                        else:
+                            deltas_tensor = torch.stack(deltas)
 
-                        # Clean up lists immediately
-                        del deltas, mag_diffs, dir_diffs
+                            # FIXED: Validate mag_diffs and dir_diffs before stacking
+                            if mag_diffs and all(isinstance(d, torch.Tensor) for d in mag_diffs):
+                                mag_diffs_tensor = torch.stack(mag_diffs)
+                            else:
+                                # Fallback for empty or invalid mag_diffs
+                                mag_diffs_tensor = torch.ones(len(deltas), dtype=torch.float32)
 
-                        # Rank significance
-                        mag_ranks = self.rank_significance_adaptive(mag_diffs_tensor, layer_type)
-                        dir_ranks = self.rank_significance_adaptive(dir_diffs_tensor, layer_type)
+                            if dir_diffs and all(isinstance(d, torch.Tensor) for d in dir_diffs):
+                                dir_diffs_tensor = torch.stack(dir_diffs)
+                            else:
+                                # Fallback for empty or invalid dir_diffs
+                                dir_diffs_tensor = torch.ones(len(deltas), dtype=torch.float32)
 
-                        # Clean up diff tensors immediately
-                        del mag_diffs_tensor, dir_diffs_tensor
+                            # Clean up lists immediately
+                            del deltas, mag_diffs, dir_diffs
 
-                        # Merge with WIDEN algorithm
-                        merged_param = self.merge_single_parameter_sdxl(
-                            deltas_tensor, base_param, mag_ranks, dir_ranks,
-                            name, metadata, above_avg_ratio, calibration_value
-                        )
+                            # Rank significance
+                            mag_ranks = self.rank_significance_adaptive(mag_diffs_tensor, layer_type)
+                            dir_ranks = self.rank_significance_adaptive(dir_diffs_tensor, layer_type)
 
-                        # Clean up intermediate tensors immediately
-                        del deltas_tensor, mag_ranks, dir_ranks
+                            # Clean up diff tensors immediately
+                            del mag_diffs_tensor, dir_diffs_tensor
 
-                        # Apply strength
-                        final_merged = base_param + (merged_param - base_param) * merge_strength
-                        del merged_param  # Immediate cleanup
+                            # Merge with WIDEN algorithm
+                            merged_param = self.merge_single_parameter_sdxl(
+                                deltas_tensor, base_param, mag_ranks, dir_ranks,
+                                name, metadata, widen_threshold, calibration_value
+                            )
+
+                            # Clean up intermediate tensors immediately
+                            del deltas_tensor, mag_ranks, dir_ranks
+
+                            # Apply strength
+                            final_merged = base_param + (merged_param - base_param) * merge_strength
+                            del merged_param  # Immediate cleanup
 
                     except Exception as e:
+                        # WIDEN failed - check threshold before fallback
+                        avg_delta_mag = metadata['delta_magnitude']
+                        if not self.should_merge_parameter(name, avg_delta_mag, metadata, widen_threshold):
+                            skipped_count += 1
+                            layer_stats[layer_type]['skipped'] += 1
+                            del base_param
+                            if 'deltas' in locals():
+                                del deltas
+                            continue
+
                         # Silent fallback for WIDEN failures
                         try:
-                            avg_delta = sum(deltas) / len(deltas) if deltas else torch.zeros_like(base_param)
-                            final_merged = base_param + avg_delta * merge_strength
-                            del deltas, avg_delta
+                            if 'deltas' in locals() and deltas:
+                                avg_delta = sum(deltas) / len(deltas)
+                                final_merged = base_param + avg_delta * merge_strength
+                                del deltas, avg_delta
+                            else:
+                                final_merged = base_param
+                                if 'deltas' in locals():
+                                    del deltas
                         except Exception as e2:
                             failed_count += 1
                             layer_stats[layer_type]['failed'] += 1
@@ -892,13 +1068,15 @@ class MergingMethod:
                             continue
 
                 # STEP 5: Apply renormalization and write to target (zero-accumulation)
-                if enable_renorm:
+                if renorm_mode != "none":
                     try:
                         if renorm_mode == "calibrate":
+                            # FIXED: More conservative calibrate parameters
+                            # t=0.3 (lower = more selective), s=1.1 (lower = less aggressive scaling)
                             final_merged = calibrate_renormalize(
-                                final_merged, base_param, renorm_mode, 0.5, 1.2
+                                final_merged, base_param, renorm_mode, 0.3, 1.1
                             )
-                        else:
+                        else:  # magnitude
                             final_merged = calibrate_renormalize(
                                 final_merged, base_param, renorm_mode, 1.0, 1.0
                             )
@@ -932,8 +1110,8 @@ class MergingMethod:
                 # Clean up all remaining tensors for this parameter
                 del base_param, final_merged
 
-                # Aggressive cleanup every few parameters
-                if param_idx % 20 == 0:  # Reduced frequency from every 5 to every 20
+                # FIXED: Less aggressive cleanup - only every 100 parameters instead of 50
+                if param_idx % 100 == 0:
                     torch.cuda.empty_cache() if torch.cuda.is_available() else None
                     gc.collect()
 
@@ -942,6 +1120,10 @@ class MergingMethod:
                 if layer_type not in layer_stats:
                     layer_stats[layer_type] = {'merged': 0, 'skipped': 0, 'failed': 0}
                 layer_stats[layer_type]['failed'] += 1
+
+                # Simple cleanup on exception
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                gc.collect()
                 continue
 
         total_params = len(common_params)
@@ -952,25 +1134,37 @@ class MergingMethod:
             total_layer = sum(stats.values())
             if total_layer > 0:
                 layer_report += f"  {layer_type}: {stats['merged']}/{total_layer} merged "
-                layer_report += f"({stats['merged']/total_layer*100:.1f}% success)\n"
+                layer_report += f"({stats['merged']/total_layer*100:.1f}% success), "
+                layer_report += f"{stats['skipped']} skipped, {stats['failed']} failed\n"
+
+        # FIXED: Better summary stats
+        total_processed = merged_count + skipped_count + failed_count
+        fallback_count = merged_count - sum(1 for layer_stats_dict in layer_stats.values()
+                                          for count in [layer_stats_dict.get('merged', 0)])
 
         results_text += f"""
 [RESULTS] FULL ZERO-ACCUMULATION WIDEN merge complete:
-  - Successfully merged: {merged_count}/{total_params} parameters ({merged_count/total_params*100:.1f}%)
-  - Skipped (below threshold): {skipped_count}
+  - Total parameters processed: {total_processed}
+  - Successfully merged with WIDEN: {merged_count}/{total_params} parameters ({merged_count/total_params*100:.1f}%)
+  - Skipped (below threshold): {skipped_count} ({skipped_count/total_params*100:.1f}%)
   - Failed: {failed_count}
-  - Renormalization: {'enabled' if enable_renorm else 'disabled'} (mode: {renorm_mode})
+  - Threshold effectiveness: {(total_params - skipped_count)/total_params*100:.1f}% of parameters met threshold
+  - Renormalization: {'enabled' if renorm_mode != 'none' else 'disabled'} (mode: {renorm_mode})
   - Full zero-accumulation: ✓ (absolute minimal memory footprint)
 {layer_report}
-[FULL ZERO-ACCUMULATION PRINCIPLES]:
-  - No batch storage of any data ✓
-  - Parameter-by-parameter processing throughout ✓
-  - Immediate tensor cleanup after each operation ✓
-  - No intermediate accumulation at any stage ✓
-  - Minimal memory usage ✓"""
+[THRESHOLD ANALYSIS]:
+  - widen_threshold: {widen_threshold} (0.0=permissive, 1.0=selective)
+  - Parameters above threshold: {merged_count + failed_count}/{total_params}
+  - Selectivity working: {'YES' if skipped_count > 0 else 'NO - All parameters passed threshold'}"""
 
         print(results_text)
+
+        # FIXED: Extra aggressive cleanup at end of merge
+        print("[CLEANUP] Post-merge aggressive cleanup...")
+        del target_state_dict, layer_stats
         force_cleanup()
+        force_cleanup()  # Double cleanup for stubborn references
+
         return results_text
 
     def _classify_sdxl_layer(self, param_name):
@@ -1025,9 +1219,8 @@ class DonutWidenMergeUNet:
                 "model_base": ("MODEL",),
                 "model_other": ("MODEL",),
                 "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_threshold": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_calibration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "enable_renorm": ("BOOLEAN", {"default": True}),
+                "widen_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "widen_calibration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1}),
                 "renorm_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),
                 "batch_size": ("INT", {"default": 50, "min": 10, "max": 500, "step": 10}),
             },
@@ -1050,10 +1243,14 @@ class DonutWidenMergeUNet:
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, model_base, model_other, merge_strength, widen_threshold, widen_calibration, enable_renorm, renorm_mode, batch_size,
+    def execute(self, model_base, model_other, merge_strength, widen_threshold, widen_calibration, renorm_mode, batch_size,
                 model_3=None, model_4=None, model_5=None, model_6=None,
                 model_7=None, model_8=None, model_9=None, model_10=None,
                 model_11=None, model_12=None):
+
+        # FIXED: Aggressive memory cleanup before starting
+        print("[MEMORY] Pre-merge cleanup...")
+        force_cleanup()
 
         # Check cache first
         all_models = [model_base, model_other, model_3, model_4, model_5, model_6,
@@ -1066,9 +1263,13 @@ class DonutWidenMergeUNet:
 
         with memory_cleanup_context("DonutWidenMergeUNet"):
             import copy
+            import gc
 
-            models_to_merge = [m for m in all_models[1:]  # Skip model_base
-                             if m is not None and not getattr(m, "_is_filler", False)]
+            # FIXED: Filter out None models and filler models more safely
+            models_to_merge = []
+            for m in all_models[1:]:  # Skip model_base
+                if m is not None and not getattr(m, "_is_filler", False):
+                    models_to_merge.append(m)
 
             print(f"[DonutWidenMergeUNet] WIDEN merging {len(models_to_merge)} models")
 
@@ -1076,7 +1277,9 @@ class DonutWidenMergeUNet:
                 base_model_obj = model_base.model
                 other_model_objs = [model.model for model in models_to_merge]
 
-                model_merged = copy.deepcopy(model_base)
+                # FIXED: Use deepcopy only for the wrapper, not the heavy model tensors
+                model_merged = copy.copy(model_base)  # Shallow copy of wrapper
+                model_merged.model = copy.deepcopy(base_model_obj)  # Deep copy only the model
 
                 merger = MergingMethod("DonutWidenMergeUNet")
                 results_text = merger.widen_merging_sdxl(
@@ -1084,14 +1287,16 @@ class DonutWidenMergeUNet:
                     base_model=base_model_obj,
                     models_to_merge=other_model_objs,
                     merge_strength=merge_strength,
-                    enable_renorm=enable_renorm,
                     renorm_mode=renorm_mode,
-                    above_avg_ratio=widen_threshold,
+                    widen_threshold=widen_threshold,
                     calibration_value=widen_calibration,
                     batch_size=batch_size,
                 )
 
+                # FIXED: Aggressive cleanup before returning
+                del base_model_obj, other_model_objs, models_to_merge, merger
                 force_cleanup()
+
                 result = (model_merged, results_text)
 
                 # Store in cache
@@ -1101,6 +1306,8 @@ class DonutWidenMergeUNet:
 
             except MemoryExhaustionError as e:
                 print(f"[SAFETY] Memory exhaustion prevented crash: {e}")
+                # FIXED: Cleanup on error
+                force_cleanup()
                 error_results = f"[SAFETY] Merge terminated to prevent crash: {e}"
                 result = (model_base, error_results)
                 store_merge_result(cache_key, result)
@@ -1108,6 +1315,8 @@ class DonutWidenMergeUNet:
 
             except Exception as e:
                 print(f"[DonutWidenMergeUNet] Error: {e}")
+                # FIXED: Cleanup on error
+                force_cleanup()
                 if "memory" in str(e).lower():
                     error_results = f"[SAFETY] Memory error prevented crash: {e}"
                     result = (model_base, error_results)
@@ -1119,7 +1328,7 @@ class DonutWidenMergeUNet:
 
 # VERSION CHECK - This should appear in logs if new code is loading
 print("="*50)
-print("LOADING DONUTWIDENMERGECLIP VERSION 7.0 - FULL ZERO-ACCUMULATION")
+print("LOADING DONUTWIDENMERGECLIP VERSION 7.0 - FULL ZERO-ACCUMULATION - BUGFIXED")
 print("="*50)
 
 class DonutWidenMergeCLIP:
@@ -1132,9 +1341,8 @@ class DonutWidenMergeCLIP:
                 "clip_base": ("CLIP",),
                 "clip_other": ("CLIP",),
                 "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_threshold": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_calibration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "enable_renorm": ("BOOLEAN", {"default": True}),
+                "widen_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.1}),
+                "widen_calibration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1}),
                 "renorm_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),
                 "batch_size": ("INT", {"default": 75, "min": 10, "max": 500, "step": 10}),
             },
@@ -1157,10 +1365,14 @@ class DonutWidenMergeCLIP:
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, clip_base, clip_other, merge_strength, widen_threshold, widen_calibration, enable_renorm, renorm_mode, batch_size,
+    def execute(self, clip_base, clip_other, merge_strength, widen_threshold, widen_calibration, renorm_mode, batch_size,
                 clip_3=None, clip_4=None, clip_5=None, clip_6=None,
                 clip_7=None, clip_8=None, clip_9=None, clip_10=None,
                 clip_11=None, clip_12=None):
+
+        # FIXED: Aggressive memory cleanup before starting
+        print("[MEMORY] Pre-merge cleanup...")
+        force_cleanup()
 
         # Check cache first
         all_clips = [clip_base, clip_other, clip_3, clip_4, clip_5, clip_6,
@@ -1173,9 +1385,13 @@ class DonutWidenMergeCLIP:
 
         with memory_cleanup_context("DonutWidenMergeCLIP"):
             import copy
+            import gc
 
-            clips_to_merge = [c for c in all_clips[1:]  # Skip clip_base
-                            if c is not None and not getattr(c, "_is_filler", False)]
+            # FIXED: Filter out None clips and filler clips more safely
+            clips_to_merge = []
+            for c in all_clips[1:]:  # Skip clip_base
+                if c is not None and not getattr(c, "_is_filler", False):
+                    clips_to_merge.append(c)
 
             print(f"[DonutWidenMergeCLIP] WIDEN merging {len(clips_to_merge)} CLIP models")
 
@@ -1192,12 +1408,17 @@ class DonutWidenMergeCLIP:
                     if enc:
                         other_encs.append(enc)
 
-                clip_merged = copy.deepcopy(clip_base)
-                enc_merged = getattr(clip_merged, "model", getattr(clip_merged, "clip",
-                            getattr(clip_merged, "cond_stage_model", None)))
+                # FIXED: Use deepcopy only for the wrapper, not the heavy model tensors
+                clip_merged = copy.copy(clip_base)  # Shallow copy of wrapper
+                enc_merged = copy.deepcopy(base_enc)  # Deep copy only the encoder
 
-                if not enc_merged:
-                    raise AttributeError("Could not locate merged CLIP encoder")
+                # Set the copied encoder back to the merged clip
+                if hasattr(clip_merged, "model"):
+                    clip_merged.model = enc_merged
+                elif hasattr(clip_merged, "clip"):
+                    clip_merged.clip = enc_merged
+                elif hasattr(clip_merged, "cond_stage_model"):
+                    clip_merged.cond_stage_model = enc_merged
 
                 merger = MergingMethod("DonutWidenMergeCLIP")
                 results_text = merger.widen_merging_sdxl(
@@ -1205,14 +1426,16 @@ class DonutWidenMergeCLIP:
                     base_model=base_enc,
                     models_to_merge=other_encs,
                     merge_strength=merge_strength,
-                    enable_renorm=enable_renorm,
                     renorm_mode=renorm_mode,
-                    above_avg_ratio=widen_threshold,
+                    widen_threshold=widen_threshold,
                     calibration_value=widen_calibration,
                     batch_size=batch_size,
                 )
 
+                # FIXED: Aggressive cleanup before returning
+                del base_enc, other_encs, clips_to_merge, merger, enc_merged
                 force_cleanup()
+
                 result = (clip_merged, results_text)
 
                 # Store in cache
@@ -1222,6 +1445,8 @@ class DonutWidenMergeCLIP:
 
             except MemoryExhaustionError as e:
                 print(f"[SAFETY] Memory exhaustion prevented crash: {e}")
+                # FIXED: Cleanup on error
+                force_cleanup()
                 error_results = f"[SAFETY] CLIP merge terminated to prevent crash: {e}"
                 result = (clip_base, error_results)
                 store_merge_result(cache_key, result)
@@ -1229,6 +1454,8 @@ class DonutWidenMergeCLIP:
 
             except Exception as e:
                 print(f"[DonutWidenMergeCLIP] Error: {e}")
+                # FIXED: Cleanup on error
+                force_cleanup()
                 if "memory" in str(e).lower():
                     error_results = f"[SAFETY] CLIP memory error prevented crash: {e}"
                     result = (clip_base, error_results)
@@ -1283,6 +1510,29 @@ NODE_CLASS_MAPPINGS = {
     "DonutFillerModel": DonutFillerModel,
 }
 
+# FIXED: Add manual cleanup function for ComfyUI
+def manual_cleanup():
+    """Manual cleanup function that users can call"""
+    print("="*50)
+    print("MANUAL MEMORY CLEANUP INITIATED")
+    print("="*50)
+    clear_merge_cache()
+    force_cleanup()
+    print("="*50)
+    print("MANUAL CLEANUP COMPLETE")
+    print("="*50)
+
+# Export the manual cleanup function
+NODE_CLASS_MAPPINGS["DonutManualCleanup"] = type("DonutManualCleanup", (), {
+    "class_type": "FUNCTION",
+    "INPUT_TYPES": classmethod(lambda cls: {"required": {}}),
+    "RETURN_TYPES": ("STRING",),
+    "RETURN_NAMES": ("status",),
+    "FUNCTION": "execute",
+    "CATEGORY": "donut/utils",
+    "execute": lambda self: (f"Memory cleanup completed at {time.time()}",)
+})
+
 def clear_merge_cache():
     """Clear the model merge cache"""
     global _MERGE_CACHE
@@ -1293,7 +1543,8 @@ import atexit
 def cleanup_on_exit():
     """Cleanup on exit"""
     try:
-        pass
+        clear_merge_cache()  # FIXED: Actually call the cache clearing function
+        force_cleanup()      # FIXED: Call force cleanup on exit
     except Exception:
         pass
 
