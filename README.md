@@ -162,34 +162,35 @@ Controls the overall intensity of the merge. Higher values make the other models
 - **1.5** - Strong influence from other models
 - **2.0+** - Very aggressive, may cause instability
 
-### 🎯 widen_threshold (0.1 - 3.0, default: 1.0)
-Determines how picky the algorithm is about which parameters to merge. Higher values mean fewer parameters get merged, but they're more significant.
+### 🎯 widen_threshold (0.0 - 1.0, default: 0.5)
+Determines how selective the algorithm is about which parameters to merge. **This is your primary control for merge quality vs coverage.**
 
-- **0.5** - Less selective, merges more parameters
-- **1.0** - Balanced selection (recommended)
-- **1.5** - More selective, only obvious improvements
-- **2.0+** - Very selective, minimal changes
+- **0.0** - Merge almost everything (95-100% of parameters)
+- **0.3** - Permissive merging (~85-90% of parameters)
+- **0.5** - Balanced selection (recommended, ~70-80% of parameters)
+- **0.7** - Selective merging (~50-60% of parameters)
+- **1.0** - Ultra-selective, only the most significant changes (~10-20% of parameters)
 
-### 🔧 widen_calibration (0.1 - 3.0, default: 1.0)
-Adjusts how the algorithm weighs parameter importance. This affects which parameters are considered most valuable to merge.
+### ✨ widen_calibration (0.0 - 1.0, default: 0.0)
+Controls how much the algorithm emphasizes parameter importance differences. **Lower values = sharper results!**
 
-- **0.5** - Conservative weighting
-- **1.0** - Standard weighting (recommended)
-- **1.5** - Aggressive weighting, emphasizes standout changes
-- **2.0+** - Very aggressive, may over-emphasize some changes
+- **0.0** - Maximum sharpness and detail preservation (recommended for crisp results) 🔥
+- **0.2** - Slight importance weighting, still very sharp
+- **0.5** - Moderate importance emphasis  
+- **0.8** - Strong importance weighting (may cause blur/desaturation)
+- **1.0** - Maximum importance emphasis (often too aggressive)
 
-### 🔄 enable_renorm (True/False, default: True)
-Renormalization helps keep the merged model stable by adjusting parameter magnitudes to reasonable ranges. Usually should stay enabled.
+> 💡 **Pro Tip**: Start with `0.0` for sharp results, only increase if you need more selective importance weighting!
 
-### 📐 renorm_mode ("magnitude", "calibrate", "none")
+### 🔄 renorm_mode ("magnitude", "calibrate", "none", default: "magnitude")
 How to stabilize the merged parameters:
 
-- **"magnitude"** - Simple and fast stabilization (recommended)
-- **"calibrate"** - More sophisticated but slower stabilization  
-- **"none"** - No stabilization (may cause instability)
+- **"magnitude"** - Preserves sharpness while maintaining stability (recommended) ⚡
+- **"calibrate"** - More conservative, may be softer but very stable
+- **"none"** - No stabilization, maximum detail but check for artifacts
 
 ### 📦 batch_size (10 - 500, default: 50/75)
-Not used in current zero-accumulation implementation, kept for compatibility.
+Controls memory vs speed tradeoff. Higher = faster but more memory usage.
 
 ## 📋 Usage Examples
 
