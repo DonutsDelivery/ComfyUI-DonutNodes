@@ -1,7 +1,7 @@
 [project]
 name = "donutnodes"
 description = "ComfyUI-DonutDetailer offers custom nodes for grouped weight/bias scaling, per-block SDXL control, dual-branch CLIP blending, and block-weighted LoRA stacking."
-version = "1.0.13"
+version = "1.0.14"
 license = {file = "LICENSE"}
 
 [project.urls]
