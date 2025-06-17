@@ -586,8 +586,8 @@ class MergingMethod:
                     return torch.tensor(calibration_mapped * layer_weight, dtype=sig_tensor.dtype, device=sig_tensor.device)
                 elif sig_tensor.ndim == 1:
                     softmax_dim = 0
-                else:
-                    softmax_dim = 0
+                else: # ndim > 1
+                    softmax_dim = -1 # FIXED: Apply softmax along the last dimension
 
                 # Apply softmax with numerical stability
                 sig_scaled = sig_tensor * layer_weight
@@ -947,17 +947,46 @@ class MergingMethod:
 
                     if name in base_dir and name in other_dir:
                         try:
-                            if base_dir[name].numel() > 1 and other_dir[name].numel() > 1:
-                                base_flat = base_dir[name].view(-1)  # FIXED: Use view instead of flatten
-                                other_flat = other_dir[name].view(-1)  # FIXED: Use view instead of flatten
-                                cos_sim = torch.cosine_similarity(other_flat, base_flat, dim=0)
-                                cos_sim = torch.clamp(cos_sim, -1.0, 1.0)
-                                dir_diff = 1 - cos_sim
-                            else:
-                                dir_diff = torch.abs(other_dir[name] - base_dir[name]).mean()
+                            b_dir_p = base_dir[name]
+                            o_dir_p = other_dir[name]
+                            
+                            # Case 1: Per-feature magnitude case (Linear layers)
+                            is_per_feature_magnitude_case = (
+                                name in base_mag and
+                                base_mag[name].ndim == 1 and
+                                b_dir_p.ndim == 2 and o_dir_p.ndim == 2 and
+                                b_dir_p.shape == o_dir_p.shape and
+                                b_dir_p.shape[0] == base_mag[name].shape[0]
+                            )
 
-                            layer_weight = self.sdxl_importance_weights.get(layer_type, 1.0)
-                            dir_diffs.append(dir_diff * layer_weight)
+                            if is_per_feature_magnitude_case:
+                                # Compute cosine similarity along feature embedding dimension
+                                cos_sim = torch.cosine_similarity(o_dir_p, b_dir_p, dim=-1)
+                                cos_sim = torch.clamp(cos_sim, -1.0, 1.0)
+                                layer_weight_val = self.sdxl_importance_weights.get(layer_type, 1.0)
+                                current_dir_diff_val = (1.0 - cos_sim) * layer_weight_val
+                                dir_diffs.append(current_dir_diff_val)
+                            else:
+                                # Case 2: Scalar magnitude case (bias, etc.)
+                                if b_dir_p.numel() == 1 and o_dir_p.numel() == 1:
+                                    dir_diff = torch.abs(o_dir_p - b_dir_p)
+                                    layer_weight_val = self.sdxl_importance_weights.get(layer_type, 1.0)
+                                    dir_diffs.append(dir_diff * layer_weight_val)
+                                else:
+                                    # Case 3: General tensor case - flatten and compute cosine similarity
+                                    try:
+                                        base_flat = b_dir_p.view(-1)
+                                        other_flat = o_dir_p.view(-1)
+                                        cos_sim = torch.cosine_similarity(other_flat, base_flat, dim=0)
+                                        cos_sim = torch.clamp(cos_sim, -1.0, 1.0)
+                                        dir_diff = 1 - cos_sim
+                                        layer_weight_val = self.sdxl_importance_weights.get(layer_type, 1.0)
+                                        dir_diffs.append(dir_diff * layer_weight_val)
+                                    except Exception as fallback_e:
+                                        # Fallback to mean absolute difference
+                                        dir_diff = torch.abs(o_dir_p - b_dir_p).mean()
+                                        layer_weight_val = self.sdxl_importance_weights.get(layer_type, 1.0)
+                                        dir_diffs.append(dir_diff * layer_weight_val)
                         except Exception as e:
                             # FIXED: Better error handling for direction computation
                             print(f"Warning: Direction computation failed for {name}: {e}")
@@ -974,7 +1003,7 @@ class MergingMethod:
                 if len(mag_diffs) == 0 or len(dir_diffs) == 0:
                     # WIDEN failed - check if we should still merge with simple average
                     avg_delta_mag = metadata['delta_magnitude']
-                    if not self.should_merge_parameter(name, avg_delta_mag, metadata, above_avg_ratio):
+                    if not self.should_merge_parameter(name, avg_delta_mag, metadata, widen_threshold):
                         skipped_count += 1
                         layer_stats[layer_type]['skipped'] += 1
                         del base_param, deltas
@@ -1002,15 +1031,28 @@ class MergingMethod:
                         else:
                             deltas_tensor = torch.stack(deltas)
 
-                            # FIXED: Validate mag_diffs and dir_diffs before stacking
+                            # FIXED: Enhanced tensor stacking validation for mag_diffs and dir_diffs
+                            # Ensure all mag_diffs have the same shape before stacking
                             if mag_diffs and all(isinstance(d, torch.Tensor) for d in mag_diffs):
-                                mag_diffs_tensor = torch.stack(mag_diffs)
+                                mag_shapes = [d.shape for d in mag_diffs]
+                                if all(shape == mag_shapes[0] for shape in mag_shapes):
+                                    mag_diffs_tensor = torch.stack(mag_diffs)
+                                else:
+                                    # Convert to scalars if shapes are inconsistent
+                                    mag_scalars = [d.mean().item() if d.numel() > 1 else d.item() for d in mag_diffs]
+                                    mag_diffs_tensor = torch.tensor(mag_scalars, dtype=torch.float32)
                             else:
                                 # Fallback for empty or invalid mag_diffs
                                 mag_diffs_tensor = torch.ones(len(deltas), dtype=torch.float32)
 
                             if dir_diffs and all(isinstance(d, torch.Tensor) for d in dir_diffs):
-                                dir_diffs_tensor = torch.stack(dir_diffs)
+                                dir_shapes = [d.shape for d in dir_diffs]
+                                if all(shape == dir_shapes[0] for shape in dir_shapes):
+                                    dir_diffs_tensor = torch.stack(dir_diffs)
+                                else:
+                                    # Convert to scalars if shapes are inconsistent
+                                    dir_scalars = [d.mean().item() if d.numel() > 1 else d.item() for d in dir_diffs]
+                                    dir_diffs_tensor = torch.tensor(dir_scalars, dtype=torch.float32)
                             else:
                                 # Fallback for empty or invalid dir_diffs
                                 dir_diffs_tensor = torch.ones(len(deltas), dtype=torch.float32)
