@@ -14,6 +14,894 @@ import time
 # use package-relative path for ComfyUI
 from .utils.sdxl_safetensors import ensure_same_device
 
+# Import merging methods and utilities
+from .merging_methods import MergingMethod
+from .task_vector import TaskVector
+from .utils.utils import get_param_names_to_merge
+import numpy as np
+
+# SDXL block grouping function for preserving WIDEN cross-parameter validation
+def _group_parameters_by_blocks(param_names):
+    """Group SDXL parameters by individual architectural blocks to preserve cross-parameter context"""
+    import re
+    from collections import defaultdict
+    
+    blocks = defaultdict(list)
+    
+    for param_name in param_names:
+        name_lower = param_name.lower()
+        
+        # Time and class embeddings (critical for temporal/conditional consistency)
+        if 'time_embed' in name_lower:
+            blocks['time_embedding'].append(param_name)
+        elif 'label_emb' in name_lower or 'class_emb' in name_lower:
+            blocks['class_embedding'].append(param_name)
+        
+        # UNet block structure - Extract individual block numbers
+        elif 'input_blocks' in name_lower or 'down_blocks' in name_lower:
+            # Extract block number (e.g., input_blocks.0, input_blocks.1, etc.)
+            block_match = re.search(r'(input_blocks|down_blocks)\.(\d+)', param_name)
+            if block_match:
+                block_num = block_match.group(2)
+                blocks[f'input_block_{block_num}'].append(param_name)
+            else:
+                blocks['input_blocks_other'].append(param_name)
+                
+        elif 'middle_block' in name_lower:
+            # Extract middle block sub-components if numbered
+            block_match = re.search(r'middle_block\.(\d+)', param_name)
+            if block_match:
+                block_num = block_match.group(1)
+                blocks[f'middle_block_{block_num}'].append(param_name)
+            else:
+                blocks['middle_block'].append(param_name)
+                
+        elif 'output_blocks' in name_lower or 'up_blocks' in name_lower:
+            # Extract block number (e.g., output_blocks.0, output_blocks.1, etc.)
+            block_match = re.search(r'(output_blocks|up_blocks)\.(\d+)', param_name)
+            if block_match:
+                block_num = block_match.group(2)
+                blocks[f'output_block_{block_num}'].append(param_name)
+            else:
+                blocks['output_blocks_other'].append(param_name)
+        
+        # Attention layers (preserve cross-parameter relationships)
+        elif 'cross' in name_lower and ('attn' in name_lower or 'attention' in name_lower):
+            blocks['cross_attention'].append(param_name)
+        elif 'attn' in name_lower or 'attention' in name_lower or any(x in name_lower for x in ['to_q', 'to_k', 'to_v', 'to_out']):
+            blocks['self_attention'].append(param_name)
+        
+        # Convolution layers
+        elif 'conv' in name_lower or 'convolution' in name_lower:
+            blocks['convolutions'].append(param_name)
+        
+        # Normalization layers
+        elif any(x in name_lower for x in ['norm', 'group_norm', 'layer_norm']):
+            blocks['normalization'].append(param_name)
+        
+        # Everything else
+        else:
+            blocks['other'].append(param_name)
+    
+    # Convert to list of tuples and sort input/output blocks numerically
+    result = []
+    for block_name, params in blocks.items():
+        if params:  # Only include non-empty blocks
+            result.append((block_name, params))
+    
+    # Sort to ensure input_block_0, input_block_1, etc. are in order
+    def sort_key(item):
+        block_name = item[0]
+        if 'input_block_' in block_name:
+            try:
+                num = int(block_name.split('_')[-1])
+                return (0, num)  # Input blocks first, then by number
+            except:
+                return (0, 999)
+        elif 'middle_block' in block_name:
+            if block_name == 'middle_block':
+                return (1, 0)
+            else:
+                try:
+                    num = int(block_name.split('_')[-1])
+                    return (1, num)
+                except:
+                    return (1, 999)
+        elif 'output_block_' in block_name:
+            try:
+                num = int(block_name.split('_')[-1])
+                return (2, num)  # Output blocks after middle, then by number
+            except:
+                return (2, 999)
+        else:
+            return (3, block_name)  # Other blocks at end, alphabetically
+    
+    result.sort(key=sort_key)
+    return result
+
+# Enhanced WIDEN merging with dynamic compatibility-based strength
+def enhanced_widen_merging_with_dynamic_strength(
+    merger,
+    merged_model,
+    models_to_merge,
+    exclude_param_names_regex,
+    importance_threshold,
+    importance_boost,
+    base_merge_strength,
+    rank_sensitivity,
+    skip_threshold,
+    normalization_mode
+):
+    """Enhanced WIDEN merging with dynamic compatibility-based merge strength"""
+    
+    # Determine devices for hybrid processing
+    target_device = next(merged_model.parameters()).device
+    
+    # Check available VRAM and RAM for smart processing strategy
+    vram_available_mb = 0
+    ram_available_gb = 0
+    
+    if torch.cuda.is_available():
+        try:
+            free_memory, total_memory = torch.cuda.mem_get_info()
+            vram_available_mb = free_memory / (1024 * 1024)
+            allocated_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+            print(f"[ENHANCED WIDEN] GPU memory - Available: {vram_available_mb:.1f}MB, Allocated: {allocated_mb:.1f}MB")
+        except:
+            vram_available_mb = 1000  # Conservative fallback
+    
+    # Check system RAM
+    try:
+        import psutil
+        ram_info = psutil.virtual_memory()
+        ram_available_gb = ram_info.available / (1024 * 1024 * 1024)
+        ram_total_gb = ram_info.total / (1024 * 1024 * 1024)
+        ram_used_percent = ram_info.percent
+        print(f"[ENHANCED WIDEN] System RAM - Available: {ram_available_gb:.1f}GB/{ram_total_gb:.1f}GB ({100-ram_used_percent:.1f}% free)")
+        
+        if ram_available_gb < 2.0:
+            print(f"[WARNING] Low RAM detected ({ram_available_gb:.1f}GB available). Using conservative processing.")
+    except:
+        ram_available_gb = 4.0  # Conservative fallback
+    
+    # Simplified processing strategy: Always use CPU to avoid redundant GPU/CPU computation
+    # Since we're doing all ranking on CPU anyway, using GPU for intermediate computations is wasteful
+    computation_device = torch.device("cpu")
+    storage_device = torch.device("cpu")
+    ranking_device = torch.device("cpu")
+    
+    if ram_available_gb < 2.0:
+        print(f"[ENHANCED WIDEN] Low RAM mode ({ram_available_gb:.1f}GB): Conservative CPU processing")
+    elif ram_available_gb > 4.0:
+        print(f"[ENHANCED WIDEN] High RAM mode ({ram_available_gb:.1f}GB): Optimized CPU processing")
+    else:
+        print(f"[ENHANCED WIDEN] Standard mode ({ram_available_gb:.1f}GB): CPU processing")
+    
+    print(f"[ENHANCED WIDEN] All processing on CPU for maximum efficiency and WIDEN validation")
+    
+    # Create task vectors efficiently (these contain the deltas we need)
+    print("[ENHANCED WIDEN] Creating TaskVectors for delta computation...")
+    models_to_merge_task_vectors = [
+        TaskVector(merged_model, model_to_merge, exclude_param_names_regex) 
+        for model_to_merge in models_to_merge
+    ]
+    
+    # Create minimal pretrained parameter reference (only what we need for final merging)
+    print("[ENHANCED WIDEN] Creating minimal parameter reference...")
+    pretrained_param_dict = {}
+    for param_name, param_value in merged_model.named_parameters():
+        pretrained_param_dict[param_name] = param_value.detach().to(storage_device).float()
+    
+    # Transpose token embeddings in TaskVectors only (we don't need separate copies)
+    for task_vector in models_to_merge_task_vectors:
+        _transpose_token_embeddings(task_vector.task_vector_param_dict)
+    _transpose_token_embeddings(pretrained_param_dict)  # Only transpose our minimal reference
+    
+    with torch.no_grad():
+        print("[ENHANCED WIDEN] Computing magnitude and direction differences from TaskVector deltas...")
+        
+        # Step 1: Use TaskVector deltas directly instead of recomputing everything
+        models_to_merge_param_magnitude_direction_diff_tuples = []
+        
+        for task_vector in models_to_merge_task_vectors:
+            # Compute magnitude and direction differences directly from deltas
+            magnitude_diffs = {}
+            direction_diffs = {}
+            
+            for param_name, delta in task_vector.task_vector_param_dict.items():
+                # Compute magnitude and direction differences from the delta directly
+                if delta.dim() == 1:
+                    # For 1D: magnitude is absolute delta, direction is sign of delta
+                    magnitude_diffs[param_name] = torch.abs(delta)
+                    direction_diffs[param_name] = torch.sign(delta)
+                elif delta.dim() == 2:
+                    # For 2D: compute along features (dim=0) - both should be 1D for ranking
+                    magnitude_diffs[param_name] = torch.norm(delta, p=2, dim=0)  # Shape: [features]
+                    # For direction: compute cosine similarity with a reference direction (mean direction)
+                    delta_normalized = delta / (torch.norm(delta, p=2, dim=0, keepdim=True) + 1e-8)
+                    mean_direction = delta_normalized.mean(dim=0)  # Shape: [features]
+                    direction_diffs[param_name] = 1.0 - torch.cosine_similarity(
+                        delta_normalized, mean_direction.unsqueeze(0), dim=0
+                    )  # Shape: [features] - how much each feature differs from mean direction
+                elif delta.dim() > 2:
+                    # For >2D: flatten to 2D first
+                    original_shape = delta.shape
+                    delta_2d = delta.view(original_shape[0], -1)
+                    magnitude_diffs[param_name] = torch.norm(delta_2d, p=2, dim=0)  # Shape: [flattened_features]
+                    # For direction: same approach as 2D
+                    delta_normalized = delta_2d / (torch.norm(delta_2d, p=2, dim=0, keepdim=True) + 1e-8)
+                    mean_direction = delta_normalized.mean(dim=0)  # Shape: [flattened_features]
+                    direction_diffs[param_name] = 1.0 - torch.cosine_similarity(
+                        delta_normalized, mean_direction.unsqueeze(0), dim=0
+                    )  # Shape: [flattened_features]
+            
+            models_to_merge_param_magnitude_direction_diff_tuples.append((magnitude_diffs, direction_diffs))
+        
+        print(f"[ENHANCED WIDEN] Computed differences for {len(models_to_merge_task_vectors)} models efficiently")
+        
+        # Step 2: Enhanced parameter merging with dynamic compatibility-based strength
+        merged_params = _merge_param_magnitude_direction_with_dynamic_strength(
+            models_to_merge_param_magnitude_direction_diff_tuples,
+            pretrained_param_dict,
+            models_to_merge_task_vectors,
+            exclude_param_names_regex,
+            importance_threshold,
+            importance_boost,
+            base_merge_strength,
+            rank_sensitivity,
+            skip_threshold,
+            normalization_mode,
+            computation_device,
+            target_device,
+            storage_device,
+            ranking_device
+        )
+        
+        # Transpose back
+        _transpose_token_embeddings(merged_params)
+    
+    return merged_params
+
+# Helper functions for enhanced WIDEN merging
+def _transpose_token_embeddings(param_dict):
+    """Transpose token embeddings"""
+    for param_name in param_dict:
+        if param_name == "model.embed_tokens.weight":
+            param_dict[param_name] = param_dict[param_name].transpose(dim0=0, dim1=1)
+
+def _compute_param_magnitude_direction(param_dict, module_dict):
+    """Compute magnitude vector and direction matrix for parameters"""
+    param_magnitude_dict, param_direction_dict = {}, {}
+    
+    for param_name in param_dict:
+        param_last_name = param_name.split(".")[-1]
+        module_name = param_name[:-len(f".{param_last_name}")]
+        
+        if param_dict[param_name].dim() == 1:
+            # Handle 1D parameters (bias, norm) - treat each element as a feature
+            param_tensor = param_dict[param_name]
+            magnitude_vector = torch.abs(param_tensor)  # For 1D, magnitude is just absolute value
+            direction_matrix = torch.sign(param_tensor)  # For 1D, direction is just the sign
+            
+            param_magnitude_dict[param_name] = magnitude_vector
+            param_direction_dict[param_name] = direction_matrix
+            
+        elif param_dict[param_name].dim() == 2:
+            # Compute magnitude and direction for 2D parameters
+            magnitude_vector = torch.norm(param_dict[param_name], p=2, dim=0)
+            direction_matrix = param_dict[param_name] / (magnitude_vector + 1e-8)
+            
+            param_magnitude_dict[param_name] = magnitude_vector
+            param_direction_dict[param_name] = direction_matrix
+            
+        elif param_dict[param_name].dim() > 2:
+            # Handle higher dimensional parameters (conv layers, etc.)
+            # Flatten to 2D for magnitude/direction computation
+            original_shape = param_dict[param_name].shape
+            param_2d = param_dict[param_name].view(original_shape[0], -1)
+            
+            magnitude_vector = torch.norm(param_2d, p=2, dim=0)
+            direction_matrix = param_2d / (magnitude_vector + 1e-8)
+            
+            param_magnitude_dict[param_name] = magnitude_vector
+            param_direction_dict[param_name] = direction_matrix
+    
+    return param_magnitude_dict, param_direction_dict
+
+def _compute_param_magnitude_direction_differences(pretrained_param_magnitude_dict, pretrained_param_direction_dict,
+                                                 finetuned_param_magnitude_dict, finetuned_param_direction_dict, module_dict):
+    """Compute magnitude and direction differences"""
+    param_magnitude_diff_dict, param_direction_diff_dict = {}, {}
+    
+    for param_name in pretrained_param_magnitude_dict:
+        # Ensure tensors are on the same device
+        pretrained_mag = pretrained_param_magnitude_dict[param_name]
+        finetuned_mag = finetuned_param_magnitude_dict[param_name]
+        pretrained_dir = pretrained_param_direction_dict[param_name]
+        finetuned_dir = finetuned_param_direction_dict[param_name]
+        
+        # Move to same device (prefer CUDA if available)
+        target_device = pretrained_mag.device
+        if finetuned_mag.device != target_device:
+            finetuned_mag = finetuned_mag.to(target_device)
+        if finetuned_dir.device != target_device:
+            finetuned_dir = finetuned_dir.to(target_device)
+        if pretrained_dir.device != target_device:
+            pretrained_dir = pretrained_dir.to(target_device)
+        
+        # Compute magnitude difference
+        param_magnitude_diff = torch.abs(finetuned_mag - pretrained_mag)
+        
+        # Compute direction difference
+        param_direction_diff = 1.0 - torch.cosine_similarity(
+            finetuned_dir,
+            pretrained_dir,
+            dim=0
+        )
+        
+        param_magnitude_diff_dict[param_name] = param_magnitude_diff
+        param_direction_diff_dict[param_name] = param_direction_diff
+    
+    return param_magnitude_diff_dict, param_direction_diff_dict
+
+def _rank_per_param_magnitude_or_direction_within_model(models_to_merge_param_diff):
+    """Rank the magnitude or direction within model"""
+    # Ensure all tensors are on the same device
+    device = models_to_merge_param_diff.device
+    
+    sort_indices = torch.argsort(models_to_merge_param_diff, dim=1, descending=False, stable=True)
+    within_model_significance = (torch.arange(models_to_merge_param_diff.shape[1], device=device) / models_to_merge_param_diff.shape[1]).repeat(
+        models_to_merge_param_diff.shape[0]
+    ).reshape(models_to_merge_param_diff.shape)
+    
+    models_to_merge_param_within_model_significance = torch.zeros(within_model_significance.shape, device=device)
+    models_to_merge_param_within_model_significance = torch.scatter(
+        input=models_to_merge_param_within_model_significance,
+        dim=1,
+        index=sort_indices,
+        src=within_model_significance
+    )
+    
+    return models_to_merge_param_within_model_significance
+
+def _compute_importance_scores(input_significance_tensor, above_average_value_ratio=1.0, score_calibration_value=1.0):
+    """Compute importance scores (fixed WIDEN algorithm)"""
+    # Debug: Log tensor properties - ALWAYS DEBUG FOR NOW
+    debug_scores = True
+    if hasattr(_compute_importance_scores, 'debug_count'):
+        _compute_importance_scores.debug_count += 1
+    else:
+        _compute_importance_scores.debug_count = 1
+    
+    if debug_scores:
+        print(f"[SCORE DEBUG] Input tensor shape: {input_significance_tensor.shape}")
+        print(f"[SCORE DEBUG] Input tensor min/max: {input_significance_tensor.min().item():.6f}/{input_significance_tensor.max().item():.6f}")
+        print(f"[SCORE DEBUG] Input tensor variance: {input_significance_tensor.var().item():.6f}")
+        print(f"[SCORE DEBUG] above_average_value_ratio: {above_average_value_ratio}, score_calibration_value: {score_calibration_value}")
+    
+    # Check if input tensor has no variation (all values identical)
+    tensor_variance = input_significance_tensor.var().item()
+    if tensor_variance < 1e-8:
+        # If all values are identical, use uniform scores to avoid bias
+        uniform_score = 1.0 / input_significance_tensor.shape[0]  # Equal probability for each model
+        importance_scores = torch.full_like(input_significance_tensor, uniform_score)
+        if debug_scores:
+            print(f"[SCORE DEBUG] Uniform input detected (variance={tensor_variance:.2e}), using uniform scores: {uniform_score:.6f}")
+        return importance_scores
+    
+    # Compute softmax scores for varied inputs
+    # For single model (shape [1, features]), softmax across features (dim=1)
+    # For multiple models (shape [models, features]), softmax across models (dim=0)
+    if input_significance_tensor.shape[0] == 1:
+        # Debug: Test what happens with softmax
+        print(f"[SOFTMAX TEST] Input shape: {input_significance_tensor.shape}")
+        print(f"[SOFTMAX TEST] Sample values: {input_significance_tensor[0][:10]}")
+        importance_scores = torch.softmax(input_significance_tensor, dim=1)
+        print(f"[SOFTMAX TEST] Output sample: {importance_scores[0][:10]}")
+        print(f"[SOFTMAX TEST] Output sum: {importance_scores.sum().item()}")
+    else:
+        importance_scores = torch.softmax(input_significance_tensor, dim=0)
+    
+    if debug_scores:
+        print(f"[SCORE DEBUG] Softmax scores min/max: {importance_scores.min().item():.6f}/{importance_scores.max().item():.6f}")
+    
+    # Apply mask only if it won't make everything uniform
+    # CRITICAL FIX: Base mask on importance_scores (after softmax), not input tensor
+    if importance_scores.dim() >= 2:
+        # For 2D+ tensors, compute mean along dim=1 (within each model)
+        avg_importance_scores = torch.mean(importance_scores, dim=1, keepdim=True)
+    else:
+        # For 1D tensors, compute overall mean
+        avg_importance_scores = torch.mean(importance_scores, dim=0, keepdim=True)
+    
+    mask = importance_scores > (avg_importance_scores * above_average_value_ratio)
+    mask_ratio = mask.float().mean().item()
+    
+    # FIXED: Apply calibration as multiplicative factor to preserve variation, not replacement
+    if mask_ratio < 0.95:  # Less than 95% of values above threshold
+        # Apply calibration as a boost factor while preserving relative differences
+        importance_scores[mask] = importance_scores[mask] * score_calibration_value
+        mask_applied = True
+        if debug_scores:
+            print(f"[SCORE DEBUG] Applied calibration factor {score_calibration_value} to {mask.sum().item()} values")
+    else:
+        mask_applied = False
+        if debug_scores:
+            print(f"[SCORE DEBUG] Mask covers {mask_ratio*100:.1f}% of values - skipping to preserve score variation")
+    
+    if debug_scores:
+        mask_count = mask.sum().item()
+        total_count = mask.numel()
+        print(f"[SCORE DEBUG] Average threshold: {(avg_importance_scores * above_average_value_ratio).item():.6f}")
+        print(f"[SCORE DEBUG] Mask would apply to {mask_count}/{total_count} elements ({100*mask_count/total_count:.1f}%)")
+        print(f"[SCORE DEBUG] Mask actually applied: {mask_applied}")
+        print(f"[SCORE DEBUG] Final scores min/max: {importance_scores.min().item():.6f}/{importance_scores.max().item():.6f}")
+    
+    return importance_scores
+
+def _compatibility_to_merge_strength(compatibility_score, base_merge_strength, sensitivity):
+    """Convert compatibility score to merge strength"""
+    # If sensitivity is 0, disable dynamic strength (use static base strength)
+    if sensitivity == 0.0:
+        return float(base_merge_strength)
+    
+    # Normalize compatibility score (typical range is 0.0 to 1.0, but can go higher)
+    normalized_score = min(compatibility_score, 1.0)
+    
+    # Apply sigmoid transformation
+    sigmoid_input = (normalized_score - 0.5) * sensitivity
+    sigmoid_output = 1.0 / (1.0 + np.exp(-sigmoid_input))
+    
+    # Dynamic range: 10% to 100% of base merge strength
+    min_strength = 0.1 * base_merge_strength
+    max_strength = base_merge_strength
+    
+    # Map to merge strength range
+    merge_strength = min_strength + (max_strength - min_strength) * sigmoid_output
+    
+    return float(merge_strength)
+
+def _merge_param_magnitude_direction_with_dynamic_strength(
+    models_to_merge_param_magnitude_direction_diff_tuples,
+    pretrained_param_dict,
+    models_to_merge_task_vectors,
+    exclude_param_names_regex,
+    importance_threshold,
+    importance_boost,
+    base_merge_strength,
+    rank_sensitivity,
+    skip_threshold,
+    normalization_mode,
+    computation_device,
+    target_device,
+    storage_device,
+    ranking_device
+):
+    """Enhanced parameter merging with dynamic strength based on compatibility"""
+    
+    # Map new parameter names to original WIDEN algorithm variable names
+    above_average_value_ratio = importance_threshold
+    score_calibration_value = importance_boost
+    
+    # Check available RAM for memory management
+    ram_available_gb = 4.0  # Conservative fallback
+    try:
+        import psutil
+        ram_info = psutil.virtual_memory()
+        ram_available_gb = ram_info.available / (1024 * 1024 * 1024)
+    except:
+        pass
+    
+    # Get parameters to merge
+    param_names_to_merge = get_param_names_to_merge(
+        input_param_names=list(pretrained_param_dict.keys()),
+        exclude_param_names_regex=exclude_param_names_regex
+    )
+    
+    # Initialize WIDEN diagnostics collection
+    widen_diagnostics = {
+        'compatibility_scores': [],
+        'importance_score_variances': [],
+        'magnitude_score_ranges': [],
+        'direction_score_ranges': [],
+        'parameters_with_rankings': 0,
+        'parameters_skipped_threshold': 0,
+        'parameters_skipped_no_rankings': 0,
+        'uniform_score_count': 0,
+        'varied_score_count': 0
+    }
+    
+    # Unpack magnitude and direction differences
+    print(f"[DEBUG] Input magnitude/direction tuples: {len(models_to_merge_param_magnitude_direction_diff_tuples)}")
+    
+    if not models_to_merge_param_magnitude_direction_diff_tuples:
+        print(f"[CRITICAL] No magnitude/direction differences computed!")
+        # Fallback: create empty rankings and skip to Phase 2
+        magnitude_rankings = {}
+        direction_rankings = {}
+        param_names_merged_by_magnitude_direction = []
+    else:
+        # Extract magnitude and direction differences from the new format
+        models_to_merge_param_magnitude_diff_tuple = [model_diffs[0] for model_diffs in models_to_merge_param_magnitude_direction_diff_tuples]
+        models_to_merge_param_direction_diff_tuple = [model_diffs[1] for model_diffs in models_to_merge_param_magnitude_direction_diff_tuples]
+        
+        param_names_merged_by_magnitude_direction = list(models_to_merge_param_magnitude_diff_tuple[0].keys())
+        print(f"[DEBUG] Parameters eligible for magnitude/direction ranking: {len(param_names_merged_by_magnitude_direction)}")
+        if param_names_merged_by_magnitude_direction:
+            print(f"[DEBUG] Sample eligible parameters: {param_names_merged_by_magnitude_direction[:3]}")
+        else:
+            print(f"[CRITICAL] No parameters eligible for ranking - all filtered out!")
+    
+    # PHASE 1: Compute ALL rankings on CPU to preserve WIDEN cross-parameter validation
+    if param_names_merged_by_magnitude_direction:
+        print(f"[ENHANCED WIDEN] Phase 1: Computing rankings for {len(param_names_merged_by_magnitude_direction)} eligible parameters...")
+        if 'magnitude_rankings' not in locals():
+            magnitude_rankings = {}
+        if 'direction_rankings' not in locals():  
+            direction_rankings = {}
+            
+        # Organize parameters by SDXL blocks to preserve WIDEN cross-parameter context
+        block_groups = _group_parameters_by_blocks(param_names_merged_by_magnitude_direction)
+        total_blocks = len(block_groups)
+        total_params = len(param_names_merged_by_magnitude_direction)
+        
+        print(f"[ENHANCED WIDEN] Block-wise processing: {total_blocks} blocks containing {total_params} parameters")
+        print(f"[ENHANCED WIDEN] Blocks: {[(name, len(params)) for name, params in block_groups]}")
+        
+        import time
+        start_time = time.time()
+        
+        # Process parameters block by block to preserve WIDEN cross-parameter validation
+        for block_idx, (block_name, block_params) in enumerate(block_groups):
+            block_start_time = time.time()
+            print(f"[ENHANCED WIDEN] Processing block {block_idx+1}/{total_blocks}: {block_name} ({len(block_params)} parameters)")
+            
+            # Batch process all parameters in this block at once for efficiency
+            block_magnitude_diffs = {}
+            block_direction_diffs = {}
+            valid_params_in_block = []
+            
+            # Collect all magnitude/direction diffs for this block
+            for param_name in block_params:
+                try:
+                    magnitude_diffs = []
+                    direction_diffs = []
+                    
+                    for model_idx in range(len(models_to_merge_param_magnitude_diff_tuple)):
+                        if param_name in models_to_merge_param_magnitude_diff_tuple[model_idx]:
+                            mag_diff = models_to_merge_param_magnitude_diff_tuple[model_idx][param_name]
+                            dir_diff = models_to_merge_param_direction_diff_tuple[model_idx][param_name]
+                            
+                            # Skip extremely large tensors to prevent memory issues
+                            if mag_diff.numel() > 50000000:  # 50M elements
+                                print(f"[ENHANCED WIDEN] Skipping large tensor {param_name} ({mag_diff.numel()} elements)")
+                                break
+                                
+                            magnitude_diffs.append(mag_diff.to(ranking_device))
+                            direction_diffs.append(dir_diff.to(ranking_device))
+                    
+                    if magnitude_diffs and direction_diffs:
+                        block_magnitude_diffs[param_name] = magnitude_diffs
+                        block_direction_diffs[param_name] = direction_diffs
+                        valid_params_in_block.append(param_name)
+                        
+                except Exception as e:
+                    print(f"[WARNING] Failed to collect data for {param_name}: {e}")
+            
+            # Now compute rankings for all valid parameters in this block
+            print(f"[ENHANCED WIDEN]   Computing rankings for {len(valid_params_in_block)} valid parameters in block {block_name}")
+            
+            for param_name in valid_params_in_block:
+                try:
+                    mag_tensor = torch.stack(block_magnitude_diffs[param_name], dim=0)
+                    dir_tensor = torch.stack(block_direction_diffs[param_name], dim=0)
+                    
+                    # Compute rankings with FULL parameter visibility (critical for WIDEN)
+                    magnitude_rankings[param_name] = _rank_per_param_magnitude_or_direction_within_model(mag_tensor)
+                    direction_rankings[param_name] = _rank_per_param_magnitude_or_direction_within_model(dir_tensor)
+                    
+                    # Verify ranking shapes for WIDEN correctness (first parameter only)
+                    if block_idx == 0 and param_name == valid_params_in_block[0]:
+                        print(f"[WIDEN VERIFICATION] Parameter '{param_name}': magnitude shape {mag_tensor.shape} -> ranking shape {magnitude_rankings[param_name].shape}")
+                        print(f"[WIDEN VERIFICATION] This ranks {mag_tensor.shape[1]} features across {mag_tensor.shape[0]} models - CORRECT WIDEN behavior")
+                    
+                    # Free memory immediately
+                    del mag_tensor, dir_tensor
+                    
+                except Exception as e:
+                    print(f"[WARNING] Failed to compute rankings for {param_name}: {e}")
+            
+            # Clean up block data
+            del block_magnitude_diffs, block_direction_diffs
+            
+            # Block timing and cleanup
+            block_time = time.time() - block_start_time
+            print(f"[ENHANCED WIDEN] Block {block_name} completed in {block_time:.1f}s")
+            
+            # Aggressive memory cleanup after each block
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+    
+    print(f"[ENHANCED WIDEN] Phase 1 complete: Rankings computed for {len(magnitude_rankings)} parameters")
+    
+    # CRITICAL DIAGNOSTIC: Check if Phase 1 failed completely
+    if len(magnitude_rankings) == 0:
+        print(f"[CRITICAL] Phase 1 FAILED: No rankings computed!")
+        print(f"[CRITICAL] Input parameters available: {len(param_names_merged_by_magnitude_direction)}")
+        print(f"[CRITICAL] Task vectors: {len(models_to_merge_task_vectors)}")
+        print(f"[CRITICAL] Magnitude diff tuples: {len(models_to_merge_param_magnitude_diff_tuple) if models_to_merge_param_magnitude_diff_tuple else 'NONE'}")
+        if param_names_merged_by_magnitude_direction:
+            print(f"[CRITICAL] Sample parameters: {param_names_merged_by_magnitude_direction[:3]}")
+    else:
+        print(f"[ENHANCED WIDEN] Phase 1 successful: {len(magnitude_rankings)} parameters have rankings")
+        print(f"[ENHANCED WIDEN] Sample ranking parameters: {list(magnitude_rankings.keys())[:3]}")
+    
+    # PHASE 2: Process individual parameters using precomputed rankings
+    print("[ENHANCED WIDEN] Phase 2: Processing individual parameters...")
+    print("[ENHANCED WIDEN] Note: All parameters (1D, 2D, >2D) will use WIDEN rankings for consistent merging")
+    merged_params = {}
+    skipped_count = 0
+    failed_count = 0
+    no_rankings_count = 0
+    widen_merged_count = 0  # For parameters using WIDEN rankings
+    
+    # Memory monitoring function (for logging only - never stop processing)
+    def check_memory_status():
+        try:
+            import psutil
+            ram_info = psutil.virtual_memory()
+            ram_available_gb = ram_info.available / (1024 * 1024 * 1024)
+            if ram_available_gb < 1.0:
+                print(f"[WARNING] Critical RAM: {ram_available_gb:.1f}GB available - continuing but may be slow")
+                # Force aggressive cleanup but don't stop
+                import gc
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            return ram_available_gb
+        except:
+            return 4.0  # Assume sufficient if can't check
+    
+    # Process parameters block-wise for Phase 2 as well for consistency
+    phase2_block_groups = _group_parameters_by_blocks(param_names_to_merge)
+    total_phase2_blocks = len(phase2_block_groups)
+    processed_block_count = 0
+    
+    for block_idx, (block_name, block_params) in enumerate(phase2_block_groups):
+        processed_block_count += 1
+        ram_gb = check_memory_status()
+        print(f"[ENHANCED WIDEN] Phase 2 - Processing block {processed_block_count}/{total_phase2_blocks}: {block_name} ({len(block_params)} parameters) [RAM: {ram_gb:.1f}GB]")
+        
+        for param_name in block_params:
+            try:
+                # Initialize ranking variables to None
+                models_to_merge_param_magnitude_rank = None
+                models_to_merge_param_direction_rank = None
+                models_to_merge_delta_param = None
+                
+                # Parameters that can be merged by magnitudes and directions using precomputed rankings
+                if param_name in param_names_merged_by_magnitude_direction and param_name in magnitude_rankings:
+                    # Get delta tensors for computation
+                    delta_tensors = []
+                    for models_to_merge_task_vector in models_to_merge_task_vectors:
+                        if param_name in models_to_merge_task_vector.task_vector_param_dict:
+                            delta = models_to_merge_task_vector.task_vector_param_dict[param_name]
+                            # Move to computation device for processing
+                            delta_tensors.append(delta.to(computation_device))
+                    
+                    if not delta_tensors:
+                        print(f"[WARNING] No delta tensors found for {param_name}, skipping")
+                        merged_params[param_name] = pretrained_param_dict[param_name].to(target_device)
+                        continue
+                        
+                    models_to_merge_delta_param = torch.stack(delta_tensors, dim=0)
+                    
+                    # Use precomputed rankings (move to computation device if needed)
+                    models_to_merge_param_magnitude_rank = magnitude_rankings[param_name].to(computation_device)
+                    models_to_merge_param_direction_rank = direction_rankings[param_name].to(computation_device)
+                
+                # Only compute importance scores if we have valid ranking tensors
+                if models_to_merge_param_magnitude_rank is not None and models_to_merge_param_direction_rank is not None:
+                    # Debug input tensors before computing scores
+                    print(f"[INPUT DEBUG] {param_name}: magnitude_rank shape={models_to_merge_param_magnitude_rank.shape}, values={models_to_merge_param_magnitude_rank}")
+                    print(f"[INPUT DEBUG] {param_name}: direction_rank shape={models_to_merge_param_direction_rank.shape}, values={models_to_merge_param_direction_rank}")
+                    
+                    # Compute importance scores using original WIDEN algorithm
+                    magnitude_scores = _compute_importance_scores(
+                        models_to_merge_param_magnitude_rank, above_average_value_ratio, score_calibration_value
+                    )
+                    direction_scores = _compute_importance_scores(
+                        models_to_merge_param_direction_rank, above_average_value_ratio, score_calibration_value
+                    )
+                    
+                    # Collect WIDEN diagnostics for enhanced reporting
+                    widen_diagnostics['parameters_with_rankings'] += 1
+                    
+                    # Check score variance (detect uniform vs varied scores)
+                    mag_variance = magnitude_scores.var().item()
+                    dir_variance = direction_scores.var().item()
+                    widen_diagnostics['importance_score_variances'].extend([mag_variance, dir_variance])
+                    
+                    # Track score ranges
+                    widen_diagnostics['magnitude_score_ranges'].append((magnitude_scores.min().item(), magnitude_scores.max().item()))
+                    widen_diagnostics['direction_score_ranges'].append((direction_scores.min().item(), direction_scores.max().item()))
+                    
+                    # Count uniform vs varied scores (variance threshold: 1e-6)
+                    if mag_variance < 1e-6 and dir_variance < 1e-6:
+                        widen_diagnostics['uniform_score_count'] += 1
+                    else:
+                        widen_diagnostics['varied_score_count'] += 1
+                else:
+                    # Skip parameters that don't have rankings (shouldn't happen if magnitude/direction computation worked)
+                    merged_params[param_name] = pretrained_param_dict[param_name].to(target_device)
+                    no_rankings_count += 1
+                    widen_diagnostics['parameters_skipped_no_rankings'] += 1
+                    continue
+                
+                # Combine scores (original WIDEN approach)
+                combined_scores = 0.5 * (magnitude_scores + direction_scores)
+                
+                # Debug combined scores
+                print(f"[COMBINE DEBUG] {param_name}: mag_scores={magnitude_scores.min().item():.6f}-{magnitude_scores.max().item():.6f}, dir_scores={direction_scores.min().item():.6f}-{direction_scores.max().item():.6f}")
+                print(f"[COMBINE DEBUG] {param_name}: combined_scores={combined_scores.min().item():.6f}-{combined_scores.max().item():.6f}")
+                
+                # Compute compatibility score - higher means more compatible/important
+                compatibility_score = torch.mean(combined_scores).item()
+                
+                # Collect compatibility score for diagnostics
+                widen_diagnostics['compatibility_scores'].append(compatibility_score)
+                
+                # Debug: Log compatibility scores for debugging
+                param_count = len(merged_params) + no_rankings_count + skipped_count
+                if param_count < 10 or skip_threshold > 0.0:
+                    print(f"[SKIP DEBUG] {param_name}: compatibility_score={compatibility_score:.4f}, skip_threshold={skip_threshold}")
+                
+                # Skip parameters with very low compatibility (if threshold > 0)
+                if skip_threshold > 0.0 and compatibility_score <= skip_threshold:
+                    print(f"[SKIP] Skipping {param_name} (score={compatibility_score:.4f} < threshold={skip_threshold})")
+                    merged_params[param_name] = pretrained_param_dict[param_name].to(target_device)
+                    skipped_count += 1
+                    widen_diagnostics['parameters_skipped_threshold'] += 1
+                    continue
+                
+                # Compute dynamic merge strength
+                merge_strength = _compatibility_to_merge_strength(
+                    compatibility_score, base_merge_strength, rank_sensitivity
+                )
+                
+                # Merge parameter with dynamic strength
+                weight_scores = combined_scores
+                
+                # Handle different tensor dimensions for weight application
+                try:
+                    # Reshape weight_scores to broadcast with models_to_merge_delta_param
+                    if models_to_merge_delta_param.dim() == weight_scores.dim():
+                        # Same dimensions, can multiply directly
+                        weighted_deltas = models_to_merge_delta_param * weight_scores
+                    elif models_to_merge_delta_param.dim() > weight_scores.dim():
+                        # Need to add dimensions to weight_scores
+                        weight_shape = [weight_scores.shape[0]] + [1] * (models_to_merge_delta_param.dim() - 1)
+                        weight_scores_reshaped = weight_scores.view(weight_shape)
+                        weighted_deltas = models_to_merge_delta_param * weight_scores_reshaped
+                    else:
+                        # Fallback: use simple averaging
+                        weighted_deltas = models_to_merge_delta_param
+                    
+                    merged_delta_param = weighted_deltas.sum(dim=0)
+                except Exception as e:
+                    # Fallback to simple averaging if weighting fails
+                    merged_delta_param = models_to_merge_delta_param.mean(dim=0)
+                
+                merged_param = pretrained_param_dict[param_name].to(computation_device) + merged_delta_param * merge_strength
+                
+                # Apply renormalization if enabled
+                if hasattr(merged_param, 'shape') and normalization_mode != "none":
+                    try:
+                        base_param_for_renorm = pretrained_param_dict[param_name].to(computation_device)
+                        if normalization_mode == "calibrate":
+                            # Use conservative calibrate parameters
+                            merged_param = calibrate_renormalize(merged_param, base_param_for_renorm, normalization_mode, 0.3, 1.1)
+                        else:  # magnitude
+                            merged_param = calibrate_renormalize(merged_param, base_param_for_renorm, normalization_mode, 1.0, 1.0)
+                    except Exception as e:
+                        # Silent renormalization failure - continue with non-renormalized parameter
+                        pass
+                
+                # Move final result to target device and immediately free processing memory
+                merged_params[param_name] = merged_param.to(target_device)
+                widen_merged_count += 1  # Count successful WIDEN merges
+                
+                # Clean up computation tensors to free VRAM and RAM
+                try:
+                    del models_to_merge_delta_param, merged_delta_param, merged_param
+                    if models_to_merge_param_magnitude_rank is not None:
+                        del models_to_merge_param_magnitude_rank
+                    if models_to_merge_param_direction_rank is not None:
+                        del models_to_merge_param_direction_rank
+                    del magnitude_scores, direction_scores, combined_scores, weight_scores
+                except:
+                    pass
+                    
+            except Exception as e:
+                print(f"[ERROR] Failed to merge parameter {param_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback: use original parameter
+                merged_params[param_name] = pretrained_param_dict[param_name].to(target_device)
+                failed_count += 1
+    
+    # Calculate actual merge statistics
+    total_merged_count = len(merged_params)
+    
+    # Generate enhanced WIDEN diagnostics
+    compatibility_scores = widen_diagnostics['compatibility_scores']
+    score_variances = widen_diagnostics['importance_score_variances']
+    
+    print(f"[ENHANCED WIDEN] MERGE RESULTS:")
+    print(f"  Total parameters: {len(param_names_to_merge)}")
+    print(f"  WIDEN merged (all dimensions): {widen_merged_count}")
+    print(f"  Total successfully merged: {total_merged_count}")
+    print(f"  Skipped (no rankings): {no_rankings_count}")
+    print(f"  Skipped (low compatibility): {skipped_count}")
+    print(f"  Failed: {failed_count}")
+    print(f"  Overall merge success rate: {total_merged_count/len(param_names_to_merge)*100:.1f}%")
+    print(f"  WIDEN success rate: {widen_merged_count/len(param_names_to_merge)*100:.1f}%")
+    
+    # ENHANCED: WIDEN Algorithm Health Diagnostics
+    print(f"\n[WIDEN ALGORITHM HEALTH]:")
+    if compatibility_scores:
+        compat_min, compat_max = min(compatibility_scores), max(compatibility_scores)
+        compat_mean = sum(compatibility_scores) / len(compatibility_scores)
+        compat_variance = sum((x - compat_mean)**2 for x in compatibility_scores) / len(compatibility_scores)
+        print(f"  Compatibility Scores: {compat_min:.4f} - {compat_max:.4f} (mean: {compat_mean:.4f}, var: {compat_variance:.6f})")
+        print(f"  Score Distribution: {'✓ VARIED' if compat_variance > 1e-6 else '✗ UNIFORM (BUG!)'}")
+    else:
+        print(f"  Compatibility Scores: NONE COMPUTED")
+    
+    if score_variances:
+        avg_variance = sum(score_variances) / len(score_variances)
+        print(f"  Importance Score Variance: {avg_variance:.6f} ({'✓ VARIED' if avg_variance > 1e-6 else '✗ UNIFORM (BUG!)'})")
+    
+    varied_count = widen_diagnostics['varied_score_count']
+    uniform_count = widen_diagnostics['uniform_score_count']
+    total_scored = varied_count + uniform_count
+    if total_scored > 0:
+        print(f"  Parameter Ranking: {varied_count}/{total_scored} varied ({100*varied_count/total_scored:.1f}%)")
+        print(f"  Ranking Algorithm: {'✓ HEALTHY' if varied_count > uniform_count else '✗ FAILING (UNIFORM SCORES!)'}")
+    
+    if skip_threshold > 0.0:
+        skip_effectiveness = widen_diagnostics['parameters_skipped_threshold']
+        print(f"  Skip Threshold: {skip_threshold} -> {skip_effectiveness} parameters skipped")
+        print(f"  Threshold Status: {'✓ ACTIVE' if skip_effectiveness > 0 else 'ⓘ NO EFFECT'}")
+    
+    # Critical diagnostic: If no parameters merged, investigate Phase 1
+    if total_merged_count == 0:
+        print(f"[CRITICAL] Zero parameters merged! Phase 1 rankings: {len(magnitude_rankings)} magnitude, {len(direction_rankings)} direction")
+        print(f"[CRITICAL] Parameter list sample: {param_names_to_merge[:5] if param_names_to_merge else 'EMPTY'}")
+        print(f"[CRITICAL] Magnitude rankings sample: {list(magnitude_rankings.keys())[:5] if magnitude_rankings else 'EMPTY'}")
+    
+    # Verify we processed all parameters (critical for WIDEN integrity)
+    processed_count = len(merged_params)
+    if processed_count != len(param_names_to_merge):
+        print(f"[WARNING] Parameter count mismatch: processed {processed_count}, expected {len(param_names_to_merge)}")
+    else:
+        print(f"[ENHANCED WIDEN] ✓ All parameters processed - WIDEN merge integrity maintained")
+    
+    # Clean up intermediate variables to free memory
+    del models_to_merge_param_magnitude_direction_diff_tuples
+    del pretrained_param_dict
+    del models_to_merge_task_vectors
+    
+    # Force garbage collection to free memory
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    return merged_params, widen_diagnostics
+
 # LoRA Delta-Only Processing Classes
 class LoRADelta:
     """Memory-efficient LoRA delta storage for WIDEN merging"""
@@ -328,7 +1216,7 @@ def check_memory_safety():
     except Exception:
         return True, 0.0, 999.0
 
-def compute_merge_hash(models, merge_strength, temperature, enable_ties, threshold, forced_merge_ratio, renorm_mode):
+def compute_merge_hash(models, merge_strength, importance_threshold, importance_boost, rank_sensitivity, skip_threshold, normalization_mode):
     """Compute hash of merge parameters to detect changes - FIXED: More robust hashing"""
     hasher = hashlib.sha256()  # Changed from md5 to sha256 for better collision resistance
 
@@ -357,7 +1245,7 @@ def compute_merge_hash(models, merge_strength, temperature, enable_ties, thresho
                 hasher.update(f"{id(model)}_{time.time()}".encode())
 
     # Hash merge parameters
-    hasher.update(f"{merge_strength}_{temperature}_{enable_ties}_{threshold}_{forced_merge_ratio}_{renorm_mode}".encode())
+    hasher.update(f"{merge_strength}_{importance_threshold}_{importance_boost}_{rank_sensitivity}_{skip_threshold}_{normalization_mode}".encode())
 
     return hasher.hexdigest()
 
@@ -1063,7 +1951,7 @@ class MergingMethod:
         merge_strength: float = 1.0,
         renorm_mode: str = "magnitude",
         widen_threshold: float = 0.5,
-        calibration_value: float = 0.0,_value: float = 1.0,
+        calibration_value: float = 0.0,
         batch_size: int = 50,
     ):
         """FULL ZERO-ACCUMULATION WIDEN algorithm for SDXL - No intermediate data storage - FIXED: Better memory management"""
@@ -1534,10 +2422,13 @@ class DonutWidenMergeUNet:
                 "model_base": ("MODEL",),
                 "model_other": ("MODEL",),
                 "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "widen_calibration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "renorm_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),
-                "batch_size": ("INT", {"default": 50, "min": 10, "max": 500, "step": 10}),
+                "normalization_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),  # (renorm_mode)
+                # Enhanced WIDEN parameters
+                "importance_threshold": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 500.0, "step": 0.1}),  # (above_average_value_ratio)
+                "importance_boost": ("FLOAT", {"default": 2.5, "min": 0.0, "max": 3.0, "step": 0.1}),  # (score_calibration_value)
+                # Dynamic compatibility settings  
+                "rank_sensitivity": ("FLOAT", {"default": 2.0, "min": 0.0, "max": 10.0, "step": 0.1}),  # (compatibility_sensitivity)
+                "skip_threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),  # (compatibility_threshold)
             },
             "optional": {
                 "lora_stack": ("LORA_STACK",),
@@ -1554,12 +2445,14 @@ class DonutWidenMergeUNet:
             }
         }
 
-    RETURN_TYPES = ("MODEL", "STRING")
-    RETURN_NAMES = ("model", "merge_results")
+    RETURN_TYPES = ("MODEL", "STRING", "STRING")
+    RETURN_NAMES = ("model", "merge_results", "parameter_info")
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, model_base, model_other, merge_strength, widen_threshold, widen_calibration, renorm_mode, batch_size,
+    def execute(self, model_base, model_other, merge_strength, normalization_mode,
+                importance_threshold, importance_boost,
+                rank_sensitivity, skip_threshold,
                 lora_stack=None, model_3=None, model_4=None, model_5=None, model_6=None,
                 model_7=None, model_8=None, model_9=None, model_10=None,
                 model_11=None, model_12=None):
@@ -1571,7 +2464,7 @@ class DonutWidenMergeUNet:
         # Check cache first
         all_models = [model_base, model_other, model_3, model_4, model_5, model_6,
                      model_7, model_8, model_9, model_10, model_11, model_12]
-        cache_key = compute_merge_hash(all_models, merge_strength, widen_threshold, False, widen_calibration, 0, f"{renorm_mode}")
+        cache_key = compute_merge_hash(all_models, merge_strength, importance_threshold, importance_boost, rank_sensitivity, skip_threshold, f"{normalization_mode}_enhanced_widen")
 
         cached_result = check_cache_for_merge(cache_key)
         if cached_result is not None:
@@ -1625,23 +2518,178 @@ class DonutWidenMergeUNet:
                 model_merged = copy.copy(model_base)  # Shallow copy of wrapper
                 model_merged.model = copy.deepcopy(base_model_obj)  # Deep copy only the model
 
+                # Use enhanced WIDEN merger with dynamic compatibility
+                print("[DonutWidenMergeUNet] Using WIDEN merge with dynamic compatibility-based strength...")
+                
                 merger = MergingMethod("DonutWidenMergeUNet")
-                results_text = merger.widen_merging_sdxl(
-                    target_model=model_merged.model,
-                    base_model=base_model_obj,
-                    models_to_merge=other_model_objs,
-                    merge_strength=merge_strength,
-                    renorm_mode=renorm_mode,
-                    widen_threshold=widen_threshold,
-                    calibration_value=widen_calibration,
-                    batch_size=batch_size,
-                )
+                
+                if rank_sensitivity > 0.0:
+                    # Use WIDEN with dynamic strength based on compatibility
+                    merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
+                        merger=merger,
+                        merged_model=model_merged.model,
+                        models_to_merge=other_model_objs,
+                        exclude_param_names_regex=[],
+                        importance_threshold=importance_threshold,
+                        importance_boost=importance_boost,
+                        base_merge_strength=merge_strength,
+                        rank_sensitivity=rank_sensitivity,
+                        skip_threshold=skip_threshold,
+                        normalization_mode=normalization_mode
+                    )
+                    
+                    # Apply merged parameters with shape validation
+                    applied_count = 0
+                    shape_mismatch_count = 0
+                    for param_name, param_value in merged_params.items():
+                        for name, param in model_merged.model.named_parameters():
+                            if name == param_name:
+                                if param_value.shape == param.shape:
+                                    param.data.copy_(param_value)
+                                    applied_count += 1
+                                else:
+                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
+                                    shape_mismatch_count += 1
+                                break
+                    
+                    print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
+                    
+                    # Create detailed merge results with enhanced WIDEN diagnostics
+                    total_models = len([m for m in [model_other, model_3, model_4, model_5, model_6, model_7, model_8, model_9, model_10, model_11, model_12] if m is not None]) + 1
+                    
+                    # Generate enhanced diagnostics from widen_diagnostics
+                    compatibility_scores = widen_diagnostics['compatibility_scores']
+                    varied_count = widen_diagnostics['varied_score_count']
+                    uniform_count = widen_diagnostics['uniform_score_count']
+                    skipped_threshold = widen_diagnostics['parameters_skipped_threshold']
+                    
+                    if compatibility_scores:
+                        compat_min, compat_max = min(compatibility_scores), max(compatibility_scores)
+                        compat_mean = sum(compatibility_scores) / len(compatibility_scores)
+                        compat_variance = sum((x - compat_mean)**2 for x in compatibility_scores) / len(compatibility_scores)
+                        score_health = "✓ VARIED" if compat_variance > 1e-6 else "✗ UNIFORM (BUG!)"
+                    else:
+                        compat_min = compat_max = compat_mean = 0.0
+                        score_health = "NO SCORES"
+                    
+                    ranking_health = "✓ HEALTHY" if varied_count > uniform_count else "✗ FAILING"
+                    total_scored = varied_count + uniform_count
+                    
+                    results_text = f"""╔═ WIDEN MERGE RESULTS (Dynamic Compatibility) ═╗
+║ Models: {total_models} | Strength: {merge_strength} | Mode: {normalization_mode}
+║ Threshold: {importance_threshold} | Boost: {importance_boost} | Sensitivity: {rank_sensitivity}
+╠═══════════════════════════════════════════════════╣
+║ Parameters Merged: {len(merged_params)} | Applied: {applied_count}
+║ Shape Mismatches: {shape_mismatch_count} | Success: {(applied_count/(applied_count+shape_mismatch_count)*100):.1f}%
+║ Status: ✓ Enhanced WIDEN with Dynamic Compatibility
+╠═══════════════════════════════════════════════════╣
+║ 🔍 WIDEN ALGORITHM HEALTH DIAGNOSTICS:
+║ Compatibility Range: {compat_min:.4f} - {compat_max:.4f} (avg: {compat_mean:.4f})
+║ Score Distribution: {score_health}
+║ Parameter Ranking: {varied_count}/{total_scored} varied ({100*varied_count/total_scored if total_scored > 0 else 0:.1f}%) - {ranking_health}
+║ Skip Threshold: {skip_threshold} → {skipped_threshold} parameters skipped
+╚═══════════════════════════════════════════════════╝"""
+                    # Create detailed parameter information
+                    parameter_info = f"""╔═ WIDEN PARAMETER DETAILS ═╗
+║ Merge Strength: Controls blend intensity between models
+║ Importance Threshold: Multiplier for classifying important parameters
+║ Importance Boost: Score amplification for important parameters  
+║ Rank Sensitivity: Dynamic compatibility adjustment strength
+║ Skip Threshold: Excludes low-compatibility parameters from merge
+║ Normalization: {normalization_mode} - post-merge parameter scaling
+╠═══════════════════════════════════════════════════╣
+║ Dynamic Mode: Adapts strength based on compatibility
+║ Total Processed: {len(merged_params)} parameters analyzed
+║ Applied Successfully: {applied_count} parameters merged
+╚═══════════════════════════════════════════════════╝"""
+                    
+                else:
+                    # Use enhanced WIDEN without dynamic strength (fallback mode)
+                    merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
+                        merger=merger,
+                        merged_model=model_merged.model,
+                        models_to_merge=other_model_objs,
+                        exclude_param_names_regex=[],
+                        importance_threshold=importance_threshold,
+                        importance_boost=importance_boost,
+                        base_merge_strength=merge_strength,
+                        rank_sensitivity=0.0,  # Disable dynamic strength
+                        skip_threshold=skip_threshold,
+                        normalization_mode=normalization_mode
+                    )
+                    
+                    # Apply merged parameters with shape validation
+                    applied_count = 0
+                    shape_mismatch_count = 0
+                    for param_name, param_value in merged_params.items():
+                        for name, param in model_merged.model.named_parameters():
+                            if name == param_name:
+                                if param_value.shape == param.shape:
+                                    param.data.copy_(param_value)
+                                    applied_count += 1
+                                else:
+                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
+                                    shape_mismatch_count += 1
+                                break
+                    
+                    print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
+                    
+                    # Create detailed merge results with enhanced WIDEN diagnostics
+                    total_models = len([m for m in [model_other, model_3, model_4, model_5, model_6, model_7, model_8, model_9, model_10, model_11, model_12] if m is not None]) + 1
+                    
+                    # Generate enhanced diagnostics from widen_diagnostics
+                    compatibility_scores = widen_diagnostics['compatibility_scores']
+                    varied_count = widen_diagnostics['varied_score_count']
+                    uniform_count = widen_diagnostics['uniform_score_count']
+                    skipped_threshold = widen_diagnostics['parameters_skipped_threshold']
+                    
+                    if compatibility_scores:
+                        compat_min, compat_max = min(compatibility_scores), max(compatibility_scores)
+                        compat_mean = sum(compatibility_scores) / len(compatibility_scores)
+                        compat_variance = sum((x - compat_mean)**2 for x in compatibility_scores) / len(compatibility_scores)
+                        score_health = "✓ VARIED" if compat_variance > 1e-6 else "✗ UNIFORM (BUG!)"
+                    else:
+                        compat_min = compat_max = compat_mean = 0.0
+                        score_health = "NO SCORES"
+                    
+                    ranking_health = "✓ HEALTHY" if varied_count > uniform_count else "✗ FAILING"
+                    total_scored = varied_count + uniform_count
+                    
+                    results_text = f"""╔═ WIDEN MERGE RESULTS (Static Strength) ═╗
+║ Models: {total_models} | Strength: {merge_strength} | Mode: {normalization_mode}
+║ Threshold: {importance_threshold} | Boost: {importance_boost} | Sensitivity: {rank_sensitivity} (off)
+╠═══════════════════════════════════════════════════╣
+║ Parameters Merged: {len(merged_params)} | Applied: {applied_count}
+║ Shape Mismatches: {shape_mismatch_count} | Success: {(applied_count/(applied_count+shape_mismatch_count)*100):.1f}%
+║ Status: ✓ Enhanced WIDEN with Static Strength
+╠═══════════════════════════════════════════════════╣
+║ 🔍 WIDEN ALGORITHM HEALTH DIAGNOSTICS:
+║ Compatibility Range: {compat_min:.4f} - {compat_max:.4f} (avg: {compat_mean:.4f})
+║ Score Distribution: {score_health}
+║ Parameter Ranking: {varied_count}/{total_scored} varied ({100*varied_count/total_scored if total_scored > 0 else 0:.1f}%) - {ranking_health}
+║ Skip Threshold: {skip_threshold} → {skipped_threshold} parameters skipped
+╚═══════════════════════════════════════════════════╝"""
+                    # Create detailed parameter information  
+                    parameter_info = f"""╔═ WIDEN PARAMETER DETAILS ═╗
+║ Merge Strength: Controls blend intensity between models
+║ Importance Threshold: Multiplier for classifying important parameters
+║ Importance Boost: Score amplification for important parameters
+║ Rank Sensitivity: {rank_sensitivity} (disabled) - no dynamic adjustment
+║ Skip Threshold: Excludes low-compatibility parameters from merge
+║ Normalization: {normalization_mode} - post-merge parameter scaling
+╠═══════════════════════════════════════════════════╣
+║ Static Mode: Uses fixed strength for all parameters
+║ Total Processed: {len(merged_params)} parameters analyzed
+║ Applied Successfully: {applied_count} parameters merged
+╚═══════════════════════════════════════════════════╝"""
 
                 # FIXED: Aggressive cleanup before returning
-                del base_model_obj, other_model_objs, models_to_merge, merger
+                del base_model_obj, other_model_objs, models_to_merge
+                if rank_sensitivity <= 0.0:
+                    del merger
                 force_cleanup()
 
-                result = (model_merged, results_text)
+                result = (model_merged, results_text, parameter_info)
 
                 # Store in cache
                 store_merge_result(cache_key, result)
@@ -1652,8 +2700,18 @@ class DonutWidenMergeUNet:
                 print(f"[SAFETY] Memory exhaustion prevented crash: {e}")
                 # FIXED: Cleanup on error
                 force_cleanup()
-                error_results = f"[SAFETY] Merge terminated to prevent crash: {e}"
-                result = (model_base, error_results)
+                error_results = f"""╔═ WIDEN MERGE RESULTS (MEMORY ERROR) ═╗
+║ ERROR: Memory exhaustion prevented crash
+║ DETAILS: {str(e)[:40]}...
+║ STATUS: ✗ Failed - Memory limit exceeded
+║ FIX: Reduce batch size or model count
+╚═══════════════════════════════════════════════════╝"""
+                error_param_info = """╔═ ERROR PARAMETER INFO ═╗
+║ Merge was terminated due to memory limits
+║ No parameter analysis available
+║ Try reducing model count or batch size
+╚═══════════════════════════════════════════════════╝"""
+                result = (model_base, error_results, error_param_info)
                 store_merge_result(cache_key, result)
                 return result
 
@@ -1662,8 +2720,18 @@ class DonutWidenMergeUNet:
                 # FIXED: Cleanup on error
                 force_cleanup()
                 if "memory" in str(e).lower():
-                    error_results = f"[SAFETY] Memory error prevented crash: {e}"
-                    result = (model_base, error_results)
+                    error_results = f"""╔═ WIDEN MERGE RESULTS (MEMORY ERROR) ═╗
+║ ERROR: Memory error prevented crash
+║ DETAILS: {str(e)[:40]}...
+║ STATUS: ✗ Failed - Memory limit exceeded
+║ FIX: Reduce batch size or model count
+╚═══════════════════════════════════════════════════╝"""
+                    error_param_info = """╔═ ERROR PARAMETER INFO ═╗
+║ Merge was terminated due to memory error
+║ No parameter analysis available  
+║ Try reducing model count or batch size
+╚═══════════════════════════════════════════════════╝"""
+                    result = (model_base, error_results, error_param_info)
                     store_merge_result(cache_key, result)
                     return result
                 else:
@@ -1685,10 +2753,13 @@ class DonutWidenMergeCLIP:
                 "clip_base": ("CLIP",),
                 "clip_other": ("CLIP",),
                 "merge_strength": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.1}),
-                "widen_threshold": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "widen_calibration": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "renorm_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),
-                "batch_size": ("INT", {"default": 75, "min": 10, "max": 500, "step": 10}),
+                "normalization_mode": (["magnitude", "calibrate", "none"], {"default": "magnitude"}),  # (renorm_mode)
+                # Enhanced WIDEN parameters
+                "importance_threshold": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 500.0, "step": 0.1}),  # (above_average_value_ratio)
+                "importance_boost": ("FLOAT", {"default": 2.5, "min": 0.0, "max": 3.0, "step": 0.1}),  # (score_calibration_value)
+                # Dynamic compatibility settings  
+                "rank_sensitivity": ("FLOAT", {"default": 2.0, "min": 0.0, "max": 10.0, "step": 0.1}),  # (compatibility_sensitivity)
+                "skip_threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),  # (compatibility_threshold)
             },
             "optional": {
                 "lora_stack": ("LORA_STACK",),
@@ -1705,12 +2776,14 @@ class DonutWidenMergeCLIP:
             }
         }
 
-    RETURN_TYPES = ("CLIP", "STRING")
-    RETURN_NAMES = ("clip", "merge_results")
+    RETURN_TYPES = ("CLIP", "STRING", "STRING")
+    RETURN_NAMES = ("clip", "merge_results", "parameter_info")
     FUNCTION = "execute"
     CATEGORY = "donut/merge"
 
-    def execute(self, clip_base, clip_other, merge_strength, widen_threshold, widen_calibration, renorm_mode, batch_size,
+    def execute(self, clip_base, clip_other, merge_strength, normalization_mode,
+                importance_threshold, importance_boost,
+                rank_sensitivity, skip_threshold,
                 lora_stack=None, clip_3=None, clip_4=None, clip_5=None, clip_6=None,
                 clip_7=None, clip_8=None, clip_9=None, clip_10=None,
                 clip_11=None, clip_12=None):
@@ -1722,7 +2795,7 @@ class DonutWidenMergeCLIP:
         # Check cache first
         all_clips = [clip_base, clip_other, clip_3, clip_4, clip_5, clip_6,
                     clip_7, clip_8, clip_9, clip_10, clip_11, clip_12]
-        cache_key = compute_merge_hash(all_clips, merge_strength, widen_threshold, False, widen_calibration, 0, f"{renorm_mode}")
+        cache_key = compute_merge_hash(all_clips, merge_strength, importance_threshold, importance_boost, rank_sensitivity, skip_threshold, f"{normalization_mode}_enhanced_widen")
 
         cached_result = check_cache_for_merge(cache_key)
         if cached_result is not None:
@@ -1790,23 +2863,179 @@ class DonutWidenMergeCLIP:
                 elif hasattr(clip_merged, "cond_stage_model"):
                     clip_merged.cond_stage_model = enc_merged
 
+                # Use enhanced WIDEN merger with dynamic compatibility
+                print("[DonutWidenMergeCLIP] Using WIDEN merge with dynamic compatibility-based strength...")
+                
                 merger = MergingMethod("DonutWidenMergeCLIP")
-                results_text = merger.widen_merging_sdxl(
-                    target_model=enc_merged,
-                    base_model=base_enc,
-                    models_to_merge=other_encs,
-                    merge_strength=merge_strength,
-                    renorm_mode=renorm_mode,
-                    widen_threshold=widen_threshold,
-                    calibration_value=widen_calibration,
-                    batch_size=batch_size,
-                )
+                
+                if rank_sensitivity > 0.0:
+                    # Use WIDEN with dynamic strength based on compatibility
+                    merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
+                        merger=merger,
+                        merged_model=enc_merged,
+                        models_to_merge=other_encs,
+                        exclude_param_names_regex=[],
+                        importance_threshold=importance_threshold,
+                        importance_boost=importance_boost,
+                        base_merge_strength=merge_strength,
+                        rank_sensitivity=rank_sensitivity,
+                        skip_threshold=skip_threshold,
+                        normalization_mode=normalization_mode
+                    )
+                    
+                    # Apply merged parameters with shape validation
+                    applied_count = 0
+                    shape_mismatch_count = 0
+                    for param_name, param_value in merged_params.items():
+                        for name, param in enc_merged.named_parameters():
+                            if name == param_name:
+                                if param_value.shape == param.shape:
+                                    param.data.copy_(param_value)
+                                    applied_count += 1
+                                else:
+                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
+                                    shape_mismatch_count += 1
+                                break
+                    
+                    print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
+                    
+                    # Create detailed merge results with enhanced WIDEN diagnostics
+                    total_clips = len([c for c in [clip_other, clip_3, clip_4, clip_5, clip_6, clip_7, clip_8, clip_9, clip_10, clip_11, clip_12] if c is not None]) + 1
+                    
+                    # Generate enhanced diagnostics from widen_diagnostics
+                    compatibility_scores = widen_diagnostics['compatibility_scores']
+                    varied_count = widen_diagnostics['varied_score_count']
+                    uniform_count = widen_diagnostics['uniform_score_count']
+                    skipped_threshold = widen_diagnostics['parameters_skipped_threshold']
+                    
+                    if compatibility_scores:
+                        compat_min, compat_max = min(compatibility_scores), max(compatibility_scores)
+                        compat_mean = sum(compatibility_scores) / len(compatibility_scores)
+                        compat_variance = sum((x - compat_mean)**2 for x in compatibility_scores) / len(compatibility_scores)
+                        score_health = "✓ VARIED" if compat_variance > 1e-6 else "✗ UNIFORM (BUG!)"
+                    else:
+                        compat_min = compat_max = compat_mean = 0.0
+                        score_health = "NO SCORES"
+                    
+                    ranking_health = "✓ HEALTHY" if varied_count > uniform_count else "✗ FAILING"
+                    total_scored = varied_count + uniform_count
+                    
+                    results_text = f"""╔═ WIDEN CLIP MERGE RESULTS (Dynamic Compatibility) ═╗
+║ CLIP Models: {total_clips} | Strength: {merge_strength} | Mode: {normalization_mode}
+║ Threshold: {importance_threshold} | Boost: {importance_boost} | Sensitivity: {rank_sensitivity}
+╠═══════════════════════════════════════════════════╣
+║ Parameters Merged: {len(merged_params)} | Applied: {applied_count}
+║ Shape Mismatches: {shape_mismatch_count} | Success: {(applied_count/(applied_count+shape_mismatch_count)*100):.1f}%
+║ Status: ✓ Enhanced WIDEN with Dynamic Compatibility
+╠═══════════════════════════════════════════════════╣
+║ 🔍 WIDEN ALGORITHM HEALTH DIAGNOSTICS:
+║ Compatibility Range: {compat_min:.4f} - {compat_max:.4f} (avg: {compat_mean:.4f})
+║ Score Distribution: {score_health}
+║ Parameter Ranking: {varied_count}/{total_scored} varied ({100*varied_count/total_scored if total_scored > 0 else 0:.1f}%) - {ranking_health}
+║ Skip Threshold: {skip_threshold} → {skipped_threshold} parameters skipped
+╚═══════════════════════════════════════════════════╝"""
+                    # Create detailed parameter information
+                    parameter_info = f"""╔═ WIDEN CLIP PARAMETER DETAILS ═╗
+║ Merge Strength: Controls blend intensity between CLIP models
+║ Importance Threshold: Multiplier for classifying important parameters
+║ Importance Boost: Score amplification for important parameters
+║ Rank Sensitivity: Dynamic compatibility adjustment strength  
+║ Skip Threshold: Excludes low-compatibility parameters from merge
+║ Normalization: {normalization_mode} - post-merge parameter scaling
+╠═══════════════════════════════════════════════════╣
+║ Dynamic Mode: Adapts strength based on compatibility
+║ Total Processed: {len(merged_params)} parameters analyzed
+║ Applied Successfully: {applied_count} parameters merged
+╚═══════════════════════════════════════════════════╝"""
+                    
+                else:
+                    # Use enhanced WIDEN without dynamic strength (fallback mode)
+                    merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
+                        merger=merger,
+                        merged_model=enc_merged,
+                        models_to_merge=other_encs,
+                        exclude_param_names_regex=[],
+                        importance_threshold=importance_threshold,
+                        importance_boost=importance_boost,
+                        base_merge_strength=merge_strength,
+                        rank_sensitivity=0.0,  # Disable dynamic strength
+                        skip_threshold=skip_threshold,
+                        normalization_mode=normalization_mode
+                    )
+                    
+                    # Apply merged parameters with shape validation
+                    applied_count = 0
+                    shape_mismatch_count = 0
+                    for param_name, param_value in merged_params.items():
+                        for name, param in enc_merged.named_parameters():
+                            if name == param_name:
+                                if param_value.shape == param.shape:
+                                    param.data.copy_(param_value)
+                                    applied_count += 1
+                                else:
+                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
+                                    shape_mismatch_count += 1
+                                break
+                    
+                    print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
+                    
+                    # Create detailed merge results with enhanced WIDEN diagnostics
+                    total_clips = len([c for c in [clip_other, clip_3, clip_4, clip_5, clip_6, clip_7, clip_8, clip_9, clip_10, clip_11, clip_12] if c is not None]) + 1
+                    
+                    # Generate enhanced diagnostics from widen_diagnostics
+                    compatibility_scores = widen_diagnostics['compatibility_scores']
+                    varied_count = widen_diagnostics['varied_score_count']
+                    uniform_count = widen_diagnostics['uniform_score_count']
+                    skipped_threshold = widen_diagnostics['parameters_skipped_threshold']
+                    
+                    if compatibility_scores:
+                        compat_min, compat_max = min(compatibility_scores), max(compatibility_scores)
+                        compat_mean = sum(compatibility_scores) / len(compatibility_scores)
+                        compat_variance = sum((x - compat_mean)**2 for x in compatibility_scores) / len(compatibility_scores)
+                        score_health = "✓ VARIED" if compat_variance > 1e-6 else "✗ UNIFORM (BUG!)"
+                    else:
+                        compat_min = compat_max = compat_mean = 0.0
+                        score_health = "NO SCORES"
+                    
+                    ranking_health = "✓ HEALTHY" if varied_count > uniform_count else "✗ FAILING"
+                    total_scored = varied_count + uniform_count
+                    
+                    results_text = f"""╔═ WIDEN CLIP MERGE RESULTS (Static Strength) ═╗
+║ CLIP Models: {total_clips} | Strength: {merge_strength} | Mode: {normalization_mode}
+║ Threshold: {importance_threshold} | Boost: {importance_boost} | Sensitivity: {rank_sensitivity} (off)
+╠═══════════════════════════════════════════════════╣
+║ Parameters Merged: {len(merged_params)} | Applied: {applied_count}
+║ Shape Mismatches: {shape_mismatch_count} | Success: {(applied_count/(applied_count+shape_mismatch_count)*100):.1f}%
+║ Status: ✓ Enhanced WIDEN with Static Strength
+╠═══════════════════════════════════════════════════╣
+║ 🔍 WIDEN ALGORITHM HEALTH DIAGNOSTICS:
+║ Compatibility Range: {compat_min:.4f} - {compat_max:.4f} (avg: {compat_mean:.4f})
+║ Score Distribution: {score_health}
+║ Parameter Ranking: {varied_count}/{total_scored} varied ({100*varied_count/total_scored if total_scored > 0 else 0:.1f}%) - {ranking_health}
+║ Skip Threshold: {skip_threshold} → {skipped_threshold} parameters skipped
+║ Status: ✓ Enhanced WIDEN with Static Strength
+╚═══════════════════════════════════════════════════╝"""
+                    # Create detailed parameter information
+                    parameter_info = f"""╔═ WIDEN CLIP PARAMETER DETAILS ═╗
+║ Merge Strength: Controls blend intensity between CLIP models
+║ Importance Threshold: Multiplier for classifying important parameters
+║ Importance Boost: Score amplification for important parameters
+║ Rank Sensitivity: {rank_sensitivity} (disabled) - no dynamic adjustment
+║ Skip Threshold: Excludes low-compatibility parameters from merge  
+║ Normalization: {normalization_mode} - post-merge parameter scaling
+╠═══════════════════════════════════════════════════╣
+║ Static Mode: Uses fixed strength for all parameters
+║ Total Processed: {len(merged_params)} parameters analyzed
+║ Applied Successfully: {applied_count} parameters merged
+╚═══════════════════════════════════════════════════╝"""
 
                 # FIXED: Aggressive cleanup before returning
-                del base_enc, other_encs, clips_to_merge, merger, enc_merged
+                del base_enc, other_encs, clips_to_merge, enc_merged
+                if rank_sensitivity <= 0.0:
+                    del merger
                 force_cleanup()
 
-                result = (clip_merged, results_text)
+                result = (clip_merged, results_text, parameter_info)
 
                 # Store in cache
                 store_merge_result(cache_key, result)
@@ -1817,8 +3046,18 @@ class DonutWidenMergeCLIP:
                 print(f"[SAFETY] Memory exhaustion prevented crash: {e}")
                 # FIXED: Cleanup on error
                 force_cleanup()
-                error_results = f"[SAFETY] CLIP merge terminated to prevent crash: {e}"
-                result = (clip_base, error_results)
+                error_results = f"""╔═ WIDEN CLIP MERGE RESULTS (MEMORY ERROR) ═╗
+║ ERROR: Memory exhaustion prevented crash
+║ DETAILS: {str(e)[:40]}...
+║ STATUS: ✗ Failed - Memory limit exceeded
+║ FIX: Reduce batch size or CLIP model count
+╚═══════════════════════════════════════════════════╝"""
+                error_param_info = """╔═ ERROR PARAMETER INFO ═╗
+║ CLIP merge was terminated due to memory limits
+║ No parameter analysis available
+║ Try reducing CLIP model count or batch size
+╚═══════════════════════════════════════════════════╝"""
+                result = (clip_base, error_results, error_param_info)
                 store_merge_result(cache_key, result)
                 return result
 
@@ -1827,8 +3066,18 @@ class DonutWidenMergeCLIP:
                 # FIXED: Cleanup on error
                 force_cleanup()
                 if "memory" in str(e).lower():
-                    error_results = f"[SAFETY] CLIP memory error prevented crash: {e}"
-                    result = (clip_base, error_results)
+                    error_results = f"""╔═ WIDEN CLIP MERGE RESULTS (MEMORY ERROR) ═╗
+║ ERROR: Memory error prevented crash
+║ DETAILS: {str(e)[:40]}...
+║ STATUS: ✗ Failed - Memory limit exceeded
+║ FIX: Reduce batch size or CLIP model count
+╚═══════════════════════════════════════════════════╝"""
+                    error_param_info = """╔═ ERROR PARAMETER INFO ═╗
+║ CLIP merge was terminated due to memory error
+║ No parameter analysis available
+║ Try reducing CLIP model count or batch size  
+╚═══════════════════════════════════════════════════╝"""
+                    result = (clip_base, error_results, error_param_info)
                     store_merge_result(cache_key, result)
                     return result
                 else:

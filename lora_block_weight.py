@@ -345,7 +345,9 @@ class LoraLoaderBlockWeight:
     @staticmethod
     def load_lbw(model, clip, lora, inverse, seed, A, B, block_vector):
         key_map = comfy.lora.model_lora_keys_unet(model.model)
-        key_map = comfy.lora.model_lora_keys_clip(clip.cond_stage_model, key_map)
+        # Only process CLIP keys if clip model is provided (some LoRAs are UNet-only)
+        if clip is not None:
+            key_map = comfy.lora.model_lora_keys_clip(clip.cond_stage_model, key_map)
         loaded = comfy.lora.load_lora(lora, key_map)
 
         block_vector = LoraLoaderBlockWeight.block_spec_parser(loaded, block_vector)
@@ -472,7 +474,7 @@ class LoraLoaderBlockWeight:
         block_weights, muted_weights, populated_vector = LoraLoaderBlockWeight.load_lbw(model, clip, lora, inverse, seed, A, B, block_vector)
 
         new_modelpatcher = model.clone()
-        new_clip = clip.clone()
+        new_clip = clip.clone() if clip is not None else None
 
         muted_weights = set(muted_weights)
 
@@ -482,7 +484,8 @@ class LoraLoaderBlockWeight:
             if k in muted_weights:
                 pass
             elif 'text' in k or 'encoder' in k:
-                new_clip.add_patches({k: weights}, strength_clip * ratio)
+                if new_clip is not None:
+                    new_clip.add_patches({k: weights}, strength_clip * ratio)
             else:
                 new_modelpatcher.add_patches({k: weights}, strength_model * ratio)
 
