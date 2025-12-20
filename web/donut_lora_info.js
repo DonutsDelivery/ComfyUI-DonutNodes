@@ -172,6 +172,9 @@ app.registerExtension({
                     filterPresets(modelTypeWidget.value || "Auto");
                 }
 
+                // Store filterPresets function on node for use in onConfigure
+                this._donutFilterPresets = filterPresets;
+
                 // Find the block_preset widgets and add callbacks to update corresponding block_vector
                 for (let i = 1; i <= 3; i++) {
                     const presetWidget = this.widgets?.find(w => w.name === `block_preset_${i}`);
@@ -284,6 +287,21 @@ app.registerExtension({
 
                 // Adjust node size
                 this.setSize([this.size[0], this.size[1] + 420]);
+            };
+
+            // Apply preset filter when node is configured (loaded from workflow)
+            const onConfigure = nodeType.prototype.onConfigure;
+            nodeType.prototype.onConfigure = function(info) {
+                if (onConfigure) {
+                    onConfigure.apply(this, arguments);
+                }
+
+                // After workflow values are loaded, apply the preset filter
+                // based on the loaded model_type value
+                const modelTypeWidget = this.widgets?.find(w => w.name === "model_type");
+                if (modelTypeWidget && this._donutFilterPresets) {
+                    this._donutFilterPresets(modelTypeWidget.value || "Auto");
+                }
             };
 
             // Update display when node executes

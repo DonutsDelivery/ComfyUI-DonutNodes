@@ -1,9 +1,12 @@
 import torch
-import copy
 
 class DonutDetailer:
-    # Required property so that ComfyUI recognizes the node type.
+    """
+    Donut Detailer: Applies adjustments to input/output blocks in SDXL models.
+    Uses ComfyUI's patching system for proper model handling.
+    """
     class_type = "MODEL"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -35,86 +38,56 @@ class DonutDetailer:
         Scale_out2, Weight_out2, Bias_out2
     ):
         """
-        Donut Detailer:
-        This node applies adjustments to three groups of parameters in an SDXL model.
+        Applies adjustments to three groups of parameters in an SDXL model.
 
-        1. Input Block (e.g. "input_blocks.0.0." or "diffusion_model.input_blocks.0.0."):
-           - Weight: multiplied by (1 - Scale_in × Weight_in)
-           - Bias:   multiplied by (1 + Scale_in × Bias_in)
-
-        2. Output Block 0 (e.g. "out.0." or "diffusion_model.out.0."):
-           - Weight: multiplied by (1 - Scale_out0 × Weight_out0)
-           - Bias:   multiplied by (Scale_out0 × Bias_out0)
-
-        3. Output Block 2 (e.g. "out.2." or "diffusion_model.out.2."):
-           - Weight: multiplied by (1 - Scale_out2 × Weight_out2)
-           - Bias:   multiplied by (Scale_out2 × Bias_out2)
-
-        With these default values (Scale_in=1, Weight_in=0, Bias_in=0; Scale_out=1, Weight_out=0, Bias_out=1),
-        the node produces a bypass effect.
+        1. Input Block: Weight × (1 - Scale_in × Weight_in), Bias × (1 + Scale_in × Bias_in)
+        2. Output Block 0: Weight × (1 - Scale_out0 × Weight_out0), Bias × (Scale_out0 × Bias_out0)
+        3. Output Block 2: Weight × (1 - Scale_out2 × Weight_out2), Bias × (Scale_out2 × Bias_out2)
         """
-        # Clone the model so that only this branch is modified.
-        new_model = copy.deepcopy(model)
+        # Clone using ComfyUI's method
+        new_model = model.clone()
 
-        # Determine the underlying model module.
-        if hasattr(new_model, "named_parameters"):
-            target_model = new_model
-        elif hasattr(new_model, "unet"):
-            target_model = new_model.unet
-        elif hasattr(new_model, "model"):
-            target_model = new_model.model
-        else:
-            target_model = new_model
+        # Get diffusion model for parameter access
+        diffusion_model = new_model.get_model_object("diffusion_model")
+        if diffusion_model is None:
+            print("[DonutDetailer] Warning: Could not get diffusion_model")
+            return (new_model,)
 
-        print("Target model type:", type(target_model))
+        # Compute multipliers
+        weight_in_mult = 1 - Scale_in * Weight_in
+        bias_in_mult = 1 + Scale_in * Bias_in
+        weight_out0_mult = 1 - Scale_out0 * Weight_out0
+        bias_out0_mult = Scale_out0 * Bias_out0
+        weight_out2_mult = 1 - Scale_out2 * Weight_out2
+        bias_out2_mult = Scale_out2 * Bias_out2
 
-        # Decide naming convention by checking the first parameter key.
-        param_iter = target_model.named_parameters()
-        try:
-            first_key = next(param_iter)[0]
-        except StopIteration:
-            first_key = ""
-
-        if first_key.startswith("diffusion_model."):
-            prefix_in   = "diffusion_model.input_blocks.0.0."
-            prefix_out0 = "diffusion_model.out.0."
-            prefix_out2 = "diffusion_model.out.2."
-        else:
-            prefix_in   = "input_blocks.0.0."
-            prefix_out0 = "out.0."
-            prefix_out2 = "out.2."
-
-        print("Using prefixes:")
-        print("  Input block:", prefix_in)
-        print("  Output block 0:", prefix_out0)
-        print("  Output block 2:", prefix_out2)
+        # Prefixes for SDXL blocks
+        prefixes = {
+            "input_blocks.0.0.": (weight_in_mult, bias_in_mult),
+            "out.0.": (weight_out0_mult, bias_out0_mult),
+            "out.2.": (weight_out2_mult, bias_out2_mult),
+        }
 
         with torch.no_grad():
-            for name, param in target_model.named_parameters():
-                if name.startswith(prefix_in):
-                    # Input block adjustments.
-                    if "weight" in name:
-                        param.data.mul_(1 - Scale_in * Weight_in)
-                        print(f"Patching {name}: weight × (1 - {Scale_in}×{Weight_in})")
-                    elif "bias" in name:
-                        param.data.mul_(1 + Scale_in * Bias_in)
-                        print(f"Patching {name}: bias × (1 + {Scale_in}×{Bias_in})")
-                elif name.startswith(prefix_out0):
-                    # Output block 0 adjustments.
-                    if "weight" in name:
-                        param.data.mul_(1 - Scale_out0 * Weight_out0)
-                        print(f"Patching {name}: weight × (1 - {Scale_out0}×{Weight_out0})")
-                    elif "bias" in name:
-                        param.data.mul_(Scale_out0 * Bias_out0)
-                        print(f"Patching {name}: bias × ({Scale_out0}×{Bias_out0})")
-                elif name.startswith(prefix_out2):
-                    # Output block 2 adjustments.
-                    if "weight" in name:
-                        param.data.mul_(1 - Scale_out2 * Weight_out2)
-                        print(f"Patching {name}: weight × (1 - {Scale_out2}×{Weight_out2})")
-                    elif "bias" in name:
-                        param.data.mul_(Scale_out2 * Bias_out2)
-                        print(f"Patching {name}: bias × ({Scale_out2}×{Bias_out2})")
+            for name, param in diffusion_model.named_parameters():
+                for prefix, (w_mult, b_mult) in prefixes.items():
+                    if prefix in name:
+                        if ".weight" in name:
+                            mult = w_mult
+                        elif ".bias" in name:
+                            mult = b_mult
+                        else:
+                            continue
+
+                        # Skip if no change needed
+                        if abs(mult - 1.0) < 1e-6:
+                            continue
+
+                        # Apply patch: to multiply by M, add original * (M-1)
+                        patch_key = f"diffusion_model.{name}"
+                        patch_strength = mult - 1.0
+                        new_model.add_patches({patch_key: (param.data.clone(),)}, patch_strength)
+                        break
 
         return (new_model,)
 

@@ -50,6 +50,10 @@ from .donut_lora_civitai import NODE_DISPLAY_NAME_MAPPINGS as d_lora_civitai
 from .DonutTiledUpscale import NODE_CLASS_MAPPINGS        as m_tiled_upscale
 from .DonutTiledUpscale import NODE_DISPLAY_NAME_MAPPINGS as d_tiled_upscale
 
+# ZIT Detailer (Z-Image Turbo / Lumina2)
+from .DonutDetailerZIT import NODE_CLASS_MAPPINGS        as m_zit_detailer
+from .DonutDetailerZIT import NODE_DISPLAY_NAME_MAPPINGS as d_zit_detailer
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -64,6 +68,7 @@ NODE_CLASS_MAPPINGS = {
     **m_donut_sampler,
     **m_lora_civitai,
     **m_tiled_upscale,
+    **m_zit_detailer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -77,6 +82,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_donut_sampler,
     **d_lora_civitai,
     **d_tiled_upscale,
+    **d_zit_detailer,
 }
 
 # Web directory for custom JavaScript extensions

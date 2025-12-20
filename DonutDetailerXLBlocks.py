@@ -1,9 +1,11 @@
 import torch
-import copy
 
 class DonutDetailerXLBlocks:
+    """
+    Per-block weight/bias tuning for SDXL models.
+    Uses ComfyUI's patching system for proper model handling.
+    """
     class_type = "MODEL"
-    # Make sure aux_id matches your GitHub repo slug
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -19,7 +21,6 @@ class DonutDetailerXLBlocks:
         ]
         for prefix, count in groups:
             for i in range(count):
-                # for the lone "out" layer, use prefix="out" and i=0 once
                 name = prefix if prefix == "out" else f"{prefix}_{i}"
                 required[f"{name}_weight"] = ("FLOAT", {
                     "default": 1.0, "min": -10.0, "max": 10.0, "step": 0.001
@@ -34,67 +35,77 @@ class DonutDetailerXLBlocks:
     CATEGORY = "Model Patches"
 
     def apply_patch(self, model, **kwargs):
-        # clone so only this branch is modified
-        new_model = copy.deepcopy(model)
+        # Clone using ComfyUI's method
+        new_model = model.clone()
 
-        # unwrap to the nn.Module that has named_parameters()
-        if hasattr(new_model, "named_parameters"):
-            target = new_model
-        elif hasattr(new_model, "unet"):
-            target = new_model.unet
-        elif hasattr(new_model, "model"):
-            target = new_model.model
-        else:
-            target = new_model
-
-        # detect whether names start with "diffusion_model."
-        names = target.named_parameters()
-        try:
-            first_key = next(names)[0]
-        except StopIteration:
-            first_key = ""
-        dm_pref = "diffusion_model." if first_key.startswith("diffusion_model.") else ""
+        # Get diffusion model for parameter access
+        diffusion_model = new_model.get_model_object("diffusion_model")
+        if diffusion_model is None:
+            print("[DonutDetailerXLBlocks] Warning: Could not get diffusion_model")
+            return (new_model,)
 
         with torch.no_grad():
-            for name, param in target.named_parameters():
+            for name, param in diffusion_model.named_parameters():
                 # input_blocks.0 – input_blocks.8
                 for i in range(9):
-                    pfx = f"{dm_pref}input_blocks.{i}."
+                    pfx = f"input_blocks.{i}."
                     key = f"input_blocks_{i}"
-                    if name.startswith(pfx):
-                        if name.endswith(".weight"):
-                            param.data.mul_(kwargs[f"{key}_weight"])
-                        elif name.endswith(".bias"):
-                            param.data.mul_(kwargs[f"{key}_bias"])
+                    if pfx in name:
+                        if ".weight" in name:
+                            mult = kwargs.get(f"{key}_weight", 1.0)
+                        elif ".bias" in name:
+                            mult = kwargs.get(f"{key}_bias", 1.0)
+                        else:
+                            continue
+                        if abs(mult - 1.0) >= 1e-6:
+                            patch_key = f"diffusion_model.{name}"
+                            new_model.add_patches({patch_key: (param.data.clone(),)}, mult - 1.0)
+                        break
 
                 # middle_block.0 – middle_block.2
                 for i in range(3):
-                    pfx = f"{dm_pref}middle_block.{i}."
+                    pfx = f"middle_block.{i}."
                     key = f"middle_block_{i}"
-                    if name.startswith(pfx):
-                        if name.endswith(".weight"):
-                            param.data.mul_(kwargs[f"{key}_weight"])
-                        elif name.endswith(".bias"):
-                            param.data.mul_(kwargs[f"{key}_bias"])
+                    if pfx in name:
+                        if ".weight" in name:
+                            mult = kwargs.get(f"{key}_weight", 1.0)
+                        elif ".bias" in name:
+                            mult = kwargs.get(f"{key}_bias", 1.0)
+                        else:
+                            continue
+                        if abs(mult - 1.0) >= 1e-6:
+                            patch_key = f"diffusion_model.{name}"
+                            new_model.add_patches({patch_key: (param.data.clone(),)}, mult - 1.0)
+                        break
 
                 # output_blocks.0 – output_blocks.8
                 for i in range(9):
-                    pfx = f"{dm_pref}output_blocks.{i}."
+                    pfx = f"output_blocks.{i}."
                     key = f"output_blocks_{i}"
-                    if name.startswith(pfx):
-                        if name.endswith(".weight"):
-                            param.data.mul_(kwargs[f"{key}_weight"])
-                        elif name.endswith(".bias"):
-                            param.data.mul_(kwargs[f"{key}_bias"])
+                    if pfx in name:
+                        if ".weight" in name:
+                            mult = kwargs.get(f"{key}_weight", 1.0)
+                        elif ".bias" in name:
+                            mult = kwargs.get(f"{key}_bias", 1.0)
+                        else:
+                            continue
+                        if abs(mult - 1.0) >= 1e-6:
+                            patch_key = f"diffusion_model.{name}"
+                            new_model.add_patches({patch_key: (param.data.clone(),)}, mult - 1.0)
+                        break
 
                 # the final out.* layer
-                out_pfx = f"{dm_pref}out."
-                if name.startswith(out_pfx):
+                if "out." in name and "output_blocks" not in name:
                     key = "out"
-                    if name.endswith(".weight"):
-                        param.data.mul_(kwargs[f"{key}_weight"])
-                    elif name.endswith(".bias"):
-                        param.data.mul_(kwargs[f"{key}_bias"])
+                    if ".weight" in name:
+                        mult = kwargs.get(f"{key}_weight", 1.0)
+                    elif ".bias" in name:
+                        mult = kwargs.get(f"{key}_bias", 1.0)
+                    else:
+                        continue
+                    if abs(mult - 1.0) >= 1e-6:
+                        patch_key = f"diffusion_model.{name}"
+                        new_model.add_patches({patch_key: (param.data.clone(),)}, mult - 1.0)
 
         return (new_model,)
 
