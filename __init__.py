@@ -54,6 +54,18 @@ from .DonutTiledUpscale import NODE_DISPLAY_NAME_MAPPINGS as d_tiled_upscale
 from .DonutDetailerZIT import NODE_CLASS_MAPPINGS        as m_zit_detailer
 from .DonutDetailerZIT import NODE_DISPLAY_NAME_MAPPINGS as d_zit_detailer
 
+# ZIT Model Merge (Z-Image Turbo / Lumina2)
+from .ModelMergeZIT import NODE_CLASS_MAPPINGS        as m_merge_zit
+from .ModelMergeZIT import NODE_DISPLAY_NAME_MAPPINGS as d_merge_zit
+
+# Model Save (No Workflow)
+from .DonutModelSave import NODE_CLASS_MAPPINGS        as m_model_save
+from .DonutModelSave import NODE_DISPLAY_NAME_MAPPINGS as d_model_save
+
+# Face Detailer with max_faces limit
+from .DonutFaceDetailer import NODE_CLASS_MAPPINGS        as m_face_detailer
+from .DonutFaceDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_face_detailer
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -69,6 +81,9 @@ NODE_CLASS_MAPPINGS = {
     **m_lora_civitai,
     **m_tiled_upscale,
     **m_zit_detailer,
+    **m_merge_zit,
+    **m_model_save,
+    **m_face_detailer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -83,6 +98,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_lora_civitai,
     **d_tiled_upscale,
     **d_zit_detailer,
+    **d_merge_zit,
+    **d_model_save,
+    **d_face_detailer,
 }
 
 # Web directory for custom JavaScript extensions
