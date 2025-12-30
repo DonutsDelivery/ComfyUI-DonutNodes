@@ -228,10 +228,23 @@ if IMPACT_AVAILABLE:
 
             # Scale mask if present using torch interpolate
             if noise_mask is not None:
-                mask_4d = noise_mask.unsqueeze(0).unsqueeze(0).float()
+                # Ensure mask is 4D (N, C, H, W) for interpolate
+                orig_shape = noise_mask.shape
+                if len(orig_shape) == 2:
+                    mask_4d = noise_mask.unsqueeze(0).unsqueeze(0)
+                elif len(orig_shape) == 3:
+                    mask_4d = noise_mask.unsqueeze(0)
+                else:
+                    mask_4d = noise_mask
+                mask_4d = mask_4d.float()
                 noise_mask = torch.nn.functional.interpolate(
                     mask_4d, size=(new_h, new_w), mode='bilinear', align_corners=False
-                ).squeeze(0).squeeze(0)
+                )
+                # Restore original dimensions
+                if len(orig_shape) == 2:
+                    noise_mask = noise_mask.squeeze(0).squeeze(0)
+                elif len(orig_shape) == 3:
+                    noise_mask = noise_mask.squeeze(0)
 
             # Hook pre-processing
             if detailer_hook is not None:
@@ -311,8 +324,15 @@ if IMPACT_AVAILABLE:
                         # Convert to tensor if numpy array
                         if isinstance(cropped_mask, np.ndarray):
                             cropped_mask = torch.from_numpy(cropped_mask)
-                        # Resize mask using torch interpolate (B, C, H, W format)
-                        mask_4d = cropped_mask.unsqueeze(0).unsqueeze(0).float()
+                        # Resize mask using torch interpolate - ensure 4D (N, C, H, W)
+                        orig_shape = cropped_mask.shape
+                        if len(orig_shape) == 2:
+                            mask_4d = cropped_mask.unsqueeze(0).unsqueeze(0)
+                        elif len(orig_shape) == 3:
+                            mask_4d = cropped_mask.unsqueeze(0)
+                        else:
+                            mask_4d = cropped_mask
+                        mask_4d = mask_4d.float()
                         noise_mask = torch.nn.functional.interpolate(
                             mask_4d, size=(cropped_image.shape[1], cropped_image.shape[2]), mode='bilinear', align_corners=False
                         ).squeeze(0).squeeze(0)
