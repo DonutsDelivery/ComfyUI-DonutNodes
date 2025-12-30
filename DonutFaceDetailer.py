@@ -18,6 +18,7 @@ from nodes import MAX_RESOLUTION
 try:
     import impact.core as core
     from impact import utils as impact_utils
+    from impact import impact_sampling
     from comfy_extras import nodes_differential_diffusion
     IMPACT_AVAILABLE = True
 except ImportError:
@@ -219,17 +220,14 @@ if IMPACT_AVAILABLE:
             logging.info(f"[DonutFaceDetailer] Crop {w}x{h} -> {new_w}x{new_h} ({new_w*new_h:,} pixels, target {resolution:,})")
 
             # Scale image
-            scaled_image = core.tensor_resize(image, new_w, new_h)
+            scaled_image = impact_utils.tensor_resize(image, new_w, new_h)
 
-            # Scale mask if present
+            # Encode to latent
+            latent_image = impact_utils.to_latent_image(scaled_image, vae)
+
+            # Scale and apply mask if present
             if noise_mask is not None:
-                noise_mask = core.tensor_resize(noise_mask, new_w, new_h)
-                if inpaint_model:
-                    latent_image = core.make_masked_latent_for_inpaint(scaled_image, noise_mask, vae)
-                else:
-                    latent_image = core.to_latent_image(scaled_image, vae)
-            else:
-                latent_image = core.to_latent_image(scaled_image, vae)
+                noise_mask = impact_utils.tensor_resize(noise_mask, new_w, new_h)
 
             # Hook pre-processing
             if detailer_hook is not None:
@@ -240,12 +238,12 @@ if IMPACT_AVAILABLE:
                 latent_image['noise_mask'] = noise_mask.reshape((-1, 1, noise_mask.shape[-2], noise_mask.shape[-1]))
 
             # Sample
-            refined_latent = core.ksampler_wrapper(model, seed, steps, cfg, sampler_name, scheduler,
+            refined_latent = impact_sampling.ksampler_wrapper(model, seed, steps, cfg, sampler_name, scheduler,
                                                     positive, negative, latent_image, denoise,
                                                     scheduler_func=scheduler_func)
 
             # Decode
-            refined_image = core.latent_to_image(refined_latent, vae)
+            refined_image = vae.decode(refined_latent['samples'])
 
             # Hook post-processing
             if detailer_hook is not None:
@@ -303,10 +301,10 @@ if IMPACT_AVAILABLE:
                     bbox = seg.bbox
 
                     if cropped_image is None:
-                        cropped_image = core.crop_image(image, crop_region)
+                        cropped_image = impact_utils.crop_image(image, crop_region)
 
                     if noise_mask_enabled and cropped_mask is not None:
-                        noise_mask = core.tensor_resize(cropped_mask.unsqueeze(0).unsqueeze(0),
+                        noise_mask = impact_utils.tensor_resize(cropped_mask.unsqueeze(0).unsqueeze(0),
                                                         cropped_image.shape[2], cropped_image.shape[1])
                         noise_mask = noise_mask.squeeze(0).squeeze(0)
                     else:
@@ -324,19 +322,15 @@ if IMPACT_AVAILABLE:
 
                         if result is not None:
                             # Resize back to original crop size
-                            enhanced_cropped = core.tensor_resize(result, cropped_image.shape[2], cropped_image.shape[1])
+                            enhanced_cropped = impact_utils.tensor_resize(result, cropped_image.shape[2], cropped_image.shape[1])
 
                     # Paste back
                     if enhanced_cropped is not None:
-                        enhanced_img = core.tensor_paste(enhanced_img, enhanced_cropped, crop_region, feather)
+                        enhanced_img = impact_utils.tensor_paste(enhanced_img, enhanced_cropped, crop_region, feather)
                         cropped_enhanced.append(enhanced_cropped)
 
-                        # Create alpha version
-                        if cropped_mask is not None:
-                            alpha_cropped = core.tensor_add_alpha(enhanced_cropped, cropped_mask)
-                            cropped_enhanced_alpha.append(alpha_cropped)
-                        else:
-                            cropped_enhanced_alpha.append(enhanced_cropped)
+                        # Create alpha version (just use the enhanced image for now)
+                        cropped_enhanced_alpha.append(enhanced_cropped)
 
             else:
                 enhanced_img = image
