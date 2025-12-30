@@ -66,6 +66,10 @@ from .DonutModelSave import NODE_DISPLAY_NAME_MAPPINGS as d_model_save
 from .DonutFaceDetailer import NODE_CLASS_MAPPINGS        as m_face_detailer
 from .DonutFaceDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_face_detailer
 
+# Universal Detailer (Florence-2)
+from .DonutUniversalDetailer import NODE_CLASS_MAPPINGS        as m_universal_detailer
+from .DonutUniversalDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_universal_detailer
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -84,6 +88,7 @@ NODE_CLASS_MAPPINGS = {
     **m_merge_zit,
     **m_model_save,
     **m_face_detailer,
+    **m_universal_detailer,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -101,6 +106,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_merge_zit,
     **d_model_save,
     **d_face_detailer,
+    **d_universal_detailer,
 }
 
 # Web directory for custom JavaScript extensions
