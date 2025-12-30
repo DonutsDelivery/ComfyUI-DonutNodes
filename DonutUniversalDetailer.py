@@ -76,9 +76,18 @@ def pil_to_tensor(pil_img):
     return torch.from_numpy(np_img).unsqueeze(0)
 
 
-def florence2_detect(florence2_model, image_pil, prompt, task='caption to phrase grounding'):
+def florence2_detect(florence2_model, image_pil, prompt, detection_mode='prompt_grounding'):
     """
     Run Florence-2 detection.
+
+    Args:
+        florence2_model: Florence-2 model dict with 'model' and 'processor'
+        image_pil: PIL Image to detect objects in
+        prompt: Detection prompt (for prompt_grounding mode)
+        detection_mode: One of:
+            - 'prompt_grounding': Detect objects specified in prompt
+            - 'detect_all': Auto-detect all objects using dense region caption
+            - 'object_detection': Auto-detect all objects using object detection
 
     Returns: list of (bbox, label) tuples
              bbox format: [x1, y1, x2, y2]
@@ -87,42 +96,64 @@ def florence2_detect(florence2_model, image_pil, prompt, task='caption to phrase
     processor = florence2_model['processor']
 
     # Detection parameters
-    max_new_tokens = 512
+    max_new_tokens = 1024  # Increased for dense detection
     num_beams = 3
     do_sample = False
     fill_mask = False
 
+    # Map detection mode to Florence-2 task
+    if detection_mode == 'detect_all':
+        task = 'dense region caption'
+        task_prompt = None  # No prompt needed
+    elif detection_mode == 'object_detection':
+        task = 'object detection'
+        task_prompt = None
+    else:  # prompt_grounding
+        task = 'caption to phrase grounding'
+        task_prompt = prompt
+
     results, _ = process_image(
         model, processor, image_pil, task,
         max_new_tokens, num_beams, do_sample,
-        fill_mask, prompt
+        fill_mask, task_prompt
     )
 
-    if not isinstance(results, dict) or 'bboxes' not in results:
+    if not isinstance(results, dict):
         return [], []
 
+    # Handle different result formats
     bboxes = []
     labels = []
 
-    for i, bbox in enumerate(results['bboxes']):
-        if len(bbox) == 4:
-            x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-        elif len(bbox) == 8:
-            # Polygon format - get bounding box
-            x1 = int(min(bbox[0::2]))
-            x2 = int(max(bbox[0::2]))
-            y1 = int(min(bbox[1::2]))
-            y2 = int(max(bbox[1::2]))
-        else:
-            continue
+    # Dense region caption and object detection return 'bboxes' and 'labels'
+    if 'bboxes' in results:
+        for i, bbox in enumerate(results['bboxes']):
+            if len(bbox) == 4:
+                x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+            elif len(bbox) == 8:
+                # Polygon format - get bounding box
+                x1 = int(min(bbox[0::2]))
+                x2 = int(max(bbox[0::2]))
+                y1 = int(min(bbox[1::2]))
+                y2 = int(max(bbox[1::2]))
+            else:
+                continue
 
-        # Skip invalid boxes
-        if x2 <= x1 or y2 <= y1:
-            continue
+            # Skip invalid boxes
+            if x2 <= x1 or y2 <= y1:
+                continue
 
-        bboxes.append([x1, y1, x2, y2])
-        label = results['labels'][i] if i < len(results['labels']) else prompt
-        labels.append(label.removeprefix("</s>").strip())
+            bboxes.append([x1, y1, x2, y2])
+
+            # Get label - different fields for different tasks
+            if i < len(results.get('labels', [])):
+                label = results['labels'][i]
+            elif i < len(results.get('captions', [])):
+                label = results['captions'][i]
+            else:
+                label = prompt or "object"
+
+            labels.append(str(label).removeprefix("</s>").strip())
 
     return bboxes, labels
 
@@ -296,10 +327,14 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
                     "vae": ("VAE",),
                     "florence2_model": ("FLORENCE2",),
 
+                    "detection_mode": (["detect_all", "object_detection", "prompt_grounding"], {
+                        "default": "detect_all",
+                        "tooltip": "detect_all: Auto-detect everything with descriptions. object_detection: Auto-detect objects. prompt_grounding: Detect specific objects from prompt."
+                    }),
                     "detection_prompt": ("STRING", {
                         "default": "face, hands, eyes",
                         "multiline": False,
-                        "tooltip": "Objects to detect (comma-separated)"
+                        "tooltip": "Objects to detect (only used in prompt_grounding mode)"
                     }),
 
                     # Filtering
@@ -396,7 +431,7 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
 
             return positive, negative
 
-        def doit(self, image, model, clip, vae, florence2_model, detection_prompt,
+        def doit(self, image, model, clip, vae, florence2_model, detection_mode, detection_prompt,
                  min_area_percent, max_objects, resolution, upscale_full_image, return_original_size,
                  seed, steps, cfg, sampler_name, scheduler, denoise,
                  positive, negative, prompt_mode, feather, noise_mask, force_inpaint,
@@ -413,14 +448,14 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
 
             # 2. Run Florence-2 detection on original image
             image_pil = tensor_to_pil(image)
-            bboxes, labels = florence2_detect(florence2_model, image_pil, detection_prompt)
+            bboxes, labels = florence2_detect(florence2_model, image_pil, detection_prompt, detection_mode)
 
             if len(bboxes) == 0:
-                logging.info("[DonutUniversalDetailer] No objects detected")
+                logging.info(f"[DonutUniversalDetailer] No objects detected (mode: {detection_mode})")
                 # Return combined labels string
                 return (image, [image], torch.zeros((1, original_h, original_w)), "")
 
-            logging.info(f"[DonutUniversalDetailer] Detected {len(bboxes)} objects: {labels}")
+            logging.info(f"[DonutUniversalDetailer] Detected {len(bboxes)} objects (mode: {detection_mode}): {labels}")
 
             # 3. Convert to SEGS format
             segs = bboxes_to_segs(bboxes, labels, image.shape, bbox_crop_factor, bbox_dilation)
@@ -572,7 +607,7 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
     }
 
     NODE_DISPLAY_NAME_MAPPINGS = {
-        "DonutUniversalDetailer": "Universal Detailer (Florence-2)",
+        "DonutUniversalDetailer": "Universal Detailer (Auto-Detect)",
     }
 
 else:
