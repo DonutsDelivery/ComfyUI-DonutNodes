@@ -368,11 +368,6 @@ if IMPACT_AVAILABLE:
                         # Prepare mask for pasting with feathering
                         paste_mask = impact_utils.to_tensor(seg.cropped_mask)
                         paste_mask = impact_utils.tensor_gaussian_blur_mask(paste_mask, feather)
-                        # Resize mask to match enhanced_cropped size
-                        paste_mask = torch.nn.functional.interpolate(
-                            paste_mask, size=(enhanced_cropped.shape[1], enhanced_cropped.shape[2]),
-                            mode='bilinear', align_corners=False
-                        )
                         enhanced_img = enhanced_img.cpu()
                         enhanced_cropped = enhanced_cropped.cpu()
                         impact_utils.tensor_paste(enhanced_img, enhanced_cropped, (crop_region[0], crop_region[1]), paste_mask)
