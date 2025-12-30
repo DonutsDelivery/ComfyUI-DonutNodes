@@ -5,6 +5,7 @@ Uses total pixel count instead of max edge length for consistent VRAM usage.
 """
 
 import math
+import numpy as np
 import torch
 import logging
 import comfy.samplers
@@ -304,6 +305,9 @@ if IMPACT_AVAILABLE:
                         cropped_image = impact_utils.crop_image(image, crop_region)
 
                     if noise_mask_enabled and cropped_mask is not None:
+                        # Convert to tensor if numpy array
+                        if isinstance(cropped_mask, np.ndarray):
+                            cropped_mask = torch.from_numpy(cropped_mask)
                         noise_mask = impact_utils.tensor_resize(cropped_mask.unsqueeze(0).unsqueeze(0),
                                                         cropped_image.shape[2], cropped_image.shape[1])
                         noise_mask = noise_mask.squeeze(0).squeeze(0)
