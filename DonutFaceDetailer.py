@@ -226,9 +226,12 @@ if IMPACT_AVAILABLE:
             # Encode to latent
             latent_image = impact_utils.to_latent_image(scaled_image, vae)
 
-            # Scale and apply mask if present
+            # Scale mask if present using torch interpolate
             if noise_mask is not None:
-                noise_mask = impact_utils.tensor_resize(noise_mask, new_w, new_h)
+                mask_4d = noise_mask.unsqueeze(0).unsqueeze(0).float()
+                noise_mask = torch.nn.functional.interpolate(
+                    mask_4d, size=(new_h, new_w), mode='bilinear', align_corners=False
+                ).squeeze(0).squeeze(0)
 
             # Hook pre-processing
             if detailer_hook is not None:
@@ -308,9 +311,11 @@ if IMPACT_AVAILABLE:
                         # Convert to tensor if numpy array
                         if isinstance(cropped_mask, np.ndarray):
                             cropped_mask = torch.from_numpy(cropped_mask)
-                        noise_mask = impact_utils.tensor_resize(cropped_mask.unsqueeze(0).unsqueeze(0),
-                                                        cropped_image.shape[2], cropped_image.shape[1])
-                        noise_mask = noise_mask.squeeze(0).squeeze(0)
+                        # Resize mask using torch interpolate (B, C, H, W format)
+                        mask_4d = cropped_mask.unsqueeze(0).unsqueeze(0).float()
+                        noise_mask = torch.nn.functional.interpolate(
+                            mask_4d, size=(cropped_image.shape[1], cropped_image.shape[2]), mode='bilinear', align_corners=False
+                        ).squeeze(0).squeeze(0)
                     else:
                         noise_mask = None
 
