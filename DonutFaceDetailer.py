@@ -80,11 +80,11 @@ if IMPACT_AVAILABLE:
                 "clip": ("CLIP",),
                 "vae": ("VAE",),
                 "resolution": ("INT", {
-                    "default": 1048576,
-                    "min": 65536,
-                    "max": 16777216,
-                    "step": 65536,
-                    "tooltip": "Target resolution in total pixels (1048576 = 1024x1024 equivalent)"
+                    "default": 1024,
+                    "min": 256,
+                    "max": 4096,
+                    "step": 64,
+                    "tooltip": "Target resolution as equivalent square size (e.g., 1024 = 1024x1024 pixels)"
                 }),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
@@ -332,6 +332,9 @@ if IMPACT_AVAILABLE:
                  sam_mask_hint_use_negative, drop_size, bbox_detector, wildcard, cycle, max_faces,
                  sam_model_opt=None, segm_detector_opt=None, detailer_hook=None, inpaint_model=False,
                  noise_mask_feather=0, scheduler_func_opt=None):
+
+            # Convert resolution from square side length to total pixels
+            resolution = resolution * resolution
 
             result_img = None
             result_mask = None
