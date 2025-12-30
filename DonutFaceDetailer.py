@@ -1,19 +1,24 @@
 """
-DonutFaceDetailer - FaceDetailer with max_faces limit.
+DonutFaceDetailer - FaceDetailer with max_faces limit and megapixel-based sizing.
 Only processes the N largest detected faces, ignoring small background faces.
+Uses total pixel count instead of max edge length for consistent VRAM usage.
 """
 
+import math
 import torch
 import logging
 import comfy.samplers
+import comfy.sample
+import comfy.model_management
+import comfy.utils
 import nodes
 from nodes import MAX_RESOLUTION
 
 # Import from Impact Pack
 try:
     import impact.core as core
-    from impact.impact_pack import DetailerForEach
-    from impact import utils
+    from impact import utils as impact_utils
+    from comfy_extras import nodes_differential_diffusion
     IMPACT_AVAILABLE = True
 except ImportError:
     IMPACT_AVAILABLE = False
@@ -40,11 +45,31 @@ def filter_segs_by_area(segs, max_count):
     return (shape, sorted_segs[:max_count])
 
 
+def scale_to_megapixels(w, h, target_pixels):
+    """
+    Calculate new dimensions that maintain aspect ratio and hit target pixel count.
+    Returns (new_w, new_h) rounded to nearest 8 pixels.
+    """
+    current_pixels = w * h
+    if current_pixels <= 0:
+        return w, h
+
+    scale = math.sqrt(target_pixels / current_pixels)
+    new_w = int(round(w * scale / 8) * 8)
+    new_h = int(round(h * scale / 8) * 8)
+
+    # Ensure minimum size
+    new_w = max(64, new_w)
+    new_h = max(64, new_h)
+
+    return new_w, new_h
+
+
 if IMPACT_AVAILABLE:
     class DonutFaceDetailer:
         """
-        FaceDetailer with max_faces limit.
-        Only processes the N largest detected faces, useful for ignoring small background faces.
+        FaceDetailer with max_faces limit and megapixel-based sizing.
+        Uses total pixel count (resolution) instead of max edge length for consistent VRAM usage.
         """
 
         @classmethod
@@ -54,9 +79,13 @@ if IMPACT_AVAILABLE:
                 "model": ("MODEL",),
                 "clip": ("CLIP",),
                 "vae": ("VAE",),
-                "guide_size": ("FLOAT", {"default": 512, "min": 64, "max": MAX_RESOLUTION, "step": 8}),
-                "guide_size_for": ("BOOLEAN", {"default": True, "label_on": "bbox", "label_off": "crop_region"}),
-                "max_size": ("FLOAT", {"default": 1024, "min": 64, "max": MAX_RESOLUTION, "step": 8}),
+                "resolution": ("INT", {
+                    "default": 1048576,
+                    "min": 65536,
+                    "max": 16777216,
+                    "step": 65536,
+                    "tooltip": "Target resolution in total pixels (1048576 = 1024x1024 equivalent)"
+                }),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
                 "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}),
@@ -109,15 +138,96 @@ if IMPACT_AVAILABLE:
         CATEGORY = "ImpactPack/Simple"
 
         @staticmethod
-        def enhance_face(image, model, clip, vae, guide_size, guide_size_for_bbox, max_size, seed, steps, cfg,
-                         sampler_name, scheduler, positive, negative, denoise, feather, noise_mask, force_inpaint,
+        def enhance_detail_megapixel(image, model, clip, vae, resolution, bbox, seed, steps, cfg,
+                                      sampler_name, scheduler, positive, negative, denoise,
+                                      noise_mask, force_inpaint, noise_mask_feather=0,
+                                      inpaint_model=False, detailer_hook=None, scheduler_func=None):
+            """
+            Enhanced detail function using megapixel-based sizing.
+            Scales crop region to target total pixel count regardless of aspect ratio.
+            """
+            if noise_mask is not None:
+                noise_mask = impact_utils.tensor_gaussian_blur_mask(noise_mask, noise_mask_feather)
+                noise_mask = noise_mask.squeeze(3)
+
+                if noise_mask_feather > 0 and 'denoise_mask_function' not in model.model_options:
+                    model = nodes_differential_diffusion.DifferentialDiffusion().execute(model)[0]
+
+            h = image.shape[1]
+            w = image.shape[2]
+
+            bbox_h = bbox[3] - bbox[1]
+            bbox_w = bbox[2] - bbox[0]
+
+            # Calculate target dimensions using megapixel approach
+            new_w, new_h = scale_to_megapixels(w, h, resolution)
+
+            # Calculate effective upscale factor
+            upscale = new_w / w
+
+            if not force_inpaint:
+                if upscale <= 1.0:
+                    logging.info(f"[DonutFaceDetailer] Segment skip [upscale={upscale:.2f}]")
+                    return None, None
+
+                if new_w == 0 or new_h == 0:
+                    logging.info(f"[DonutFaceDetailer] Segment skip [zero size]")
+                    return None, None
+            else:
+                if upscale <= 1.0 or new_w == 0 or new_h == 0:
+                    logging.info("[DonutFaceDetailer] Force inpaint with original size")
+                    upscale = 1.0
+                    new_w = w
+                    new_h = h
+
+            if detailer_hook is not None:
+                new_w, new_h = detailer_hook.touch_scaled_size(new_w, new_h)
+
+            logging.info(f"[DonutFaceDetailer] Crop {w}x{h} -> {new_w}x{new_h} ({new_w*new_h:,} pixels, target {resolution:,})")
+
+            # Scale image
+            scaled_image = core.tensor_resize(image, new_w, new_h)
+
+            # Scale mask if present
+            if noise_mask is not None:
+                noise_mask = core.tensor_resize(noise_mask, new_w, new_h)
+                if inpaint_model:
+                    latent_image = core.make_masked_latent_for_inpaint(scaled_image, noise_mask, vae)
+                else:
+                    latent_image = core.to_latent_image(scaled_image, vae)
+            else:
+                latent_image = core.to_latent_image(scaled_image, vae)
+
+            # Hook pre-processing
+            if detailer_hook is not None:
+                latent_image = detailer_hook.touch_latent(latent_image)
+
+            # Prepare noise mask for latent
+            if noise_mask is not None:
+                latent_image['noise_mask'] = noise_mask.reshape((-1, 1, noise_mask.shape[-2], noise_mask.shape[-1]))
+
+            # Sample
+            refined_latent = core.ksampler_wrapper(model, seed, steps, cfg, sampler_name, scheduler,
+                                                    positive, negative, latent_image, denoise,
+                                                    scheduler_func=scheduler_func)
+
+            # Decode
+            refined_image = core.latent_to_image(refined_latent, vae)
+
+            # Hook post-processing
+            if detailer_hook is not None:
+                refined_image = detailer_hook.post_detection(refined_image)
+
+            return refined_image, None
+
+        @staticmethod
+        def enhance_face(image, model, clip, vae, resolution, seed, steps, cfg,
+                         sampler_name, scheduler, positive, negative, denoise, feather, noise_mask_enabled, force_inpaint,
                          bbox_threshold, bbox_dilation, bbox_crop_factor,
                          sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
                          sam_mask_hint_use_negative, drop_size, bbox_detector, max_faces,
                          segm_detector=None, sam_model_opt=None, wildcard_opt=None, detailer_hook=None,
-                         refiner_ratio=None, refiner_model=None, refiner_clip=None, refiner_positive=None,
-                         refiner_negative=None, cycle=1, inpaint_model=False, noise_mask_feather=0,
-                         scheduler_func_opt=None):
+                         cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None):
 
             # Detect faces
             bbox_detector.setAux('face')
@@ -145,36 +255,77 @@ if IMPACT_AVAILABLE:
                     segm_mask = core.segs_to_combined_mask(segm_segs)
                     segs = core.segs_bitwise_and_mask(segs, segm_mask)
 
+            # Process each segment with megapixel-based sizing
             if len(segs[1]) > 0:
-                enhanced_img, _, cropped_enhanced, cropped_enhanced_alpha, cnet_pil_list, new_segs = \
-                    DetailerForEach.do_detail(image, segs, model, clip, vae, guide_size, guide_size_for_bbox, max_size,
-                                              seed, steps, cfg, sampler_name, scheduler, positive, negative, denoise,
-                                              feather, noise_mask, force_inpaint, wildcard_opt, detailer_hook,
-                                              refiner_ratio=refiner_ratio, refiner_model=refiner_model,
-                                              refiner_clip=refiner_clip, refiner_positive=refiner_positive,
-                                              refiner_negative=refiner_negative, cycle=cycle, inpaint_model=inpaint_model,
-                                              noise_mask_feather=noise_mask_feather, scheduler_func_opt=scheduler_func_opt)
+                enhanced_img = image.clone()
+                cropped_enhanced = []
+                cropped_enhanced_alpha = []
+                cnet_pil_list = []
+
+                for seg in segs[1]:
+                    # Get crop region
+                    cropped_image = seg.cropped_image
+                    cropped_mask = seg.cropped_mask
+                    crop_region = seg.crop_region
+                    bbox = seg.bbox
+
+                    if cropped_image is None:
+                        cropped_image = core.crop_image(image, crop_region)
+
+                    if noise_mask_enabled and cropped_mask is not None:
+                        noise_mask = core.tensor_resize(cropped_mask.unsqueeze(0).unsqueeze(0),
+                                                        cropped_image.shape[2], cropped_image.shape[1])
+                        noise_mask = noise_mask.squeeze(0).squeeze(0)
+                    else:
+                        noise_mask = None
+
+                    # Run detail enhancement cycles
+                    enhanced_cropped = cropped_image
+                    for c in range(cycle):
+                        cycle_seed = seed + c * 1000
+                        result, _ = DonutFaceDetailer.enhance_detail_megapixel(
+                            enhanced_cropped, model, clip, vae, resolution, bbox, cycle_seed, steps, cfg,
+                            sampler_name, scheduler, positive, negative, denoise,
+                            noise_mask if c == 0 else None, force_inpaint, noise_mask_feather,
+                            inpaint_model, detailer_hook, scheduler_func_opt)
+
+                        if result is not None:
+                            # Resize back to original crop size
+                            enhanced_cropped = core.tensor_resize(result, cropped_image.shape[2], cropped_image.shape[1])
+
+                    # Paste back
+                    if enhanced_cropped is not None:
+                        enhanced_img = core.tensor_paste(enhanced_img, enhanced_cropped, crop_region, feather)
+                        cropped_enhanced.append(enhanced_cropped)
+
+                        # Create alpha version
+                        if cropped_mask is not None:
+                            alpha_cropped = core.tensor_add_alpha(enhanced_cropped, cropped_mask)
+                            cropped_enhanced_alpha.append(alpha_cropped)
+                        else:
+                            cropped_enhanced_alpha.append(enhanced_cropped)
+
             else:
                 enhanced_img = image
                 cropped_enhanced = []
                 cropped_enhanced_alpha = []
                 cnet_pil_list = []
 
-            # Mask Generator
+            # Generate combined mask
             mask = core.segs_to_combined_mask(segs)
 
             if len(cropped_enhanced) == 0:
-                cropped_enhanced = [utils.empty_pil_tensor()]
+                cropped_enhanced = [impact_utils.empty_pil_tensor()]
 
             if len(cropped_enhanced_alpha) == 0:
-                cropped_enhanced_alpha = [utils.empty_pil_tensor()]
+                cropped_enhanced_alpha = [impact_utils.empty_pil_tensor()]
 
             if len(cnet_pil_list) == 0:
-                cnet_pil_list = [utils.empty_pil_tensor()]
+                cnet_pil_list = [impact_utils.empty_pil_tensor()]
 
             return enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list
 
-        def doit(self, image, model, clip, vae, guide_size, guide_size_for, max_size, seed, steps, cfg, sampler_name,
+        def doit(self, image, model, clip, vae, resolution, seed, steps, cfg, sampler_name,
                  scheduler, positive, negative, denoise, feather, noise_mask, force_inpaint,
                  bbox_threshold, bbox_dilation, bbox_crop_factor,
                  sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
@@ -194,7 +345,7 @@ if IMPACT_AVAILABLE:
             for i, single_image in enumerate(image):
                 enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list = \
                     DonutFaceDetailer.enhance_face(
-                        single_image.unsqueeze(0), model, clip, vae, guide_size, guide_size_for, max_size,
+                        single_image.unsqueeze(0), model, clip, vae, resolution,
                         seed + i, steps, cfg, sampler_name, scheduler, positive, negative, denoise, feather,
                         noise_mask, force_inpaint, bbox_threshold, bbox_dilation, bbox_crop_factor,
                         sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion,
