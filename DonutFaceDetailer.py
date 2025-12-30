@@ -277,6 +277,11 @@ if IMPACT_AVAILABLE:
                          segm_detector=None, sam_model_opt=None, wildcard_opt=None, detailer_hook=None,
                          cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None):
 
+            # Unload diffusion model before detection to free VRAM for SAM/detector
+            comfy.model_management.unload_all_models()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             # Detect faces
             bbox_detector.setAux('face')
             segs = bbox_detector.detect(image, bbox_threshold, bbox_dilation, bbox_crop_factor, drop_size,
