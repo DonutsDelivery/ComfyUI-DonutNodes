@@ -100,6 +100,7 @@ if IMPACT_AVAILABLE:
                     "step": 64,
                     "tooltip": "Maximum edge length (0 = no limit). Clamps if megapixel scaling would exceed this."
                 }),
+                "guide_size_for": ("BOOLEAN", {"default": True, "label_on": "bbox", "label_off": "crop_region"}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000}),
                 "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}),
@@ -152,7 +153,7 @@ if IMPACT_AVAILABLE:
         CATEGORY = "ImpactPack/Simple"
 
         @staticmethod
-        def enhance_detail_megapixel(image, model, clip, vae, resolution, max_resolution, bbox, seed, steps, cfg,
+        def enhance_detail_megapixel(image, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, bbox, seed, steps, cfg,
                                       sampler_name, scheduler, positive, negative, denoise,
                                       noise_mask, force_inpaint, noise_mask_feather=0,
                                       inpaint_model=False, detailer_hook=None, scheduler_func=None):
@@ -174,7 +175,25 @@ if IMPACT_AVAILABLE:
             bbox_w = bbox[2] - bbox[0]
 
             # Calculate target dimensions using megapixel approach
-            new_w, new_h = scale_to_megapixels(w, h, resolution, max_resolution)
+            if guide_size_for_bbox:
+                # Scale based on bbox - smaller faces get more upscaling
+                bbox_pixels = bbox_w * bbox_h
+                if bbox_pixels > 0:
+                    scale = math.sqrt(resolution / bbox_pixels)
+                    new_w = int(round(w * scale / 8) * 8)
+                    new_h = int(round(h * scale / 8) * 8)
+                    # Apply max_resolution clamp
+                    if max_resolution > 0 and (new_w > max_resolution or new_h > max_resolution):
+                        clamp_scale = max_resolution / max(new_w, new_h)
+                        new_w = int(round(new_w * clamp_scale / 8) * 8)
+                        new_h = int(round(new_h * clamp_scale / 8) * 8)
+                    new_w = max(64, new_w)
+                    new_h = max(64, new_h)
+                else:
+                    new_w, new_h = w, h
+            else:
+                # Scale based on crop region
+                new_w, new_h = scale_to_megapixels(w, h, resolution, max_resolution)
 
             # Calculate effective upscale factor
             upscale = new_w / w
@@ -235,7 +254,7 @@ if IMPACT_AVAILABLE:
             return refined_image, None
 
         @staticmethod
-        def enhance_face(image, model, clip, vae, resolution, max_resolution, seed, steps, cfg,
+        def enhance_face(image, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, seed, steps, cfg,
                          sampler_name, scheduler, positive, negative, denoise, feather, noise_mask_enabled, force_inpaint,
                          bbox_threshold, bbox_dilation, bbox_crop_factor,
                          sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
@@ -298,7 +317,7 @@ if IMPACT_AVAILABLE:
                     for c in range(cycle):
                         cycle_seed = seed + c * 1000
                         result, _ = DonutFaceDetailer.enhance_detail_megapixel(
-                            enhanced_cropped, model, clip, vae, resolution, max_resolution, bbox, cycle_seed, steps, cfg,
+                            enhanced_cropped, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, bbox, cycle_seed, steps, cfg,
                             sampler_name, scheduler, positive, negative, denoise,
                             noise_mask if c == 0 else None, force_inpaint, noise_mask_feather,
                             inpaint_model, detailer_hook, scheduler_func_opt)
@@ -339,7 +358,7 @@ if IMPACT_AVAILABLE:
 
             return enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list
 
-        def doit(self, image, model, clip, vae, resolution, max_resolution, seed, steps, cfg, sampler_name,
+        def doit(self, image, model, clip, vae, resolution, max_resolution, guide_size_for, seed, steps, cfg, sampler_name,
                  scheduler, positive, negative, denoise, feather, noise_mask, force_inpaint,
                  bbox_threshold, bbox_dilation, bbox_crop_factor,
                  sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
@@ -362,7 +381,7 @@ if IMPACT_AVAILABLE:
             for i, single_image in enumerate(image):
                 enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list = \
                     DonutFaceDetailer.enhance_face(
-                        single_image.unsqueeze(0), model, clip, vae, resolution, max_resolution,
+                        single_image.unsqueeze(0), model, clip, vae, resolution, max_resolution, guide_size_for,
                         seed + i, steps, cfg, sampler_name, scheduler, positive, negative, denoise, feather,
                         noise_mask, force_inpaint, bbox_threshold, bbox_dilation, bbox_crop_factor,
                         sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion,
