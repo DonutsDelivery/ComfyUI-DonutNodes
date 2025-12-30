@@ -303,6 +303,11 @@ if IMPACT_AVAILABLE:
                     segm_mask = core.segs_to_combined_mask(segm_segs)
                     segs = core.segs_bitwise_and_mask(segs, segm_mask)
 
+            # Unload detection models before inpainting to free VRAM
+            comfy.model_management.unload_all_models()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
             # Process each segment with megapixel-based sizing
             if len(segs[1]) > 0:
                 enhanced_img = image.clone()
