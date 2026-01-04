@@ -879,9 +879,27 @@ class DonutLoraGridBrowser {
             this.renderGrid();
         };
 
+        // Find Duplicates button
+        const duplicatesBtn = document.createElement("button");
+        duplicatesBtn.textContent = "Find Duplicates";
+        duplicatesBtn.style.cssText = `
+            padding: 10px 15px;
+            background: #2a2a40;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #eee;
+            font-size: 14px;
+            cursor: pointer;
+            margin-left: auto;
+        `;
+        duplicatesBtn.onmouseover = () => duplicatesBtn.style.background = "#3a3a50";
+        duplicatesBtn.onmouseout = () => duplicatesBtn.style.background = "#2a2a40";
+        duplicatesBtn.onclick = () => this.showDuplicatesDialog();
+
         searchContainer.appendChild(searchInput);
         searchContainer.appendChild(folderSelect);
         searchContainer.appendChild(viewSelect);
+        searchContainer.appendChild(duplicatesBtn);
         dialog.appendChild(searchContainer);
 
         // Grid container with vertical scroll
@@ -1450,6 +1468,157 @@ class DonutLoraGridBrowser {
         // Focus search
         const searchInput = dialog.querySelector("#donut-grid-search");
         if (searchInput) searchInput.focus();
+    }
+
+    async showDuplicatesDialog() {
+        // Create overlay
+        const overlay = document.createElement("div");
+        overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 10002;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        `;
+
+        const dialog = document.createElement("div");
+        dialog.style.cssText = `
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 700px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: #eee;
+        `;
+
+        dialog.innerHTML = `
+            <h2 style="margin: 0 0 15px 0; font-size: 18px;">Finding Duplicate LoRAs...</h2>
+            <p style="color: #aaa; margin: 0;">Scanning for files with identical hashes...</p>
+        `;
+
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        // Close on overlay click
+        overlay.onclick = (e) => {
+            if (e.target === overlay) overlay.remove();
+        };
+
+        // Fetch duplicates
+        try {
+            const response = await api.fetchApi("/donut/loras/duplicates");
+            if (!response.ok) {
+                throw new Error("Failed to fetch duplicates");
+            }
+
+            const data = await response.json();
+
+            if (data.totalGroups === 0) {
+                dialog.innerHTML = `
+                    <h2 style="margin: 0 0 15px 0; font-size: 18px;">No Duplicates Found</h2>
+                    <p style="color: #aaa;">All your LoRAs have unique hashes.</p>
+                    <button id="close-dup-btn" style="margin-top: 15px; padding: 10px 20px; background: #444; border: none; border-radius: 4px; color: #eee; cursor: pointer;">Close</button>
+                `;
+                dialog.querySelector("#close-dup-btn").onclick = () => overlay.remove();
+                return;
+            }
+
+            // Format file size
+            const formatSize = (bytes) => {
+                if (bytes < 1024) return bytes + " B";
+                if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+                if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+                return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
+            };
+
+            let html = `
+                <h2 style="margin: 0 0 10px 0; font-size: 18px;">Duplicate LoRAs Found</h2>
+                <p style="color: #aaa; margin: 0 0 15px 0;">
+                    Found <b>${data.totalGroups}</b> groups with <b>${data.totalDuplicateFiles}</b> duplicate files
+                    (${formatSize(data.totalWastedBytes)} wasted)
+                </p>
+                <div style="max-height: 50vh; overflow-y: auto;">
+            `;
+
+            for (const group of data.duplicates) {
+                html += `
+                    <div style="background: #252540; border-radius: 4px; padding: 12px; margin-bottom: 10px;">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 8px;">Hash: ${group.sha256.substring(0, 16)}...</div>
+                `;
+
+                for (let i = 0; i < group.files.length; i++) {
+                    const file = group.files[i];
+                    const isFirst = i === 0;
+                    html += `
+                        <div style="display: flex; align-items: center; gap: 10px; padding: 6px 0; ${!isFirst ? 'border-top: 1px solid #333;' : ''}">
+                            <span style="flex: 1; font-size: 13px; ${isFirst ? 'color: #8f8;' : 'color: #f88;'}">${file.filename}</span>
+                            <span style="color: #888; font-size: 12px;">${formatSize(file.size)}</span>
+                            ${!isFirst ? `<button class="delete-dup-btn" data-path="${file.full_path}" style="padding: 4px 10px; background: #a33; border: none; border-radius: 3px; color: #fff; cursor: pointer; font-size: 12px;">Delete</button>` : '<span style="color: #8f8; font-size: 11px;">KEEP</span>'}
+                        </div>
+                    `;
+                }
+
+                html += `</div>`;
+            }
+
+            html += `
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button id="close-dup-btn" style="padding: 10px 20px; background: #444; border: none; border-radius: 4px; color: #eee; cursor: pointer;">Close</button>
+                </div>
+            `;
+
+            dialog.innerHTML = html;
+
+            // Add close handler
+            dialog.querySelector("#close-dup-btn").onclick = () => overlay.remove();
+
+            // Add delete handlers
+            dialog.querySelectorAll(".delete-dup-btn").forEach(btn => {
+                btn.onclick = async (e) => {
+                    const path = btn.dataset.path;
+                    if (!confirm(`Delete this duplicate?\n\n${path}`)) return;
+
+                    btn.disabled = true;
+                    btn.textContent = "...";
+
+                    try {
+                        const delResponse = await api.fetchApi(`/donut/loras/by-path?path=${encodeURIComponent(path)}`, {
+                            method: "DELETE"
+                        });
+
+                        if (delResponse.ok) {
+                            btn.parentElement.style.opacity = "0.4";
+                            btn.textContent = "Deleted";
+                            btn.style.background = "#333";
+                        } else {
+                            btn.textContent = "Error";
+                            btn.disabled = false;
+                        }
+                    } catch (err) {
+                        console.error("Delete error:", err);
+                        btn.textContent = "Error";
+                        btn.disabled = false;
+                    }
+                };
+            });
+
+        } catch (error) {
+            console.error("Error fetching duplicates:", error);
+            dialog.innerHTML = `
+                <h2 style="margin: 0 0 15px 0; font-size: 18px;">Error</h2>
+                <p style="color: #f88;">Failed to scan for duplicates: ${error.message}</p>
+                <button id="close-dup-btn" style="margin-top: 15px; padding: 10px 20px; background: #444; border: none; border-radius: 4px; color: #eee; cursor: pointer;">Close</button>
+            `;
+            dialog.querySelector("#close-dup-btn").onclick = () => overlay.remove();
+        }
     }
 }
 

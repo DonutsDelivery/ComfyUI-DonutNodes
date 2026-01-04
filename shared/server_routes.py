@@ -42,10 +42,59 @@ except ImportError:
 
 # Import hash computation
 try:
-    from .lora_hash import get_or_compute_hash
+    from .lora_hash import get_or_compute_hash, get_cached_hash
     HAS_LORA_HASH = True
 except ImportError:
     HAS_LORA_HASH = False
+
+
+def find_file_by_hash(sha256: str, folder_types: list = None) -> dict:
+    """
+    Search for a file with the given SHA256 hash across model folders.
+
+    Args:
+        sha256: The SHA256 hash to search for (case-insensitive)
+        folder_types: List of folder types to search (e.g., ["loras", "checkpoints"])
+                     If None, searches loras, checkpoints, embeddings, controlnet, vae, upscale_models
+
+    Returns:
+        dict with 'found', 'filename', 'full_path', 'folder_type' if found, else {'found': False}
+    """
+    if not HAS_FOLDER_PATHS or not HAS_LORA_HASH:
+        return {"found": False, "error": "Required modules not available"}
+
+    sha256 = sha256.upper()
+
+    if folder_types is None:
+        folder_types = ["loras", "checkpoints", "embeddings", "controlnet", "vae", "upscale_models"]
+
+    extensions = ('.safetensors', '.pt', '.ckpt', '.bin', '.pth')
+
+    for folder_type in folder_types:
+        try:
+            paths = folder_paths.get_folder_paths(folder_type)
+        except:
+            continue
+
+        for base_dir in paths:
+            if not os.path.exists(base_dir):
+                continue
+            for root, dirs, files in os.walk(base_dir):
+                for file in files:
+                    if file.endswith(extensions):
+                        full_path = os.path.join(root, file)
+                        cached = get_cached_hash(full_path)
+                        if cached and "SHA256" in cached:
+                            if cached["SHA256"].upper() == sha256:
+                                rel_path = os.path.relpath(full_path, base_dir)
+                                return {
+                                    "found": True,
+                                    "filename": rel_path,
+                                    "full_path": full_path,
+                                    "folder_type": folder_type
+                                }
+
+    return {"found": False}
 
 
 def register_routes():
@@ -551,9 +600,22 @@ def register_routes():
             base_model = data.get("baseModel", "")
             filename = data.get("filename", "model.safetensors")
             sha256 = data.get("sha256")  # Pre-known hash from CivitAI
+            skip_duplicate_check = data.get("skipDuplicateCheck", False)
 
             if not download_url:
                 return web.json_response({"error": "No download URL provided"}, status=400)
+
+            # Check for existing file with same hash before downloading
+            if sha256 and not skip_duplicate_check:
+                existing = find_file_by_hash(sha256)
+                if existing.get("found"):
+                    return web.json_response({
+                        "error": "duplicate",
+                        "message": f"File already exists: {existing['filename']}",
+                        "existingFile": existing["filename"],
+                        "existingPath": existing["full_path"],
+                        "folderType": existing["folder_type"]
+                    }, status=409)  # 409 Conflict
 
             # Get download path based on model type and base model
             save_path = get_download_path(model_type, base_model, filename)
@@ -743,6 +805,79 @@ def register_routes():
             return web.json_response({
                 "hashes": list(hashes),
                 "count": len(hashes)
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return web.json_response({"error": str(e)}, status=500)
+
+    @routes.get('/donut/loras/duplicates')
+    async def find_duplicate_loras(request):
+        """
+        Find duplicate LoRA files by scanning for identical SHA256 hashes.
+        Returns groups of files that share the same hash.
+        """
+        if not HAS_FOLDER_PATHS:
+            return web.json_response({"error": "folder_paths not available"}, status=500)
+
+        if not HAS_LORA_HASH:
+            return web.json_response({"error": "lora_hash module not available"}, status=500)
+
+        try:
+            from .lora_hash import get_cached_hash
+
+            lora_paths = folder_paths.get_folder_paths("loras")
+
+            # Map hash -> list of files
+            hash_to_files = {}
+
+            for lora_dir in lora_paths:
+                if not os.path.exists(lora_dir):
+                    continue
+                for root, dirs, files in os.walk(lora_dir):
+                    for file in files:
+                        if file.endswith(('.safetensors', '.pt', '.ckpt')):
+                            full_path = os.path.join(root, file)
+                            cached = get_cached_hash(full_path)
+                            if cached and "SHA256" in cached:
+                                sha256 = cached["SHA256"].upper()
+                                rel_path = os.path.relpath(full_path, lora_dir)
+                                file_size = os.path.getsize(full_path)
+
+                                if sha256 not in hash_to_files:
+                                    hash_to_files[sha256] = []
+
+                                hash_to_files[sha256].append({
+                                    "filename": rel_path,
+                                    "full_path": full_path,
+                                    "size": file_size
+                                })
+
+            # Filter to only groups with duplicates (2+ files)
+            duplicates = []
+            for sha256, files in hash_to_files.items():
+                if len(files) > 1:
+                    # Sort by path length (shorter = likely original)
+                    files.sort(key=lambda f: len(f["filename"]))
+                    duplicates.append({
+                        "sha256": sha256,
+                        "files": files,
+                        "count": len(files)
+                    })
+
+            # Sort by count descending
+            duplicates.sort(key=lambda d: d["count"], reverse=True)
+
+            total_wasted = sum(
+                sum(f["size"] for f in d["files"][1:])  # All but first file
+                for d in duplicates
+            )
+
+            return web.json_response({
+                "duplicates": duplicates,
+                "totalGroups": len(duplicates),
+                "totalDuplicateFiles": sum(d["count"] - 1 for d in duplicates),
+                "totalWastedBytes": total_wasted
             })
         except Exception as e:
             import traceback

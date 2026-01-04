@@ -999,7 +999,21 @@ class DonutCivitaiBrowser {
                     this.resetDownloadButton(buttonElement, "Error!");
                     setTimeout(() => this.resetDownloadButton(buttonElement), 2000);
                 }
-                alert(`Download failed: ${error.error}`);
+
+                // Handle duplicate file error specially
+                if (error.error === "duplicate") {
+                    this.showNotification(
+                        "Already Downloaded",
+                        `File exists: ${error.existingFile}`,
+                        5000
+                    );
+                    // Add to local hashes so badge shows
+                    if (file.hashes?.SHA256) {
+                        this.addLocalHash(file.hashes.SHA256);
+                    }
+                } else {
+                    alert(`Download failed: ${error.error || error.message}`);
+                }
             }
         } catch (error) {
             console.error("[CivitAI Browser] Download error:", error);
@@ -1128,6 +1142,12 @@ class DonutCivitaiBrowser {
                 body: JSON.stringify({ folder })
             });
             console.log(`[CivitAI Browser] Refreshed ${folder} cache`);
+
+            // Also refresh ComfyUI's node definitions so dropdowns update
+            if (window.app && typeof window.app.refreshComboInNodes === "function") {
+                await window.app.refreshComboInNodes();
+                console.log(`[CivitAI Browser] Refreshed node combo widgets`);
+            }
         } catch (error) {
             console.error("[CivitAI Browser] Error refreshing cache:", error);
         }
@@ -2960,6 +2980,16 @@ class DonutCivitaiBrowser {
                 return data.downloadId;
             } else {
                 const error = await response.json();
+                // Handle duplicate file error
+                if (error.error === "duplicate") {
+                    this.showNotification(
+                        "Already Downloaded",
+                        `File exists: ${error.existingFile}`,
+                        5000
+                    );
+                    if (sha256) this.addLocalHash(sha256);
+                    return "duplicate";
+                }
                 console.error(`[CivitAI Browser] Download failed: ${error.error}`);
                 return null;
             }
@@ -4196,8 +4226,17 @@ class DonutCivitaiBrowser {
                 });
 
                 if (!downloadResponse.ok) {
-                    const error = await downloadResponse.text();
-                    addStatus(`✗ Download failed: ${error}`, "#ff6666");
+                    const errorData = await downloadResponse.json().catch(() => ({}));
+                    // Handle duplicate detected by server
+                    if (errorData.error === "duplicate") {
+                        addStatus(`✓ ${modelName} already exists: ${errorData.existingFile}`, "#66ff66");
+                        if (sha256) this.addLocalHash(sha256);
+                        // Try to load the existing file to slot
+                        await this.loadDownloadedToSlot(sha256, currentSlot, modelName);
+                        currentSlot++;
+                        continue;
+                    }
+                    addStatus(`✗ Download failed: ${errorData.error || errorData.message || "Unknown error"}`, "#ff6666");
                     continue;
                 }
 

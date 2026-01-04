@@ -20,35 +20,21 @@ except ImportError:
 # ------------------------------------------------------------------------
 # DonutLoRAStack: build up to 3 LoRAs with independent model & clip strengths + optional per-block vectors
 # Now with CivitAI metadata integration!
-# Block weight presets for different model architectures
-# Format: "DisplayName:vector_values" - the part after : is the actual vector
 #
-# Z-Image Turbo (ZIT) has 30 transformer layers with approximate roles:
-#   - Early (0-5): Translation/encoding - converts prompt to internal representation
-#   - Lower-Mid (6-14): Composition/layout - structural arrangement
-#   - Upper-Mid (15-23): Details/attributes - fine-grained features
-#   - Late (24-29): Refinement/aesthetics - style and quality
+# Block weight vector format: position 0 = non-block components (embedders, refiners, etc.),
+# positions 1+ = block/layer weights
 #
-# Block weight presets organized by model type
-# Format: "PREFIX-NAME:vector_values" - prefix determines which model selector shows it
-#
-# Architecture info:
-#   SDXL: 1 base + 12 blocks (IN0-8, MID, OUT0-2)
-#   SD1.5: 1 base + 17 blocks (IN0-11, MID, OUT0-3)
-#   FLUX: 1 base + 57 blocks (19 double + 38 single)
-#   ZIT (Z-Image Turbo): 1 base + 30 transformer layers
-#
-# Z-Image Turbo layer roles:
-#   - Early (0-5): Translation/encoding - converts prompt to internal representation
-#   - Lower-Mid (6-14): Composition/layout - structural arrangement
-#   - Upper-Mid (15-23): Details/attributes - fine-grained features
-#   - Late (24-29): Refinement/aesthetics - style and quality
+# Architecture block counts:
+#   SDXL: 12 blocks (IN0-8, MID, OUT0-2)
+#   SD1.5: 17 blocks (IN0-11, MID, OUT0-3)
+#   FLUX: 57 blocks (19 double + 38 single)
+#   ZIT: 30 transformer layers (+ x_embedder, refiners, etc. in position 0)
 
-MODEL_TYPES = ["Auto", "SDXL", "SD15", "FLUX", "ZIT"]
+MODEL_TYPES = ["Auto", "SDXL", "SD15", "FLUX", "ZIT", "ZIT-NE"]
 
 # Presets by model type
 # All presets use contiguous ranges only (no holes in the middle)
-# SDXL: IN blocks (0-8), MID block (9), OUT blocks (10-11) = 12 blocks + 1 base
+# SDXL: IN blocks (0-8), MID block (9), OUT blocks (10-11) = 12 blocks
 SDXL_PRESETS = {
     "ALL": ",".join(["1"] * 13),
     # Enable from start (first N blocks)
@@ -68,7 +54,7 @@ SDXL_PRESETS = {
     "HALF": ",".join(["1"] + ["0.5"]*12),
 }
 
-# SD1.5: IN blocks (0-11), MID block (12), OUT blocks (13-16) = 17 blocks + 1 base
+# SD1.5: IN blocks (0-11), MID block (12), OUT blocks (13-16) = 17 blocks
 SD15_PRESETS = {
     "ALL": ",".join(["1"] * 18),
     # Enable from start (first N blocks)
@@ -88,7 +74,7 @@ SD15_PRESETS = {
     "HALF": ",".join(["1"] + ["0.5"]*17),
 }
 
-# FLUX: Double blocks (0-18), Single blocks (19-56) = 57 blocks + 1 base
+# FLUX: Double blocks (0-18), Single blocks (19-56) = 57 blocks
 FLUX_PRESETS = {
     "ALL": ",".join(["1"] * 58),
     # Enable from start
@@ -110,7 +96,7 @@ FLUX_PRESETS = {
     "HALF": ",".join(["1"] + ["0.5"]*57),
 }
 
-# ZIT (Z-Image Turbo): 30 transformer layers + 1 base
+# ZIT (Z-Image Turbo): 30 transformer layers
 # Early (0-5), Lower-Mid (6-14), Upper-Mid (15-23), Late (24-29)
 ZIT_PRESETS = {
     "ALL": ",".join(["1"] * 31),
@@ -139,6 +125,35 @@ ZIT_PRESETS = {
     "HALF": ",".join(["1"] + ["0.5"]*30),
 }
 
+# ZIT-NE (Z-Image Turbo No Embeds): Same as ZIT but with 0 for non-layer components
+# Use this when you don't want LoRA to affect x_embedder, refiners, etc.
+ZIT_NE_PRESETS = {
+    "ALL": ",".join(["0"] + ["1"]*30),
+    # Enable from start (cumulative)
+    "EARLY-ONLY": ",".join(["0"] + ["1"]*6 + ["0"]*24),          # Early only (0-5)
+    "EARLY-LOWMID": ",".join(["0"] + ["1"]*15 + ["0"]*15),       # Early + LowMid (0-14)
+    "EARLY-MID": ",".join(["0"] + ["1"]*24 + ["0"]*6),           # Early + all Mid (0-23)
+    # Enable from end (cumulative)
+    "LATE-ONLY": ",".join(["0"] + ["0"]*24 + ["1"]*6),           # Late only (24-29)
+    "UPMID-LATE": ",".join(["0"] + ["0"]*15 + ["1"]*15),         # UpMid + Late (15-29)
+    "MID-LATE": ",".join(["0"] + ["0"]*6 + ["1"]*24),            # All Mid + Late (6-29)
+    # Contiguous middle sections (gaps on edges only)
+    "LOWMID-ONLY": ",".join(["0"] + ["0"]*6 + ["1"]*9 + ["0"]*15),   # LowMid only (6-14)
+    "UPMID-ONLY": ",".join(["0"] + ["0"]*15 + ["1"]*9 + ["0"]*6),    # UpMid only (15-23)
+    "MID-ONLY": ",".join(["0"] + ["0"]*6 + ["1"]*18 + ["0"]*6),      # All Mid (6-23)
+    "CORE": ",".join(["0"] + ["0"]*10 + ["1"]*10 + ["0"]*10),        # Core center (10-19)
+    "CORE-WIDE": ",".join(["0"] + ["0"]*8 + ["1"]*14 + ["0"]*8),     # Wider core (8-21)
+    "CORE-NARROW": ",".join(["0"] + ["0"]*12 + ["1"]*6 + ["0"]*12),  # Narrow core (12-17)
+    # Eased gradients
+    "EASE-IN": ",".join(["0"] + [f"{i/29:.2f}" for i in range(30)]),
+    "EASE-OUT": ",".join(["0"] + [f"{1-i/29:.2f}" for i in range(30)]),
+    "EASE-MID": ",".join(["0"] + [f"{1-abs(i-14.5)/14.5:.2f}" for i in range(30)]),
+    "EASE-IN-QUAD": ",".join(["0"] + [f"{(i/29)**2:.2f}" for i in range(30)]),
+    "EASE-OUT-QUAD": ",".join(["0"] + [f"{1-(i/29)**2:.2f}" for i in range(30)]),
+    # Half strength
+    "HALF": ",".join(["0"] + ["0.5"]*30),
+}
+
 # Build lookup dict for preset name -> vector
 def build_preset_lookup():
     """Build a lookup dictionary from preset name to vector.
@@ -159,6 +174,9 @@ def build_preset_lookup():
     for name, vec in ZIT_PRESETS.items():
         lookup[f"ZIT-{name}"] = vec
         lookup[f"ZIT-{name}:{vec}"] = vec
+    for name, vec in ZIT_NE_PRESETS.items():
+        lookup[f"ZIT-NE-{name}"] = vec
+        lookup[f"ZIT-NE-{name}:{vec}"] = vec
     return lookup
 
 PRESET_LOOKUP = build_preset_lookup()
@@ -179,6 +197,8 @@ def build_preset_list(model_type=None):
             presets.append(f"FLUX-{name}:{vec}")
         for name, vec in ZIT_PRESETS.items():
             presets.append(f"ZIT-{name}:{vec}")
+        for name, vec in ZIT_NE_PRESETS.items():
+            presets.append(f"ZIT-NE-{name}:{vec}")
     elif model_type == "SDXL":
         for name, vec in SDXL_PRESETS.items():
             presets.append(f"SDXL-{name}:{vec}")
@@ -191,6 +211,9 @@ def build_preset_list(model_type=None):
     elif model_type == "ZIT":
         for name, vec in ZIT_PRESETS.items():
             presets.append(f"ZIT-{name}:{vec}")
+    elif model_type == "ZIT-NE":
+        for name, vec in ZIT_NE_PRESETS.items():
+            presets.append(f"ZIT-NE-{name}:{vec}")
 
     return presets
 
