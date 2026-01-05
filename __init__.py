@@ -70,6 +70,10 @@ from .DonutFaceDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_face_detailer
 from .DonutUniversalDetailer import NODE_CLASS_MAPPINGS        as m_universal_detailer
 from .DonutUniversalDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_universal_detailer
 
+# Prompt Receiver (HTTP API)
+from .DonutPromptReceiver import NODE_CLASS_MAPPINGS        as m_prompt_receiver
+from .DonutPromptReceiver import NODE_DISPLAY_NAME_MAPPINGS as d_prompt_receiver
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -89,6 +93,7 @@ NODE_CLASS_MAPPINGS = {
     **m_model_save,
     **m_face_detailer,
     **m_universal_detailer,
+    **m_prompt_receiver,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -107,6 +112,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_model_save,
     **d_face_detailer,
     **d_universal_detailer,
+    **d_prompt_receiver,
 }
 
 # Web directory for custom JavaScript extensions
