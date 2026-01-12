@@ -180,6 +180,9 @@ if IMPACT_AVAILABLE:
             if guide_size_for_bbox:
                 # Scale based on bbox - smaller faces get more upscaling
                 bbox_pixels = bbox_w * bbox_h
+                if bbox_pixels > resolution:
+                    logging.info("[DonutFaceDetailer] Segment skip [bbox larger than target]")
+                    return None, None
                 if bbox_pixels > 0:
                     scale = math.sqrt(resolution / bbox_pixels)
                     new_w = int(round(w * scale / 8) * 8)
@@ -195,6 +198,10 @@ if IMPACT_AVAILABLE:
                     new_w, new_h = w, h
             else:
                 # Scale based on crop region
+                crop_pixels = w * h
+                if crop_pixels > resolution:
+                    logging.info("[DonutFaceDetailer] Segment skip [crop larger than target]")
+                    return None, None
                 new_w, new_h = scale_to_megapixels(w, h, resolution, max_resolution)
 
             # Calculate effective upscale factor

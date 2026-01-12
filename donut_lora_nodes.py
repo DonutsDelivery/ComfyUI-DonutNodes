@@ -532,8 +532,71 @@ class DonutApplyLoRAStack:
         return (unet, text_enc, help_url)
 
 
+# ------------------------------------------------------------------------
+# DonutLoraStackCombine: merge two lora stacks into one
+# ------------------------------------------------------------------------
+class DonutLoraStackCombine:
+    """Combines two LORA_STACK inputs into a single output."""
+    class_type = "CUSTOM"
+    aux_id = "DonutsDelivery/ComfyUI-DonutNodes"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {},
+            "optional": {
+                "lora_stack_1": ("LORA_STACK",),
+                "lora_stack_2": ("LORA_STACK",),
+            },
+        }
+
+    RETURN_TYPES = ("LORA_STACK",)
+    RETURN_NAMES = ("lora_stack",)
+    FUNCTION = "combine"
+    CATEGORY = "donut/LoRA"
+
+    def combine(self, lora_stack_1=None, lora_stack_2=None):
+        def _normalize_stack(stack):
+            """Normalize incoming stack shapes to a list of 4-tuples."""
+            if stack is None:
+                return []
+
+            # Unwrap ComfyUI dict outputs if someone passed the whole result object.
+            if isinstance(stack, dict) and "result" in stack:
+                stack = stack["result"][0] if stack["result"] else []
+
+            # Unwrap single-item tuple/list that contains the stack.
+            if isinstance(stack, (list, tuple)) and len(stack) == 1 and isinstance(stack[0], (list, tuple)):
+                inner = stack[0]
+                if inner and isinstance(inner[0], (list, tuple)):
+                    stack = inner
+
+            # Single LoRA entry passed directly.
+            if isinstance(stack, (list, tuple)) and len(stack) == 4 and isinstance(stack[0], str):
+                return [tuple(stack)]
+
+            # Standard stack: list/tuple of entries.
+            if isinstance(stack, (list, tuple)):
+                normalized = []
+                for item in stack:
+                    if isinstance(item, (list, tuple)) and len(item) == 4:
+                        normalized.append(tuple(item))
+                    elif isinstance(item, (list, tuple)) and len(item) == 3:
+                        # Backward/alternate format: default empty block vector.
+                        normalized.append((item[0], item[1], item[2], ""))
+                return normalized
+
+            return []
+
+        combined = []
+        combined.extend(_normalize_stack(lora_stack_1))
+        combined.extend(_normalize_stack(lora_stack_2))
+        return (combined,)
+
+
 NODE_CLASS_MAPPINGS = {
-    "DonutLoRAStack":      DonutLoRAStack,
-    "DonutApplyLoRAStack": DonutApplyLoRAStack,
+    "DonutLoRAStack":         DonutLoRAStack,
+    "DonutApplyLoRAStack":    DonutApplyLoRAStack,
+    "DonutLoraStackCombine":  DonutLoraStackCombine,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {k: k for k in NODE_CLASS_MAPPINGS}
