@@ -236,21 +236,21 @@ class DonutLoRAStack:
                 "lora_name_1":    (loras,),
                 "model_weight_1": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_1":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
-                "block_preset_1": (BLOCK_PRESETS, {"default": "None", "tooltip": "Apply preset block weights. Overrides block_vector_1."}),
+                "block_preset_1": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_1."}),
                 "block_vector_1": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
 
                 "switch_2":       (["Off","On"],),
                 "lora_name_2":    (loras,),
                 "model_weight_2": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_2":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
-                "block_preset_2": (BLOCK_PRESETS, {"default": "None", "tooltip": "Apply preset block weights. Overrides block_vector_2."}),
+                "block_preset_2": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_2."}),
                 "block_vector_2": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
 
                 "switch_3":       (["Off","On"],),
                 "lora_name_3":    (loras,),
                 "model_weight_3": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_3":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
-                "block_preset_3": (BLOCK_PRESETS, {"default": "None", "tooltip": "Apply preset block weights. Overrides block_vector_3."}),
+                "block_preset_3": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_3."}),
                 "block_vector_3": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
 
                 "civitai_lookup": (["On", "Off"], {"default": "On", "tooltip": "Fetch LoRA info from CivitAI (requires API key in settings)"}),
@@ -312,17 +312,6 @@ class DonutLoRAStack:
         clip_weight_3 = safe_float(clip_weight_3, 1.0)
         block_preset_3 = safe_preset(block_preset_3)
 
-        def get_preset_vector(preset):
-            """Look up vector from preset name."""
-            if preset and preset != "None" and preset != "":
-                # First try direct lookup
-                if preset in PRESET_LOOKUP:
-                    return PRESET_LOOKUP[preset]
-                # Backwards compatibility: old format with embedded vector "NAME:vector"
-                if ":" in preset:
-                    return preset.split(":", 1)[1]
-            return ""
-
         # CivitAI metadata collection
         lora_info_lines = []
         all_trigger_words = []
@@ -342,11 +331,10 @@ class DonutLoRAStack:
             # Use civitai_cache/hashes for hash caching (faster than alongside LoRA files)
             hash_cache_dir = os.path.join(cache.cache_dir, "hashes")
 
-        def _maybe_add(slot_idx, sw, name, mw, cw, preset, bv):
+        def _maybe_add(slot_idx, sw, name, mw, cw, bv):
             if sw == "On" and name != "None":
-                # Use preset if set, otherwise use individual block vector
-                preset_vector = get_preset_vector(preset)
-                final_bv = preset_vector if preset_vector else bv.strip()
+                # Always use block_vector - preset only populates the field via JS
+                final_bv = bv.strip()
                 stack.append((name, mw, cw, final_bv))
 
                 # Fetch CivitAI metadata
@@ -413,9 +401,9 @@ class DonutLoRAStack:
                     lora_info_lines.append(f"{name} (w:{mw})")
                     individual_infos[slot_idx] = name
 
-        _maybe_add(0, switch_1, lora_name_1, model_weight_1, clip_weight_1, block_preset_1, block_vector_1)
-        _maybe_add(1, switch_2, lora_name_2, model_weight_2, clip_weight_2, block_preset_2, block_vector_2)
-        _maybe_add(2, switch_3, lora_name_3, model_weight_3, clip_weight_3, block_preset_3, block_vector_3)
+        _maybe_add(0, switch_1, lora_name_1, model_weight_1, clip_weight_1, block_vector_1)
+        _maybe_add(1, switch_2, lora_name_2, model_weight_2, clip_weight_2, block_vector_2)
+        _maybe_add(2, switch_3, lora_name_3, model_weight_3, clip_weight_3, block_vector_3)
 
         # Format outputs
         lora_info = "\n".join(lora_info_lines) if lora_info_lines else "No LoRAs selected"
