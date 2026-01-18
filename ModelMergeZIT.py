@@ -11,6 +11,13 @@ class ModelMergeZIT:
       - Upper-Mid (15-23): Details/attributes - fine-grained features
       - Late (24-29): Refinement/aesthetics - style and quality
 
+    Non-layer components:
+      - x_embedder: Patch embedding (converts image patches to tokens)
+      - t_embedder: Timestep embedding
+      - cap_embedder: Caption/text embedding
+      - final_layer: Final normalization and projection
+      - other: Any remaining components
+
     Ratio 0.0 = use model1, Ratio 1.0 = use model2
     """
 
@@ -21,6 +28,9 @@ class ModelMergeZIT:
         "upmid": range(15, 24),    # 15-23
         "late": range(24, 30),     # 24-29
     }
+
+    # Non-layer component prefixes
+    NON_LAYER_COMPONENTS = ["x_embedder", "t_embedder", "cap_embedder", "final_layer"]
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -44,9 +54,25 @@ class ModelMergeZIT:
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
                     "tooltip": "Layers 24-29: Refinement/aesthetics"
                 }),
+                "x_embedder": ("FLOAT", {
+                    "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Patch embedding (converts image patches to tokens)"
+                }),
+                "t_embedder": ("FLOAT", {
+                    "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Timestep embedding"
+                }),
+                "cap_embedder": ("FLOAT", {
+                    "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Caption/text embedding"
+                }),
+                "final_layer": ("FLOAT", {
+                    "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "Final normalization and projection"
+                }),
                 "other": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
-                    "tooltip": "Non-layer parameters (embeddings, norms, etc.)"
+                    "tooltip": "Any remaining non-layer parameters"
                 }),
             }
         }
@@ -55,7 +81,8 @@ class ModelMergeZIT:
     FUNCTION = "merge"
     CATEGORY = "advanced/model_merging"
 
-    def merge(self, model1, model2, early, lowmid, upmid, late, other):
+    def merge(self, model1, model2, early, lowmid, upmid, late,
+              x_embedder, t_embedder, cap_embedder, final_layer, other):
         # Clone model1 as base
         m = model1.clone()
 
@@ -73,17 +100,35 @@ class ModelMergeZIT:
         for i in self.LAYER_GROUPS["late"]:
             layer_ratios[i] = late
 
+        # Non-layer component ratios
+        component_ratios = {
+            "x_embedder": x_embedder,
+            "t_embedder": t_embedder,
+            "cap_embedder": cap_embedder,
+            "final_layer": final_layer,
+        }
+
         for k in kp:
-            ratio = other  # Default for non-layer params
+            ratio = other  # Default for unknown non-layer params
 
             # Check if this key belongs to a specific layer
             k_model = k[len("diffusion_model."):]
 
+            # First check for layer membership
+            is_layer = False
             for i in range(30):
                 layer_prefix = f"layers.{i}."
                 if k_model.startswith(layer_prefix):
                     ratio = layer_ratios.get(i, other)
+                    is_layer = True
                     break
+
+            # If not a layer, check for known non-layer components
+            if not is_layer:
+                for component, comp_ratio in component_ratios.items():
+                    if k_model.startswith(f"{component}.") or k_model.startswith(f"{component}_"):
+                        ratio = comp_ratio
+                        break
 
             # Skip if ratio is 0 (keep model1 entirely for this key)
             if ratio == 0.0:
