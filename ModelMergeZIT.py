@@ -15,8 +15,9 @@ class ModelMergeZIT:
       - x_embedder: Patch embedding (converts image patches to tokens)
       - t_embedder: Timestep embedding
       - cap_embedder: Caption/text embedding
-      - norm_final: Final normalization
-      - other: Any remaining components
+      - refiners: context_refiner + noise_refiner
+      - final: final_layer + norm_final
+      - other: Remaining (pad tokens, etc.)
 
     Ratio 0.0 = use model1, Ratio 1.0 = use model2
     """
@@ -29,8 +30,10 @@ class ModelMergeZIT:
         "late": range(24, 30),     # 24-29
     }
 
-    # Non-layer component prefixes
-    NON_LAYER_COMPONENTS = ["x_embedder", "t_embedder", "cap_embedder", "norm_final"]
+    # Non-layer component prefixes (grouped)
+    EMBEDDER_COMPONENTS = ["x_embedder", "t_embedder", "cap_embedder"]
+    REFINER_COMPONENTS = ["context_refiner", "noise_refiner"]
+    FINAL_COMPONENTS = ["final_layer", "norm_final"]
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -66,13 +69,17 @@ class ModelMergeZIT:
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
                     "tooltip": "Caption/text embedding"
                 }),
-                "norm_final": ("FLOAT", {
+                "refiners": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
-                    "tooltip": "Final normalization"
+                    "tooltip": "context_refiner + noise_refiner"
+                }),
+                "final": ("FLOAT", {
+                    "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                    "tooltip": "final_layer + norm_final"
                 }),
                 "other": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
-                    "tooltip": "Any remaining non-layer parameters"
+                    "tooltip": "Remaining (pad tokens, etc.)"
                 }),
             }
         }
@@ -82,7 +89,7 @@ class ModelMergeZIT:
     CATEGORY = "advanced/model_merging"
 
     def merge(self, model1, model2, early, lowmid, upmid, late,
-              x_embedder, t_embedder, cap_embedder, norm_final, other):
+              x_embedder, t_embedder, cap_embedder, refiners, final, other):
         # Clone model1 as base
         m = model1.clone()
 
@@ -90,8 +97,9 @@ class ModelMergeZIT:
         kp = model2.get_key_patches("diffusion_model.")
 
         print(f"[ModelMergeZIT] Got {len(kp)} patches from model2")
-        print(f"[ModelMergeZIT] Ratios: early={early}, lowmid={lowmid}, upmid={upmid}, late={late}")
-        print(f"[ModelMergeZIT] x_embedder={x_embedder}, t_embedder={t_embedder}, cap_embedder={cap_embedder}, norm_final={norm_final}, other={other}")
+        print(f"[ModelMergeZIT] Layers: early={early}, lowmid={lowmid}, upmid={upmid}, late={late}")
+        print(f"[ModelMergeZIT] Embedders: x={x_embedder}, t={t_embedder}, cap={cap_embedder}")
+        print(f"[ModelMergeZIT] refiners={refiners}, final={final}, other={other}")
 
         # Build layer -> ratio mapping
         layer_ratios = {}
@@ -103,14 +111,6 @@ class ModelMergeZIT:
             layer_ratios[i] = upmid
         for i in self.LAYER_GROUPS["late"]:
             layer_ratios[i] = late
-
-        # Non-layer component ratios
-        component_ratios = {
-            "x_embedder": x_embedder,
-            "t_embedder": t_embedder,
-            "cap_embedder": cap_embedder,
-            "norm_final": norm_final,
-        }
 
         applied_count = 0
         skipped_count = 0
@@ -134,10 +134,22 @@ class ModelMergeZIT:
             # If not a layer, check for known non-layer components
             if not is_layer:
                 non_layer_keys.append(k_model)
-                for component, comp_ratio in component_ratios.items():
-                    if k_model.startswith(f"{component}.") or k_model.startswith(f"{component}_"):
-                        ratio = comp_ratio
-                        break
+                key_prefix = k_model.split('.')[0]
+
+                # Check embedders
+                if key_prefix == "x_embedder":
+                    ratio = x_embedder
+                elif key_prefix == "t_embedder":
+                    ratio = t_embedder
+                elif key_prefix == "cap_embedder":
+                    ratio = cap_embedder
+                # Check refiners
+                elif key_prefix in ("context_refiner", "noise_refiner"):
+                    ratio = refiners
+                # Check final components
+                elif key_prefix in ("final_layer", "norm_final"):
+                    ratio = final
+                # else: ratio stays as 'other'
 
             # Skip if ratio is 0 (keep model1 entirely for this key)
             if ratio == 0.0:
