@@ -96,11 +96,6 @@ class ModelMergeZIT:
         # Get patches from model2's diffusion model
         kp = model2.get_key_patches("diffusion_model.")
 
-        print(f"[ModelMergeZIT] Got {len(kp)} patches from model2")
-        print(f"[ModelMergeZIT] Layers: early={early}, lowmid={lowmid}, upmid={upmid}, late={late}")
-        print(f"[ModelMergeZIT] Embedders: x={x_embedder}, t={t_embedder}, cap={cap_embedder}")
-        print(f"[ModelMergeZIT] refiners={refiners}, final={final}, other={other}")
-
         # Build layer -> ratio mapping
         layer_ratios = {}
         for i in self.LAYER_GROUPS["early"]:
@@ -111,10 +106,6 @@ class ModelMergeZIT:
             layer_ratios[i] = upmid
         for i in self.LAYER_GROUPS["late"]:
             layer_ratios[i] = late
-
-        applied_count = 0
-        skipped_count = 0
-        non_layer_keys = []
 
         for k in kp:
             ratio = other  # Default for unknown non-layer params
@@ -133,7 +124,6 @@ class ModelMergeZIT:
 
             # If not a layer, check for known non-layer components
             if not is_layer:
-                non_layer_keys.append(k_model)
                 key_prefix = k_model.split('.')[0]
 
                 # Check embedders
@@ -153,19 +143,12 @@ class ModelMergeZIT:
 
             # Skip if ratio is 0 (keep model1 entirely for this key)
             if ratio == 0.0:
-                skipped_count += 1
                 continue
 
             # Apply merge: add_patches(patches, strength_patch, strength_model)
             # strength_patch = how much of model2, strength_model = how much of model1
             # ratio=0 -> keep model1, ratio=1 -> use model2
             m.add_patches({k: kp[k]}, ratio, 1.0 - ratio)
-            applied_count += 1
-
-        print(f"[ModelMergeZIT] Applied {applied_count} patches, skipped {skipped_count}")
-        if non_layer_keys:
-            unique_prefixes = set(k.split('.')[0] for k in non_layer_keys)
-            print(f"[ModelMergeZIT] Non-layer key prefixes: {sorted(unique_prefixes)}")
 
         return (m,)
 
