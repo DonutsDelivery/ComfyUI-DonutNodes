@@ -15,7 +15,7 @@ class ModelMergeZIT:
       - x_embedder: Patch embedding (converts image patches to tokens)
       - t_embedder: Timestep embedding
       - cap_embedder: Caption/text embedding
-      - final_layer: Final normalization and projection
+      - norm_final: Final normalization
       - other: Any remaining components
 
     Ratio 0.0 = use model1, Ratio 1.0 = use model2
@@ -30,7 +30,7 @@ class ModelMergeZIT:
     }
 
     # Non-layer component prefixes
-    NON_LAYER_COMPONENTS = ["x_embedder", "t_embedder", "cap_embedder", "final_layer"]
+    NON_LAYER_COMPONENTS = ["x_embedder", "t_embedder", "cap_embedder", "norm_final"]
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -66,9 +66,9 @@ class ModelMergeZIT:
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
                     "tooltip": "Caption/text embedding"
                 }),
-                "final_layer": ("FLOAT", {
+                "norm_final": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
-                    "tooltip": "Final normalization and projection"
+                    "tooltip": "Final normalization"
                 }),
                 "other": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
@@ -82,7 +82,7 @@ class ModelMergeZIT:
     CATEGORY = "advanced/model_merging"
 
     def merge(self, model1, model2, early, lowmid, upmid, late,
-              x_embedder, t_embedder, cap_embedder, final_layer, other):
+              x_embedder, t_embedder, cap_embedder, norm_final, other):
         # Clone model1 as base
         m = model1.clone()
 
@@ -91,7 +91,7 @@ class ModelMergeZIT:
 
         print(f"[ModelMergeZIT] Got {len(kp)} patches from model2")
         print(f"[ModelMergeZIT] Ratios: early={early}, lowmid={lowmid}, upmid={upmid}, late={late}")
-        print(f"[ModelMergeZIT] x_embedder={x_embedder}, t_embedder={t_embedder}, cap_embedder={cap_embedder}, final_layer={final_layer}, other={other}")
+        print(f"[ModelMergeZIT] x_embedder={x_embedder}, t_embedder={t_embedder}, cap_embedder={cap_embedder}, norm_final={norm_final}, other={other}")
 
         # Build layer -> ratio mapping
         layer_ratios = {}
@@ -109,7 +109,7 @@ class ModelMergeZIT:
             "x_embedder": x_embedder,
             "t_embedder": t_embedder,
             "cap_embedder": cap_embedder,
-            "final_layer": final_layer,
+            "norm_final": norm_final,
         }
 
         applied_count = 0
