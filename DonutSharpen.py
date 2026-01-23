@@ -22,8 +22,10 @@ def gaussian_kernel_2d(radius, sigma=None, device='cpu'):
     if sigma is None:
         sigma = radius / 3.0
 
-    size = int(radius * 2) + 1
-    x = torch.arange(size, device=device, dtype=torch.float32) - radius
+    # Ensure kernel size is always odd to maintain output dimensions
+    size = 2 * int(round(radius)) + 1
+    center = size // 2
+    x = torch.arange(size, device=device, dtype=torch.float32) - center
     gauss_1d = torch.exp(-x**2 / (2 * sigma**2))
     gauss_1d = gauss_1d / gauss_1d.sum()
 
@@ -50,6 +52,43 @@ def apply_gaussian_blur(img, radius, device='cpu'):
     for c in range(img_t.shape[1]):
         channel = img_t[:, c:c+1, :, :]
         blurred = F.conv2d(channel, kernel, padding=padding)
+        blurred_channels.append(blurred)
+
+    blurred = torch.cat(blurred_channels, dim=1)
+
+    # Reshape back: [1, C, H, W] -> [H, W, C]
+    return blurred.squeeze(0).permute(1, 2, 0)
+
+
+def apply_gaussian_blur_separable(img, radius, device='cpu'):
+    """Apply Gaussian blur using separable 1D convolutions (faster for large radii)."""
+    if radius <= 0:
+        return img
+
+    sigma = radius / 3.0
+    size = 2 * int(round(radius)) + 1
+    center = size // 2
+    x = torch.arange(size, device=device, dtype=torch.float32) - center
+    gauss_1d = torch.exp(-x**2 / (2 * sigma**2))
+    gauss_1d = gauss_1d / gauss_1d.sum()
+
+    padding = size // 2
+
+    # Reshape: [H, W, C] -> [1, C, H, W]
+    img_t = img.permute(2, 0, 1).unsqueeze(0)
+
+    # Horizontal kernel [1, 1, 1, K]
+    kernel_h = gauss_1d.view(1, 1, 1, -1)
+    # Vertical kernel [1, 1, K, 1]
+    kernel_v = gauss_1d.view(1, 1, -1, 1)
+
+    blurred_channels = []
+    for c in range(img_t.shape[1]):
+        channel = img_t[:, c:c+1, :, :]
+        # Horizontal pass
+        blurred = F.conv2d(channel, kernel_h, padding=(0, padding))
+        # Vertical pass
+        blurred = F.conv2d(blurred, kernel_v, padding=(padding, 0))
         blurred_channels.append(blurred)
 
     blurred = torch.cat(blurred_channels, dim=1)
@@ -86,7 +125,7 @@ class DonutUnsharpMask:
                     "tooltip": "Sharpening strength (1.0 = 100%)"
                 }),
                 "radius": ("FLOAT", {
-                    "default": 1.0,
+                    "default": 2.0,
                     "min": 0.1,
                     "max": 10.0,
                     "step": 0.1,
@@ -253,17 +292,19 @@ class DonutHighPassSharpen:
 
 class DonutSmartSharpen:
     """
-    Smart Sharpen - USM with edge-aware masking.
+    Smart Sharpen - Texture sharpening with edge protection.
 
-    Improves on basic USM by detecting actual edges and avoiding
-    sharpening of noise or flat areas. Uses Sobel edge detection
-    to create a mask.
+    Sharpens textures while protecting edges from halos. Uses Sobel
+    edge detection to identify edges and applies USM only to
+    non-edge areas (textures, fine detail).
+
+    Similar goal to CAS but different approach.
 
     Parameters:
     - amount: Sharpening strength
     - radius: Blur radius for USM
-    - edge_threshold: How strong an edge must be to sharpen
-    - reduce_noise: Strength of noise reduction in flat areas
+    - edge_threshold: Edge detection sensitivity (higher = more protection)
+    - reduce_noise: Blur edges slightly to reduce any artifacts
     """
 
     @classmethod
@@ -279,7 +320,7 @@ class DonutSmartSharpen:
                     "tooltip": "Sharpening strength"
                 }),
                 "radius": ("FLOAT", {
-                    "default": 1.0,
+                    "default": 2.0,
                     "min": 0.1,
                     "max": 10.0,
                     "step": 0.1,
@@ -289,15 +330,15 @@ class DonutSmartSharpen:
                     "default": 0.1,
                     "min": 0.0,
                     "max": 1.0,
-                    "step": 0.05,
-                    "tooltip": "Minimum edge strength to sharpen (higher = less sharpening)"
+                    "step": 0.01,
+                    "tooltip": "Edge protection sensitivity (higher = protect more edges)"
                 }),
                 "reduce_noise": ("FLOAT", {
                     "default": 0.0,
                     "min": 0.0,
                     "max": 1.0,
                     "step": 0.1,
-                    "tooltip": "Blur flat areas to reduce noise (0 = off)"
+                    "tooltip": "Blur edges slightly to reduce artifacts (0 = off)"
                 }),
             }
         }
@@ -348,20 +389,20 @@ class DonutSmartSharpen:
             # Detect edges
             edges = self._detect_edges(img, device)
 
-            # Create edge mask with soft threshold
+            # Create texture mask (inverse of edges) - sharpen textures, protect edges
             edge_mask = torch.clamp((edges - edge_threshold * 0.5) / (edge_threshold + 1e-8), 0, 1)
-            edge_mask = edge_mask.unsqueeze(-1)  # [H, W, 1]
+            texture_mask = (1 - edge_mask).unsqueeze(-1)  # [H, W, 1]
 
-            # USM sharpening
+            # USM sharpening on textures only
             blurred = apply_gaussian_blur(img, radius, device)
-            edge_detail = img - blurred
-            sharpened = img + amount * edge_detail * edge_mask
+            detail = img - blurred
+            sharpened = img + amount * detail * texture_mask
 
-            # Optional noise reduction in flat areas
+            # Optional noise reduction on edges (where we're not sharpening)
             if reduce_noise > 0:
-                flat_mask = 1 - edge_mask
+                edge_mask_3d = edge_mask.unsqueeze(-1)
                 noise_reduced = apply_gaussian_blur(sharpened, 0.5, device)
-                sharpened = sharpened * (1 - flat_mask * reduce_noise) + noise_reduced * flat_mask * reduce_noise
+                sharpened = sharpened * (1 - edge_mask_3d * reduce_noise) + noise_reduced * edge_mask_3d * reduce_noise
 
             sharpened = torch.clamp(sharpened, 0, 1)
             results.append(sharpened)
@@ -500,10 +541,10 @@ class DonutHiRaLoAm:
             "required": {
                 "image": ("IMAGE",),
                 "radius": ("FLOAT", {
-                    "default": 50.0,
-                    "min": 10.0,
+                    "default": 20.0,
+                    "min": 1.0,
                     "max": 200.0,
-                    "step": 5.0,
+                    "step": 1.0,
                     "tooltip": "Large radius for local contrast enhancement"
                 }),
                 "amount": ("FLOAT", {
@@ -520,6 +561,10 @@ class DonutHiRaLoAm:
                     "step": 0.1,
                     "tooltip": "Protect shadows/highlights from clipping"
                 }),
+                "fast_blur": ("BOOLEAN", {
+                    "default": True,
+                    "tooltip": "Use separable blur (faster, identical quality)"
+                }),
             }
         }
 
@@ -528,10 +573,11 @@ class DonutHiRaLoAm:
     FUNCTION = "apply_hiraloam"
     CATEGORY = "donut/image/sharpen"
 
-    def apply_hiraloam(self, image, radius, amount, protect_tones):
+    def apply_hiraloam(self, image, radius, amount, protect_tones, fast_blur):
         if amount == 0:
             return (image,)
 
+        blur_fn = apply_gaussian_blur_separable if fast_blur else apply_gaussian_blur
         batch_size = image.shape[0]
         results = []
 
@@ -540,11 +586,10 @@ class DonutHiRaLoAm:
             device = img.device
 
             # Large radius blur
-            blurred = apply_gaussian_blur(img, radius, device)
+            blurred = blur_fn(img, radius, device)
 
             # Local contrast enhancement (USM with large radius)
             detail = img - blurred
-            enhanced = img + amount * detail
 
             # Protect extreme tones if enabled
             if protect_tones > 0:
@@ -554,17 +599,16 @@ class DonutHiRaLoAm:
                 else:
                     lum = img[..., 0]
 
-                # Create protection mask for shadows and highlights
-                shadow_protect = torch.clamp(lum / 0.25, 0, 1)
-                highlight_protect = torch.clamp((1 - lum) / 0.25, 0, 1)
-                protect_mask = shadow_protect * highlight_protect
-                protect_mask = protect_mask.unsqueeze(-1)
+                # Midtone mask: 1 in midtones, 0 at shadows/highlights
+                shadow_fade = torch.clamp(lum / 0.25, 0, 1)
+                highlight_fade = torch.clamp((1 - lum) / 0.25, 0, 1)
+                midtone_mask = shadow_fade * highlight_fade
 
-                # Blend based on protection
-                protection_strength = protect_tones
-                enhanced = img * (1 - protect_mask * (1 - protection_strength)) + \
-                          enhanced * protect_mask * (1 - protection_strength) + \
-                          enhanced * (1 - protect_mask)
+                # Reduce effect at extremes based on protect_tones
+                effect_mask = 1 - (1 - midtone_mask) * protect_tones
+                enhanced = img + amount * detail * effect_mask.unsqueeze(-1)
+            else:
+                enhanced = img + amount * detail
 
             enhanced = torch.clamp(enhanced, 0, 1)
             results.append(enhanced)
@@ -617,10 +661,10 @@ class DonutCAS:
 
     def apply_cas(self, image, sharpness, contrast):
         """
-        AMD CAS algorithm adapted from FidelityFX.
+        AMD CAS algorithm - faithful to FidelityFX implementation.
 
-        The core idea: sharpen inversely proportional to local contrast.
-        This avoids over-sharpening already-sharp edges.
+        Uses negative peak weight with normalized filter for artifact-free sharpening.
+        Adapts per-pixel based on local contrast headroom.
         """
         if sharpness == 0 and contrast == 0:
             return (image,)
@@ -628,52 +672,51 @@ class DonutCAS:
         batch_size = image.shape[0]
         results = []
 
-        # CAS uses a cross-shaped 5-tap filter
-        # Peak is calculated to achieve desired sharpening
-        peak = -1.0 / (8.0 - 3.0 * sharpness) if sharpness < 1.0 else -0.125
+        # AMD CAS peak: negative value, more negative = more sharpening
+        # lerp(8.0, 5.0, sharpness) = 8.0 - 3.0 * sharpness
+        # At sharpness=0: peak = -1/8 = -0.125
+        # At sharpness=1: peak = -1/5 = -0.2
+        peak = -1.0 / (8.0 - 3.0 * sharpness + 1e-8)
 
         for b in range(batch_size):
             img = image[b]  # [H, W, C]
-            H, W, C = img.shape
             device = img.device
 
             # Pad for neighborhood access
             padded = F.pad(img.permute(2, 0, 1).unsqueeze(0), (1, 1, 1, 1), mode='reflect')
             padded = padded.squeeze(0).permute(1, 2, 0)  # [H+2, W+2, C]
 
-            # Get neighbors (cross pattern)
-            center = padded[1:-1, 1:-1, :]  # Center pixel
-            north = padded[:-2, 1:-1, :]    # Top
-            south = padded[2:, 1:-1, :]     # Bottom
-            west = padded[1:-1, :-2, :]     # Left
-            east = padded[1:-1, 2:, :]      # Right
+            # Get neighbors (cross pattern - the 5-tap filter)
+            center = padded[1:-1, 1:-1, :]
+            north = padded[:-2, 1:-1, :]
+            south = padded[2:, 1:-1, :]
+            west = padded[1:-1, :-2, :]
+            east = padded[1:-1, 2:, :]
 
-            # Find local min/max for contrast detection
+            # Find local min/max (soft min/max from cross neighborhood)
             local_min = torch.minimum(torch.minimum(torch.minimum(north, south), west), east)
             local_min = torch.minimum(local_min, center)
             local_max = torch.maximum(torch.maximum(torch.maximum(north, south), west), east)
             local_max = torch.maximum(local_max, center)
 
-            # Adaptive weight based on local contrast
-            # Low contrast = sharpen more, high contrast = sharpen less
-            contrast_range = local_max - local_min
-
-            # CAS weight calculation
-            # w = saturate(min(local_min, 1-local_max) / contrast_range)
+            # AMD CAS adaptive weight: measures headroom before clipping
+            # amp = saturate(min(mn, 1-mx) / mx)
+            # This is high when there's room to sharpen, low near black/white
             amp = torch.minimum(local_min, 1.0 - local_max)
-            amp = amp / (contrast_range + 1e-8)
+            amp = amp / (local_max + 1e-8)
             amp = torch.clamp(amp, 0, 1)
 
-            # Calculate sharpening weight
+            # Per-pixel sharpening weight
             w = amp * peak
 
-            # Apply 5-tap filter: center + w * (4*center - north - south - east - west)
+            # AMD CAS filter: normalized weighted average
+            # output = (sum_neighbors * w + center) / (1 + 4*w)
+            # With negative w, this emphasizes center over neighbors = sharpening
             sum_neighbors = north + south + east + west
-            sharpened = center + w * (4.0 * center - sum_neighbors)
+            sharpened = (sum_neighbors * w + center) / (1.0 + 4.0 * w + 1e-8)
 
             # Apply contrast adjustment if needed
             if contrast != 0:
-                # Simple S-curve contrast
                 mid = 0.5
                 sharpened = mid + (sharpened - mid) * (1.0 + contrast)
 
@@ -684,19 +727,11 @@ class DonutCAS:
 
 
 NODE_CLASS_MAPPINGS = {
-    "DonutUnsharpMask": DonutUnsharpMask,
-    "DonutHighPassSharpen": DonutHighPassSharpen,
-    "DonutSmartSharpen": DonutSmartSharpen,
-    "DonutDeconvolutionSharpen": DonutDeconvolutionSharpen,
     "DonutHiRaLoAm": DonutHiRaLoAm,
     "DonutCAS": DonutCAS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DonutUnsharpMask": "Donut Unsharp Mask (USM)",
-    "DonutHighPassSharpen": "Donut High Pass Sharpen",
-    "DonutSmartSharpen": "Donut Smart Sharpen",
-    "DonutDeconvolutionSharpen": "Donut Deconvolution Sharpen",
-    "DonutHiRaLoAm": "Donut HiRaLoAm (Local Contrast)",
-    "DonutCAS": "Donut CAS (Contrast Adaptive)",
+    "DonutHiRaLoAm": "Donut Local Contrast",
+    "DonutCAS": "Donut CAS (Contrast Adaptive Sharpen)",
 }
