@@ -74,6 +74,26 @@ from .DonutUniversalDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_universal_de
 from .DonutPromptReceiver import NODE_CLASS_MAPPINGS        as m_prompt_receiver
 from .DonutPromptReceiver import NODE_DISPLAY_NAME_MAPPINGS as d_prompt_receiver
 
+# Gamma Correction
+from .DonutGammaCorrection import NODE_CLASS_MAPPINGS        as m_gamma
+from .DonutGammaCorrection import NODE_DISPLAY_NAME_MAPPINGS as d_gamma
+
+# Auto Gamma Correction (4 methods)
+from .DonutAutoGamma import NODE_CLASS_MAPPINGS        as m_auto_gamma
+from .DonutAutoGamma import NODE_DISPLAY_NAME_MAPPINGS as d_auto_gamma
+
+# Histogram Stretch
+from .DonutHistogramStretch import NODE_CLASS_MAPPINGS        as m_hist_stretch
+from .DonutHistogramStretch import NODE_DISPLAY_NAME_MAPPINGS as d_hist_stretch
+
+# Auto White Balance
+from .DonutAutoWhiteBalance import NODE_CLASS_MAPPINGS        as m_white_balance
+from .DonutAutoWhiteBalance import NODE_DISPLAY_NAME_MAPPINGS as d_white_balance
+
+# Sharpening Methods (USM, High Pass, Smart, Deconv, HiRaLoAm, CAS)
+from .DonutSharpen import NODE_CLASS_MAPPINGS        as m_sharpen
+from .DonutSharpen import NODE_DISPLAY_NAME_MAPPINGS as d_sharpen
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -94,6 +114,11 @@ NODE_CLASS_MAPPINGS = {
     **m_face_detailer,
     **m_universal_detailer,
     **m_prompt_receiver,
+    **m_gamma,
+    **m_auto_gamma,
+    **m_hist_stretch,
+    **m_white_balance,
+    **m_sharpen,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -113,6 +138,11 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_face_detailer,
     **d_universal_detailer,
     **d_prompt_receiver,
+    **d_gamma,
+    **d_auto_gamma,
+    **d_hist_stretch,
+    **d_white_balance,
+    **d_sharpen,
 }
 
 # Web directory for custom JavaScript extensions
