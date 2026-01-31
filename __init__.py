@@ -94,6 +94,10 @@ from .DonutAutoWhiteBalance import NODE_DISPLAY_NAME_MAPPINGS as d_white_balance
 from .DonutSharpen import NODE_CLASS_MAPPINGS        as m_sharpen
 from .DonutSharpen import NODE_DISPLAY_NAME_MAPPINGS as d_sharpen
 
+# Prompt Injection (Style Prompts)
+from .DonutPromptInjection import NODE_CLASS_MAPPINGS        as m_prompt_injection
+from .DonutPromptInjection import NODE_DISPLAY_NAME_MAPPINGS as d_prompt_injection
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -119,6 +123,7 @@ NODE_CLASS_MAPPINGS = {
     **m_hist_stretch,
     **m_white_balance,
     **m_sharpen,
+    **m_prompt_injection,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -143,6 +148,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_hist_stretch,
     **d_white_balance,
     **d_sharpen,
+    **d_prompt_injection,
 }
 
 # Web directory for custom JavaScript extensions
