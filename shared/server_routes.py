@@ -1128,6 +1128,19 @@ def register_routes():
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    @routes.get('/donut/locations/hierarchy')
+    async def get_locations_hierarchy(request):
+        """Return location categories and their locations for dynamic dropdowns."""
+        try:
+            from ..DonutPromptInjection import ALL_LOCATIONS
+            # Return category -> list of location names
+            result = {}
+            for category, locations in ALL_LOCATIONS.items():
+                result[category] = list(locations.keys())
+            return web.json_response(result)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     print("[DonutNodes] Server routes registered")
 
 
