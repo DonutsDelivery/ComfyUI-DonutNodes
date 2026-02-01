@@ -1006,10 +1006,10 @@ STYLE_HIERARCHY = {
         "Photography": PHOTO_STYLES,
         "Cinematic": CINEMATIC_STYLES,
         "Aesthetic & Mood": AESTHETIC_STYLES,
-        "Fine Art": FINE_ART_STYLES,
     },
-    "Illustration/Anime/Cartoon": {
+    "Illustrated/Painted": {
         "Illustration": ILLUSTRATION_STYLES,
+        "Fine Art": FINE_ART_STYLES,
         "Anime": ANIME_STYLES,
         "Cartoon": CARTOON_STYLES,
     },
