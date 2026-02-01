@@ -667,6 +667,84 @@ VIBE_ATMOSPHERE = {
     "Overwhelming": "overwhelming",
 }
 
+FACIAL_EXPRESSION = {
+    "None": "",
+    # Happy & Joyful
+    "Smiling": "smiling",
+    "Grinning": "grinning",
+    "Laughing": "laughing",
+    "Beaming": "beaming",
+    "Joyful": "joyful expression",
+    # Subtle Positive
+    "Soft Smile": "soft smile",
+    "Slight Smile": "slight smile",
+    "Warm Smile": "warm smile",
+    "Gentle Smile": "gentle smile",
+    # Serious & Neutral
+    "Neutral": "neutral expression",
+    "Serious": "serious expression",
+    "Stoic": "stoic expression",
+    "Contemplative": "contemplative expression",
+    "Thoughtful": "thoughtful expression",
+    # Sad & Melancholic
+    "Sad": "sad expression",
+    "Melancholic": "melancholic expression",
+    "Tearful": "tearful",
+    "Forlorn": "forlorn expression",
+    "Pensive": "pensive expression",
+    # Angry & Intense
+    "Angry": "angry expression",
+    "Furious": "furious expression",
+    "Scowling": "scowling",
+    "Frowning": "frowning",
+    "Stern": "stern expression",
+    # Surprised & Shocked
+    "Surprised": "surprised expression",
+    "Shocked": "shocked expression",
+    "Astonished": "astonished expression",
+    "Wide-Eyed": "wide-eyed expression",
+    # Fearful & Worried
+    "Fearful": "fearful expression",
+    "Worried": "worried expression",
+    "Anxious": "anxious expression",
+    "Nervous": "nervous expression",
+    # Confident & Proud
+    "Confident": "confident expression",
+    "Proud": "proud expression",
+    "Smug": "smug expression",
+    "Self-Assured": "self-assured expression",
+    # Seductive & Alluring
+    "Seductive": "seductive expression",
+    "Sultry": "sultry expression",
+    "Flirtatious": "flirtatious expression",
+    "Coy": "coy expression",
+    # Innocent & Sweet
+    "Innocent": "innocent expression",
+    "Curious": "curious expression",
+    "Doe-Eyed": "doe-eyed expression",
+    "Hopeful": "hopeful expression",
+    # Mysterious & Enigmatic
+    "Mysterious": "mysterious expression",
+    "Enigmatic": "enigmatic expression",
+    "Cryptic": "cryptic expression",
+    "Knowing": "knowing expression",
+    # Determined & Focused
+    "Determined": "determined expression",
+    "Focused": "focused expression",
+    "Resolute": "resolute expression",
+    "Intense Gaze": "intense gaze",
+    # Playful & Mischievous
+    "Playful": "playful expression",
+    "Mischievous": "mischievous expression",
+    "Cheeky": "cheeky expression",
+    "Teasing": "teasing expression",
+    # Weary & Tired
+    "Weary": "weary expression",
+    "Exhausted": "exhausted expression",
+    "Sleepy": "sleepy expression",
+    "Bored": "bored expression",
+}
+
 # =============================================================================
 # LOCATION DICTIONARIES
 # =============================================================================
@@ -1084,6 +1162,7 @@ class DonutPromptInjection:
         pose_options = build_options(SUBJECT_POSE)
         pose_with_props_options = build_options(POSE_WITH_PROPS)
         vibe_options = build_options(VIBE_ATMOSPHERE)
+        expression_options = build_options(FACIAL_EXPRESSION)
 
         # Location has category + location dropdowns
         location_categories = ["None", "Random"] + list(ALL_LOCATIONS.keys())
@@ -1109,6 +1188,7 @@ class DonutPromptInjection:
                 "pose": (pose_options, {"default": "None"}),
                 "pose_with_props": (pose_with_props_options, {"default": "None"}),
                 "vibe": (vibe_options, {"default": "None"}),
+                "expression": (expression_options, {"default": "None"}),
                 "location_category": (location_categories, {"default": "None"}),
                 "location": (default_locations, {"default": "None"}),
                 "outfit": (outfit_options, {"default": "None"}),
@@ -1204,7 +1284,7 @@ class DonutPromptInjection:
         return actual_main, actual_sub, actual_style, style_prompt
 
     def execute(self, prompt, main_category, subcategory, style, camera, lighting, time_of_day,
-                weather, color_grade, climate, pose, pose_with_props, vibe,
+                weather, color_grade, climate, pose, pose_with_props, vibe, expression,
                 location_category, location, outfit, outfit_masculine, outfit_feminine,
                 order, separator, seed):
         # Initialize random with seed for reproducibility
@@ -1225,6 +1305,7 @@ class DonutPromptInjection:
         actual_pose, pose_prompt = self._get_random_or_value(pose, SUBJECT_POSE, rng)
         actual_pose_props, pose_props_prompt = self._get_random_or_value(pose_with_props, POSE_WITH_PROPS, rng)
         actual_vibe, vibe_prompt = self._get_random_or_value(vibe, VIBE_ATMOSPHERE, rng)
+        actual_expression, expression_prompt = self._get_random_or_value(expression, FACIAL_EXPRESSION, rng)
 
         # Handle location (two-level: category + location)
         location_prompt = ""
@@ -1278,6 +1359,8 @@ class DonutPromptInjection:
             preview_parts.append(f"[Pose Props: {actual_pose_props}]: {pose_props_prompt}")
         if vibe_prompt:
             preview_parts.append(f"[Vibe: {actual_vibe}]: {vibe_prompt}")
+        if expression_prompt:
+            preview_parts.append(f"[Expression: {actual_expression}]: {expression_prompt}")
         if location_prompt:
             preview_parts.append(f"[Location: {actual_location}]: {location_prompt}")
         if outfit_prompt:
@@ -1292,7 +1375,7 @@ class DonutPromptInjection:
         injection_parts = [p for p in [
             style_prompt, camera_prompt, lighting_prompt, time_prompt,
             weather_prompt, color_prompt, climate_prompt, pose_prompt,
-            pose_props_prompt, vibe_prompt, location_prompt,
+            pose_props_prompt, vibe_prompt, expression_prompt, location_prompt,
             outfit_prompt, outfit_masc_prompt, outfit_fem_prompt
         ] if p]
         injection = separator.join(injection_parts)
