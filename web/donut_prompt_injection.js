@@ -1,69 +1,157 @@
 /**
- * DonutPromptInjection - Dynamic category/style dropdown handler
+ * DonutPromptInjection - Dynamic hierarchical dropdown handler
  *
- * This extension makes the style dropdown update dynamically based on the
- * selected category in the DonutPromptInjection node.
+ * This extension makes the subcategory and style dropdowns update dynamically
+ * based on the selected main_category in the DonutPromptInjection node.
+ *
+ * Hierarchy: main_category -> subcategory -> style
  */
 
 import { app } from "../../scripts/app.js";
 
-// Cache for styles by category (fetched once from server)
-let stylesByCategory = null;
+// Cache for style hierarchy (fetched once from server)
+let styleHierarchy = null;
 
-// Cache for user's previous selections per category
-const userSelections = {};
+// Cache for user's previous selections
+const userSelections = {
+    mainCategory: {},  // main_category -> last selected subcategory
+    subcategory: {}    // "main_category:subcategory" -> last selected style
+};
 
 /**
- * Fetch styles organized by category from the server
+ * Fetch style hierarchy from the server
  */
-async function fetchStylesByCategory() {
-    if (stylesByCategory !== null) {
-        return stylesByCategory;
+async function fetchStyleHierarchy() {
+    if (styleHierarchy !== null) {
+        return styleHierarchy;
     }
 
     try {
-        const response = await fetch('/donut/styles/by_category');
+        const response = await fetch('/donut/styles/hierarchy');
         if (response.ok) {
-            stylesByCategory = await response.json();
-            return stylesByCategory;
+            styleHierarchy = await response.json();
+            return styleHierarchy;
         }
     } catch (error) {
-        console.error('[DonutPromptInjection] Failed to fetch styles:', error);
+        console.error('[DonutPromptInjection] Failed to fetch style hierarchy:', error);
     }
     return null;
 }
 
 /**
- * Update the style widget options based on selected category
+ * Update the subcategory widget options based on selected main category
  */
-function updateStyleOptions(node, categoryWidget, styleWidget, newCategory) {
-    if (!stylesByCategory || !stylesByCategory[newCategory]) {
+function updateSubcategoryOptions(node, mainCatWidget, subcatWidget, styleWidget, newMainCat) {
+    if (!styleHierarchy) return;
+
+    // Handle "Random" main category - show all subcategories from all main categories
+    let subcategories;
+    if (newMainCat === "Random") {
+        // Collect all unique subcategories across all main categories
+        const allSubcats = new Set();
+        for (const mainCat of Object.keys(styleHierarchy)) {
+            for (const subcat of Object.keys(styleHierarchy[mainCat])) {
+                allSubcats.add(subcat);
+            }
+        }
+        subcategories = Array.from(allSubcats).sort();
+    } else if (styleHierarchy[newMainCat]) {
+        subcategories = Object.keys(styleHierarchy[newMainCat]);
+    } else {
         return;
     }
 
-    // Store current selection for the old category
-    const oldCategory = categoryWidget._lastCategory;
-    if (oldCategory && styleWidget.value) {
-        userSelections[oldCategory] = styleWidget.value;
+    // Store current selection
+    const oldMainCat = mainCatWidget._lastMainCategory;
+    if (oldMainCat && subcatWidget.value) {
+        userSelections.mainCategory[oldMainCat] = subcatWidget.value;
     }
 
-    // Get styles for the new category, add "Random" at the start
-    const categoryStyles = stylesByCategory[newCategory];
-    const newStyles = ["Random", ...categoryStyles];
+    // Update subcategory options
+    const newSubcats = ["Random", ...subcategories];
+    subcatWidget.options.values = newSubcats;
 
-    // Update the widget options
+    // Restore previous selection or reset
+    if (userSelections.mainCategory[newMainCat] && newSubcats.includes(userSelections.mainCategory[newMainCat])) {
+        subcatWidget.value = userSelections.mainCategory[newMainCat];
+    } else if (!newSubcats.includes(subcatWidget.value)) {
+        subcatWidget.value = "None";
+    }
+
+    mainCatWidget._lastMainCategory = newMainCat;
+
+    // Trigger subcategory update to refresh styles
+    updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, subcatWidget.value);
+}
+
+/**
+ * Update the style widget options based on selected subcategory
+ */
+function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newSubcat) {
+    if (!styleHierarchy) return;
+
+    const mainCat = mainCatWidget.value;
+    let styles = [];
+
+    if (newSubcat === "Random") {
+        // For Random subcategory, show all styles from the main category
+        // (or all styles if main category is also Random)
+        if (mainCat === "Random") {
+            // Collect all styles from all subcategories of all main categories
+            const allStyles = new Set();
+            for (const mc of Object.keys(styleHierarchy)) {
+                for (const sc of Object.keys(styleHierarchy[mc])) {
+                    for (const style of styleHierarchy[mc][sc]) {
+                        allStyles.add(style);
+                    }
+                }
+            }
+            styles = Array.from(allStyles).sort();
+        } else if (styleHierarchy[mainCat]) {
+            // Collect all styles from all subcategories of this main category
+            const allStyles = new Set();
+            for (const sc of Object.keys(styleHierarchy[mainCat])) {
+                for (const style of styleHierarchy[mainCat][sc]) {
+                    allStyles.add(style);
+                }
+            }
+            styles = Array.from(allStyles).sort();
+        }
+    } else {
+        // Specific subcategory selected
+        if (mainCat === "Random") {
+            // Find the subcategory in any main category
+            for (const mc of Object.keys(styleHierarchy)) {
+                if (styleHierarchy[mc][newSubcat]) {
+                    styles = styleHierarchy[mc][newSubcat];
+                    break;
+                }
+            }
+        } else if (styleHierarchy[mainCat] && styleHierarchy[mainCat][newSubcat]) {
+            styles = styleHierarchy[mainCat][newSubcat];
+        }
+    }
+
+    // Store current selection
+    const oldSubcat = subcatWidget._lastSubcategory;
+    const oldKey = `${mainCat}:${oldSubcat}`;
+    if (oldSubcat && styleWidget.value) {
+        userSelections.subcategory[oldKey] = styleWidget.value;
+    }
+
+    // Update style options
+    const newStyles = ["Random", ...styles];
     styleWidget.options.values = newStyles;
 
-    // Restore previous selection if user had one, otherwise keep current or use "None"
-    if (userSelections[newCategory] && newStyles.includes(userSelections[newCategory])) {
-        styleWidget.value = userSelections[newCategory];
+    // Restore previous selection or reset
+    const newKey = `${mainCat}:${newSubcat}`;
+    if (userSelections.subcategory[newKey] && newStyles.includes(userSelections.subcategory[newKey])) {
+        styleWidget.value = userSelections.subcategory[newKey];
     } else if (!newStyles.includes(styleWidget.value)) {
-        // Current value not in new list, default to "None"
         styleWidget.value = "None";
     }
 
-    // Remember current category
-    categoryWidget._lastCategory = newCategory;
+    subcatWidget._lastSubcategory = newSubcat;
 
     // Trigger widget change callback if it exists
     if (styleWidget.callback) {
@@ -72,40 +160,51 @@ function updateStyleOptions(node, categoryWidget, styleWidget, newCategory) {
 }
 
 /**
- * Initialize the dynamic dropdown for a node
+ * Initialize the dynamic dropdowns for a node
  */
-async function initializeDynamicDropdown(node) {
-    // Find the category and style widgets
-    const categoryWidget = node.widgets?.find(w => w.name === 'category');
+async function initializeDynamicDropdowns(node) {
+    // Find the widgets
+    const mainCatWidget = node.widgets?.find(w => w.name === 'main_category');
+    const subcatWidget = node.widgets?.find(w => w.name === 'subcategory');
     const styleWidget = node.widgets?.find(w => w.name === 'style');
 
-    if (!categoryWidget || !styleWidget) {
+    if (!mainCatWidget || !subcatWidget || !styleWidget) {
         return;
     }
 
-    // Fetch styles if not already cached
-    const styles = await fetchStylesByCategory();
-    if (!styles) {
-        console.warn('[DonutPromptInjection] Could not load styles');
+    // Fetch hierarchy if not already cached
+    const hierarchy = await fetchStyleHierarchy();
+    if (!hierarchy) {
+        console.warn('[DonutPromptInjection] Could not load style hierarchy');
         return;
     }
 
-    // Store original callback
-    const originalCallback = categoryWidget.callback;
+    // Store original callbacks
+    const originalMainCatCallback = mainCatWidget.callback;
+    const originalSubcatCallback = subcatWidget.callback;
 
-    // Set up the category change handler
-    categoryWidget.callback = function(value) {
-        updateStyleOptions(node, categoryWidget, styleWidget, value);
+    // Set up main category change handler
+    mainCatWidget.callback = function(value) {
+        updateSubcategoryOptions(node, mainCatWidget, subcatWidget, styleWidget, value);
 
-        // Call original callback if it exists
-        if (typeof originalCallback === 'function') {
-            originalCallback.call(this, value);
+        if (typeof originalMainCatCallback === 'function') {
+            originalMainCatCallback.call(this, value);
         }
     };
 
-    // Initialize with current category
-    categoryWidget._lastCategory = categoryWidget.value;
-    updateStyleOptions(node, categoryWidget, styleWidget, categoryWidget.value);
+    // Set up subcategory change handler
+    subcatWidget.callback = function(value) {
+        updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, value);
+
+        if (typeof originalSubcatCallback === 'function') {
+            originalSubcatCallback.call(this, value);
+        }
+    };
+
+    // Initialize with current values
+    mainCatWidget._lastMainCategory = mainCatWidget.value;
+    subcatWidget._lastSubcategory = subcatWidget.value;
+    updateSubcategoryOptions(node, mainCatWidget, subcatWidget, styleWidget, mainCatWidget.value);
 }
 
 // Register the extension
@@ -113,11 +212,10 @@ app.registerExtension({
     name: "DonutNodes.PromptInjection",
 
     async nodeCreated(node) {
-        // Check if this is our node
         if (node.comfyClass === "DonutPromptInjection") {
             // Small delay to ensure widgets are fully initialized
             setTimeout(() => {
-                initializeDynamicDropdown(node);
+                initializeDynamicDropdowns(node);
             }, 100);
         }
     },
@@ -126,7 +224,7 @@ app.registerExtension({
         // Also handle nodes loaded from saved workflows
         if (node.comfyClass === "DonutPromptInjection") {
             setTimeout(() => {
-                initializeDynamicDropdown(node);
+                initializeDynamicDropdowns(node);
             }, 100);
         }
     }

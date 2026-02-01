@@ -999,7 +999,26 @@ OUTFIT_FEMININE = {
     "Oversized Sweater Look": "oversized sweater look, cozy relaxed, comfortable chic",
 }
 
-# Combined dictionary for easy access
+# Hierarchical style organization
+# Main categories -> Subcategories -> Styles
+STYLE_HIERARCHY = {
+    "Photorealistic": {
+        "Photography": PHOTO_STYLES,
+        "Cinematic": CINEMATIC_STYLES,
+        "Aesthetic & Mood": AESTHETIC_STYLES,
+        "Fine Art": FINE_ART_STYLES,
+    },
+    "Illustration/Anime/Cartoon": {
+        "Illustration": ILLUSTRATION_STYLES,
+        "Anime": ANIME_STYLES,
+        "Cartoon": CARTOON_STYLES,
+    },
+    "Digital and 3D": {
+        "Digital & 3D": DIGITAL_3D_STYLES,
+    },
+}
+
+# Flat dictionary for backwards compatibility
 ALL_STYLES = {
     "Photography": PHOTO_STYLES,
     "Illustration": ILLUSTRATION_STYLES,
@@ -1021,13 +1040,31 @@ class DonutPromptInjection:
     Can place style before or after the user's prompt.
     Includes camera/shot selection independent of artistic style.
     Chainable for combining multiple styles.
+
+    Hierarchical style selection:
+    - Main Category (Photorealistic, Illustration/Anime/Cartoon, Digital and 3D)
+    - Subcategory (Photography, Cinematic, Anime, etc.)
+    - Style (specific style within subcategory)
+
+    Random options:
+    - Random main category: picks random subcategory and style
+    - Random subcategory: picks random style from that subcategory
+    - Random style: picks that specific random style
     """
 
     @classmethod
     def INPUT_TYPES(cls):
-        categories = list(ALL_STYLES.keys())
-        # Get all style names for the first category as default, plus "Random"
-        default_styles = ["Random"] + list(ALL_STYLES[categories[0]].keys())
+        # Main categories with Random option
+        main_categories = ["Random"] + list(STYLE_HIERARCHY.keys())
+
+        # Get first main category's subcategories for default
+        first_main = list(STYLE_HIERARCHY.keys())[0]
+        default_subcategories = ["Random"] + list(STYLE_HIERARCHY[first_main].keys())
+
+        # Get first subcategory's styles for default
+        first_sub = list(STYLE_HIERARCHY[first_main].keys())[0]
+        default_styles = ["Random"] + list(STYLE_HIERARCHY[first_main][first_sub].keys())
+
         camera_shots = ["Random"] + list(CAMERA_SHOTS.keys())
         lighting_options = ["Random"] + list(LIGHTING_STYLES.keys())
         time_options = ["Random"] + list(TIME_OF_DAY.keys())
@@ -1046,7 +1083,8 @@ class DonutPromptInjection:
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": ""}),
-                "category": (categories, {"default": categories[0]}),
+                "main_category": (main_categories, {"default": main_categories[1]}),
+                "subcategory": (default_subcategories, {"default": "None"}),
                 "style": (default_styles, {"default": "None"}),
                 "camera": (camera_shots, {"default": "None"}),
                 "lighting": (lighting_options, {"default": "None"}),
@@ -1073,14 +1111,13 @@ class DonutPromptInjection:
     FUNCTION = "execute"
     CATEGORY = "donutnodes"
 
-    # This makes the style dropdown update based on category selection
+    # This makes the dropdowns update based on hierarchy selection
     @classmethod
-    def VALIDATE_INPUTS(cls, category, style, camera, location_category, location, **kwargs):
-        if category not in ALL_STYLES:
-            return f"Invalid category: {category}"
-        # Allow "Random" and any style name during transitions
-        if style != "Random" and style not in ALL_STYLES[category] and style != "None":
-            return True  # Allow during transition
+    def VALIDATE_INPUTS(cls, main_category, subcategory, style, camera, location_category, location, **kwargs):
+        # Allow "Random" for main category
+        if main_category != "Random" and main_category not in STYLE_HIERARCHY:
+            return f"Invalid main category: {main_category}"
+        # Allow transitions for subcategory and style (they update dynamically)
         if location_category not in ALL_LOCATIONS:
             return f"Invalid location category: {location_category}"
         # Allow "Random" and any location name during transitions
@@ -1100,24 +1137,58 @@ class DonutPromptInjection:
             return value, options_dict[value]
         return value, ""
 
-    def execute(self, prompt, category, style, camera, lighting, time_of_day,
+    def _resolve_style_hierarchy(self, main_category, subcategory, style, rng):
+        """
+        Resolve the hierarchical style selection, handling Random at each level.
+
+        Returns: (actual_main_cat, actual_subcat, actual_style, style_prompt)
+        """
+        actual_main = main_category
+        actual_sub = subcategory
+        actual_style = style
+
+        # Handle Random main category - pick random from all subcategories
+        if main_category == "Random":
+            actual_main = rng.choice(list(STYLE_HIERARCHY.keys()))
+
+        # Get subcategories for the selected main category
+        subcategories = STYLE_HIERARCHY.get(actual_main, {})
+
+        # Handle Random subcategory
+        if subcategory == "Random" or subcategory not in subcategories:
+            available_subs = list(subcategories.keys())
+            if available_subs:
+                actual_sub = rng.choice(available_subs)
+            else:
+                return actual_main, "None", "None", ""
+
+        # Get styles for the selected subcategory
+        styles_dict = subcategories.get(actual_sub, {})
+
+        # Handle Random style
+        if style == "Random" or style not in styles_dict:
+            available_styles = [s for s in styles_dict.keys() if s != "None"]
+            if available_styles:
+                actual_style = rng.choice(available_styles)
+            else:
+                return actual_main, actual_sub, "None", ""
+
+        # Get the style prompt
+        style_prompt = styles_dict.get(actual_style, "")
+
+        return actual_main, actual_sub, actual_style, style_prompt
+
+    def execute(self, prompt, main_category, subcategory, style, camera, lighting, time_of_day,
                 weather, color_grade, climate, pose, pose_with_props, vibe,
                 location_category, location, outfit, outfit_masculine, outfit_feminine,
                 order, separator, seed):
         # Initialize random with seed for reproducibility
         rng = random.Random(seed)
 
-        # Get the style prompt (special handling for category-based styles)
-        style_prompt = ""
-        actual_style = style
-
-        if style == "Random":
-            available_styles = [s for s in ALL_STYLES[category].keys() if s != "None"]
-            if available_styles:
-                actual_style = rng.choice(available_styles)
-                style_prompt = ALL_STYLES[category][actual_style]
-        elif category in ALL_STYLES and style in ALL_STYLES[category]:
-            style_prompt = ALL_STYLES[category][style]
+        # Resolve hierarchical style selection
+        actual_main, actual_sub, actual_style, style_prompt = self._resolve_style_hierarchy(
+            main_category, subcategory, style, rng
+        )
 
         # Get all other category prompts using helper
         actual_camera, camera_prompt = self._get_random_or_value(camera, CAMERA_SHOTS, rng)
@@ -1148,7 +1219,7 @@ class DonutPromptInjection:
         # Build the style preview (what gets injected)
         preview_parts = []
         if style_prompt:
-            preview_parts.append(f"[Style: {actual_style}]: {style_prompt}")
+            preview_parts.append(f"[{actual_main} > {actual_sub} > {actual_style}]: {style_prompt}")
         if camera_prompt:
             preview_parts.append(f"[Camera: {actual_camera}]: {camera_prompt}")
         if lighting_prompt:
@@ -1203,28 +1274,28 @@ class DonutPromptInjection:
         return (result, style_preview)
 
 
-# For dynamic style list updates based on category
+# For dynamic style list updates based on hierarchy
 class DonutPromptInjectionHelper:
-    """Helper node that provides style options for a given category."""
+    """Helper node that provides style hierarchy information."""
 
     @classmethod
     def INPUT_TYPES(cls):
-        categories = list(ALL_STYLES.keys())
+        main_categories = list(STYLE_HIERARCHY.keys())
         return {
             "required": {
-                "category": (categories, {"default": categories[0]}),
+                "main_category": (main_categories, {"default": main_categories[0]}),
             },
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("styles_list",)
+    RETURN_NAMES = ("subcategories_list",)
     FUNCTION = "execute"
     CATEGORY = "donutnodes/utils"
 
-    def execute(self, category):
-        if category in ALL_STYLES:
-            styles = list(ALL_STYLES[category].keys())
-            return (", ".join(styles),)
+    def execute(self, main_category):
+        if main_category in STYLE_HIERARCHY:
+            subcategories = list(STYLE_HIERARCHY[main_category].keys())
+            return (", ".join(subcategories),)
         return ("",)
 
 

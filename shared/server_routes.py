@@ -1096,6 +1096,38 @@ def register_routes():
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    # ============================================
+    # Prompt Injection Styles Routes
+    # ============================================
+
+    @routes.get('/donut/styles/by_category')
+    async def get_styles_by_category(request):
+        """Return all style categories and their styles for dynamic dropdown (legacy)."""
+        try:
+            from ..DonutPromptInjection import ALL_STYLES
+            # Return category -> list of style names
+            result = {}
+            for category, styles in ALL_STYLES.items():
+                result[category] = list(styles.keys())
+            return web.json_response(result)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    @routes.get('/donut/styles/hierarchy')
+    async def get_style_hierarchy(request):
+        """Return hierarchical style structure for dynamic dropdowns."""
+        try:
+            from ..DonutPromptInjection import STYLE_HIERARCHY
+            # Return main_category -> subcategory -> list of style names
+            result = {}
+            for main_cat, subcategories in STYLE_HIERARCHY.items():
+                result[main_cat] = {}
+                for subcat, styles in subcategories.items():
+                    result[main_cat][subcat] = list(styles.keys())
+            return web.json_response(result)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     print("[DonutNodes] Server routes registered")
 
 
