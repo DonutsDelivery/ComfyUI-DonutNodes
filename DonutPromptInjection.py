@@ -1113,16 +1113,9 @@ class DonutPromptInjection:
 
     # This makes the dropdowns update based on hierarchy selection
     @classmethod
-    def VALIDATE_INPUTS(cls, main_category, subcategory, style, camera, location_category, location, **kwargs):
-        # Allow "Random" for main category
-        if main_category != "Random" and main_category not in STYLE_HIERARCHY:
-            return f"Invalid main category: {main_category}"
-        # Allow transitions for subcategory and style (they update dynamically)
-        if location_category not in ALL_LOCATIONS:
-            return f"Invalid location category: {location_category}"
-        # Allow "Random" and any location name during transitions
-        if location != "Random" and location not in ALL_LOCATIONS[location_category] and location != "None":
-            return True  # Allow during transition
+    def VALIDATE_INPUTS(cls, **kwargs):
+        # Allow all values during transitions - the execute method handles fallbacks
+        # This is necessary because dynamic dropdowns may have stale values during updates
         return True
 
     def _get_random_or_value(self, value, options_dict, rng):
