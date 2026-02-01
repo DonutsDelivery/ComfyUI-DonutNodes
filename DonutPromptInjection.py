@@ -211,7 +211,6 @@ AESTHETIC_STYLES = {
     "Clean Minimal": "clean minimal aesthetic, white space, simple color palette, uncluttered elegance",
     "Retro 70s Warmth": "1970s retro aesthetic, warm nostalgic, groovy era, vintage film quality",
     "Y2K Glossy": "Y2K aesthetic, shiny glossy surfaces, baby pink and silver tones, futuristic optimism, early digital shimmer",
-    "Studio Ghibli Mood": "Studio Ghibli inspired aesthetic, soft watercolor tones, peaceful pastoral, whimsical warmth, hand-painted feeling",
 }
 
 ANIME_STYLES = {
@@ -746,6 +745,269 @@ FACIAL_EXPRESSION = {
 }
 
 # =============================================================================
+# CHARACTER ATTRIBUTE DICTIONARIES
+# =============================================================================
+
+HAIR_COLOR = {
+    "None": "",
+    # Natural Colors
+    "Black": "black hair",
+    "Dark Brown": "dark brown hair",
+    "Brown": "brown hair",
+    "Light Brown": "light brown hair",
+    "Blonde": "blonde hair",
+    "Platinum Blonde": "platinum blonde hair",
+    "Red": "red hair",
+    "Auburn": "auburn hair",
+    "Ginger": "ginger hair",
+    "Gray": "gray hair",
+    "White": "white hair",
+    "Salt and Pepper": "salt and pepper hair",
+    # Unnatural Colors
+    "Pink": "pink hair",
+    "Blue": "blue hair",
+    "Purple": "purple hair",
+    "Green": "green hair",
+    "Silver": "silver hair",
+    "Teal": "teal hair",
+    "Lavender": "lavender hair",
+    # Multi-tone
+    "Ombre": "ombre hair",
+    "Highlights": "hair with highlights",
+    "Balayage": "balayage hair",
+    "Two-Tone": "two-tone hair",
+}
+
+HAIRSTYLE_MASCULINE = {
+    "None": "",
+    # Short Styles
+    "Buzz Cut": "buzz cut hairstyle",
+    "Crew Cut": "crew cut hairstyle",
+    "Fade": "fade haircut",
+    "Undercut": "undercut hairstyle",
+    "Caesar Cut": "Caesar cut hairstyle",
+    "Ivy League": "Ivy League haircut",
+    "High and Tight": "high and tight haircut",
+    # Medium Styles
+    "Pompadour": "pompadour hairstyle",
+    "Quiff": "quiff hairstyle",
+    "Slicked Back": "slicked back hair",
+    "Side Part": "side part hairstyle",
+    "Textured Crop": "textured crop hairstyle",
+    "Comb Over": "comb over hairstyle",
+    "Messy Textured": "messy textured hair",
+    # Long Styles
+    "Man Bun": "man bun hairstyle",
+    "Ponytail": "ponytail hairstyle",
+    "Flowing Long": "flowing long hair",
+    "Shoulder Length": "shoulder length hair",
+    # Curly & Textured
+    "Afro": "afro hairstyle",
+    "Curly Top": "curly top hairstyle",
+    "Waves": "wavy hair",
+    "Dreadlocks": "dreadlocks",
+    "Braids": "braided hair",
+    "Twists": "twist hairstyle",
+    # Facial Hair
+    "Clean Shaven": "clean shaven",
+    "Stubble": "stubble facial hair",
+    "Full Beard": "full beard",
+    "Goatee": "goatee",
+    "Mustache": "mustache",
+    "Van Dyke": "Van Dyke beard",
+}
+
+HAIRSTYLE_FEMININE = {
+    "None": "",
+    # Short Styles
+    "Pixie Cut": "pixie cut hairstyle",
+    "Bob": "bob hairstyle",
+    "Lob": "lob long bob hairstyle",
+    "Buzz Cut": "buzz cut hairstyle",
+    "Undercut": "undercut hairstyle",
+    "Asymmetrical Bob": "asymmetrical bob",
+    # Medium Styles
+    "Shoulder Length": "shoulder length hair",
+    "Layered": "layered hairstyle",
+    "Shag": "shag hairstyle",
+    "Wolf Cut": "wolf cut hairstyle",
+    "Curtain Bangs": "curtain bangs hairstyle",
+    "Blunt Cut": "blunt cut hairstyle",
+    # Long Styles
+    "Straight Long": "straight long hair",
+    "Wavy Long": "wavy long hair",
+    "Curly Long": "curly long hair",
+    "Flowing": "flowing hair",
+    "Mermaid Waves": "mermaid waves hairstyle",
+    # Updos
+    "Bun": "hair bun",
+    "Ponytail": "ponytail hairstyle",
+    "French Twist": "French twist hairstyle",
+    "Chignon": "chignon hairstyle",
+    "Top Knot": "top knot hairstyle",
+    "Messy Bun": "messy bun hairstyle",
+    "Low Bun": "low bun hairstyle",
+    # Braided Styles
+    "French Braid": "French braid hairstyle",
+    "Dutch Braid": "Dutch braid hairstyle",
+    "Fishtail Braid": "fishtail braid",
+    "Box Braids": "box braids hairstyle",
+    "Cornrows": "cornrows hairstyle",
+    "Crown Braid": "crown braid hairstyle",
+    # Textured Styles
+    "Afro": "afro hairstyle",
+    "Natural Curls": "natural curly hair",
+    "Coils": "coiled hair texture",
+    "Locs": "locs hairstyle",
+    "Twist Out": "twist out hairstyle",
+}
+
+SKIN_TONE = {
+    "None": "",
+    "Very Fair": "very fair skin tone",
+    "Fair": "fair skin tone",
+    "Light": "light skin tone",
+    "Light Medium": "light medium skin tone",
+    "Medium": "medium skin tone",
+    "Medium Tan": "medium tan skin tone",
+    "Tan": "tan skin tone",
+    "Olive": "olive skin tone",
+    "Brown": "brown skin tone",
+    "Dark Brown": "dark brown skin tone",
+    "Deep": "deep skin tone",
+    "Ebony": "ebony skin tone",
+}
+
+CHARACTER_COMPOSITION = {
+    "None": "",
+    # Single Subject
+    "One Person": "one person",
+    "Solo Portrait": "solo portrait",
+    # Couples
+    "Romantic Couple": "romantic couple",
+    "Two Friends": "two friends together",
+    "Two Colleagues": "two colleagues",
+    # Family
+    "Mother and Child": "mother and child",
+    "Father and Child": "father and child",
+    "Parents with Child": "parents with child",
+    "Siblings": "siblings together",
+    "Family Portrait": "family portrait",
+    "Grandparent and Child": "grandparent and grandchild",
+    # Groups
+    "Group of Friends": "group of friends",
+    "Three People": "three people",
+    "Four People": "four people",
+    "Small Group": "small group of people",
+    "Crowd": "crowd of people",
+    # Specific Combos
+    "Two Women": "two women",
+    "Two Men": "two men",
+    "Man and Woman": "man and woman",
+    "Mixed Group": "mixed group of people",
+    "Wedding Party": "wedding party",
+    "Band or Team": "band or team together",
+}
+
+ACCESSORIES = {
+    "None": "",
+    # Eyewear
+    "Glasses": "wearing glasses",
+    "Sunglasses": "wearing sunglasses",
+    "Reading Glasses": "wearing reading glasses",
+    "Aviators": "wearing aviator sunglasses",
+    "Round Glasses": "wearing round glasses",
+    # Jewelry
+    "Necklace": "wearing necklace",
+    "Earrings": "wearing earrings",
+    "Bracelet": "wearing bracelet",
+    "Watch": "wearing watch",
+    "Rings": "wearing rings",
+    "Pendant": "wearing pendant necklace",
+    "Hoop Earrings": "wearing hoop earrings",
+    # Head Accessories
+    "Hat": "wearing hat",
+    "Cap": "wearing cap",
+    "Beanie": "wearing beanie",
+    "Headband": "wearing headband",
+    "Hair Clips": "wearing hair clips",
+    "Tiara": "wearing tiara",
+    "Bandana": "wearing bandana on head",
+    "Beret": "wearing beret",
+    # Neck & Scarves
+    "Scarf": "wearing scarf",
+    "Tie": "wearing tie",
+    "Bowtie": "wearing bowtie",
+    "Choker": "wearing choker",
+    # Bags & Carried Items
+    "Handbag": "carrying handbag",
+    "Backpack": "wearing backpack",
+    "Umbrella": "holding umbrella",
+    "Briefcase": "carrying briefcase",
+}
+
+EYE_COLOR = {
+    "None": "",
+    "Brown": "brown eyes",
+    "Dark Brown": "dark brown eyes",
+    "Hazel": "hazel eyes",
+    "Green": "green eyes",
+    "Blue": "blue eyes",
+    "Gray": "gray eyes",
+    "Amber": "amber eyes",
+    "Light Blue": "light blue eyes",
+    "Heterochromia": "heterochromia different colored eyes",
+    "Violet": "violet eyes",
+}
+
+AGE_APPEARANCE = {
+    "None": "",
+    "Infant": "infant baby",
+    "Toddler": "toddler young child",
+    "Child": "child",
+    "Pre-Teen": "pre-teen",
+    "Teenager": "teenager",
+    "Young Adult": "young adult",
+    "Adult": "adult",
+    "Middle-Aged": "middle-aged",
+    "Mature": "mature older adult",
+    "Elderly": "elderly",
+}
+
+BODY_TYPE = {
+    "None": "",
+    "Slim": "slim body type",
+    "Athletic": "athletic body type",
+    "Average": "average body type",
+    "Curvy": "curvy body type",
+    "Muscular": "muscular body type",
+    "Petite": "petite body type",
+    "Tall": "tall stature",
+    "Plus Size": "plus size body type",
+    "Lean": "lean body type",
+    "Stocky": "stocky body type",
+}
+
+MAKEUP_STYLE = {
+    "None": "",
+    "Natural": "natural makeup look",
+    "No Makeup": "no makeup bare face",
+    "Light Makeup": "light subtle makeup",
+    "Glamorous": "glamorous full makeup",
+    "Smoky Eye": "smoky eye makeup",
+    "Bold Lip": "bold lip color makeup",
+    "Editorial": "editorial high fashion makeup",
+    "Gothic": "gothic dark makeup",
+    "Natural Glow": "natural glowing makeup",
+    "Dewy": "dewy fresh makeup look",
+    "Matte": "matte makeup finish",
+    "Cat Eye": "cat eye eyeliner makeup",
+    "Soft Glam": "soft glam makeup",
+    "Avant-Garde": "avant-garde artistic makeup",
+    "Vintage": "vintage retro makeup style",
+}
+
+# =============================================================================
 # LOCATION DICTIONARIES
 # =============================================================================
 
@@ -1037,6 +1299,13 @@ OUTFIT_GENERAL = {
     "Winter Wear": "winter wear, cold weather clothing, layered warmth",
     "Summer Outfit": "summer outfit, light breathable, warm weather fashion",
     "Loungewear": "loungewear, comfortable home clothes, relaxed casual",
+    "Hoodie and Joggers": "hoodie and joggers, comfortable casual, athletic leisure",
+    "Leather Jacket Outfit": "leather jacket outfit, rugged cool, biker style",
+    "Denim Jacket Outfit": "denim jacket outfit, casual layered, classic Americana",
+    "Leather Pants Outfit": "leather pants outfit, edgy sophisticated, bold fashion",
+    "Casual Cardigan Outfit": "casual cardigan outfit, cozy layered, comfortable chic",
+    "Athletic Set": "athletic set, matching workout, sporty coordinated",
+    "Oversized Sweater Look": "oversized sweater look, cozy relaxed, comfortable chic",
 }
 
 OUTFIT_MASCULINE = {
@@ -1045,13 +1314,10 @@ OUTFIT_MASCULINE = {
     "Dress Shirt and Slacks": "dress shirt and slacks, smart office wear, professional",
     "Jeans and T-Shirt": "jeans and t-shirt, casual classic, everyday menswear",
     "Polo Shirt and Chinos": "polo shirt and chinos, smart casual, refined relaxed",
-    "Hoodie and Joggers": "hoodie and joggers, comfortable casual, athletic leisure",
-    "Leather Jacket Outfit": "leather jacket outfit, rugged cool, biker style",
     "Tuxedo": "tuxedo, black tie formal, elegant evening menswear",
     "Casual Blazer Look": "casual blazer look, smart jacket, elevated casual",
     "Tank Top and Shorts": "tank top and shorts, summer casual, relaxed warm weather",
     "Athletic Wear": "athletic wear, gym clothes, sports performance outfit",
-    "Denim Jacket Outfit": "denim jacket outfit, casual layered, classic Americana",
     "Sweater and Jeans": "sweater and jeans, cozy casual, autumn comfortable",
     "Hawaiian Shirt": "Hawaiian shirt, tropical print, vacation casual",
     "Flannel Shirt Outfit": "flannel shirt outfit, plaid casual, rugged comfortable",
@@ -1066,15 +1332,11 @@ OUTFIT_FEMININE = {
     "Blouse and Skirt": "blouse and skirt, feminine professional, classic pairing",
     "Jeans and Crop Top": "jeans and crop top, casual trendy, youthful style",
     "Business Suit Feminine": "feminine business suit, professional tailored, power dressing",
-    "Casual Cardigan Outfit": "casual cardigan outfit, cozy layered, comfortable chic",
     "Evening Gown": "evening gown, formal long dress, glamorous elegant",
     "Romper": "romper or jumpsuit, one-piece casual, playful feminine",
     "Tennis Skirt Outfit": "tennis skirt outfit, sporty feminine, athletic chic",
     "Sweater Dress": "sweater dress, cozy feminine, autumn elegant",
-    "Leather Pants Outfit": "leather pants outfit, edgy sophisticated, bold fashion",
     "Flowy Bohemian": "flowy bohemian outfit, romantic layers, free-spirited style",
-    "Athletic Set": "athletic set, matching workout, sporty coordinated",
-    "Oversized Sweater Look": "oversized sweater look, cozy relaxed, comfortable chic",
 }
 
 # Hierarchical style organization
@@ -1164,6 +1426,18 @@ class DonutPromptInjection:
         vibe_options = build_options(VIBE_ATMOSPHERE)
         expression_options = build_options(FACIAL_EXPRESSION)
 
+        # Character attribute options
+        hair_color_options = build_options(HAIR_COLOR)
+        hairstyle_masc_options = build_options(HAIRSTYLE_MASCULINE)
+        hairstyle_fem_options = build_options(HAIRSTYLE_FEMININE)
+        skin_tone_options = build_options(SKIN_TONE)
+        composition_options = build_options(CHARACTER_COMPOSITION)
+        accessories_options = build_options(ACCESSORIES)
+        eye_color_options = build_options(EYE_COLOR)
+        age_options = build_options(AGE_APPEARANCE)
+        body_type_options = build_options(BODY_TYPE)
+        makeup_options = build_options(MAKEUP_STYLE)
+
         # Location has category + location dropdowns
         location_categories = ["None", "Random"] + list(ALL_LOCATIONS.keys())
         first_loc_cat = list(ALL_LOCATIONS.keys())[0]
@@ -1189,6 +1463,16 @@ class DonutPromptInjection:
                 "pose_with_props": (pose_with_props_options, {"default": "None"}),
                 "vibe": (vibe_options, {"default": "None"}),
                 "expression": (expression_options, {"default": "None"}),
+                "hair_color": (hair_color_options, {"default": "None"}),
+                "hairstyle_masculine": (hairstyle_masc_options, {"default": "None"}),
+                "hairstyle_feminine": (hairstyle_fem_options, {"default": "None"}),
+                "skin_tone": (skin_tone_options, {"default": "None"}),
+                "character_composition": (composition_options, {"default": "None"}),
+                "accessories": (accessories_options, {"default": "None"}),
+                "eye_color": (eye_color_options, {"default": "None"}),
+                "age_appearance": (age_options, {"default": "None"}),
+                "body_type": (body_type_options, {"default": "None"}),
+                "makeup_style": (makeup_options, {"default": "None"}),
                 "location_category": (location_categories, {"default": "None"}),
                 "location": (default_locations, {"default": "None"}),
                 "outfit": (outfit_options, {"default": "None"}),
@@ -1285,8 +1569,10 @@ class DonutPromptInjection:
 
     def execute(self, prompt, main_category, subcategory, style, camera, lighting, time_of_day,
                 weather, color_grade, climate, pose, pose_with_props, vibe, expression,
-                location_category, location, outfit, outfit_masculine, outfit_feminine,
-                order, separator, seed):
+                hair_color, hairstyle_masculine, hairstyle_feminine, skin_tone,
+                character_composition, accessories, eye_color, age_appearance, body_type,
+                makeup_style, location_category, location, outfit, outfit_masculine,
+                outfit_feminine, order, separator, seed):
         # Initialize random with seed for reproducibility
         rng = random.Random(seed)
 
@@ -1306,6 +1592,18 @@ class DonutPromptInjection:
         actual_pose_props, pose_props_prompt = self._get_random_or_value(pose_with_props, POSE_WITH_PROPS, rng)
         actual_vibe, vibe_prompt = self._get_random_or_value(vibe, VIBE_ATMOSPHERE, rng)
         actual_expression, expression_prompt = self._get_random_or_value(expression, FACIAL_EXPRESSION, rng)
+
+        # Character attribute prompts
+        actual_hair_color, hair_color_prompt = self._get_random_or_value(hair_color, HAIR_COLOR, rng)
+        actual_hairstyle_masc, hairstyle_masc_prompt = self._get_random_or_value(hairstyle_masculine, HAIRSTYLE_MASCULINE, rng)
+        actual_hairstyle_fem, hairstyle_fem_prompt = self._get_random_or_value(hairstyle_feminine, HAIRSTYLE_FEMININE, rng)
+        actual_skin_tone, skin_tone_prompt = self._get_random_or_value(skin_tone, SKIN_TONE, rng)
+        actual_composition, composition_prompt = self._get_random_or_value(character_composition, CHARACTER_COMPOSITION, rng)
+        actual_accessories, accessories_prompt = self._get_random_or_value(accessories, ACCESSORIES, rng)
+        actual_eye_color, eye_color_prompt = self._get_random_or_value(eye_color, EYE_COLOR, rng)
+        actual_age, age_prompt = self._get_random_or_value(age_appearance, AGE_APPEARANCE, rng)
+        actual_body_type, body_type_prompt = self._get_random_or_value(body_type, BODY_TYPE, rng)
+        actual_makeup, makeup_prompt = self._get_random_or_value(makeup_style, MAKEUP_STYLE, rng)
 
         # Handle location (two-level: category + location)
         location_prompt = ""
@@ -1361,6 +1659,26 @@ class DonutPromptInjection:
             preview_parts.append(f"[Vibe: {actual_vibe}]: {vibe_prompt}")
         if expression_prompt:
             preview_parts.append(f"[Expression: {actual_expression}]: {expression_prompt}")
+        if hair_color_prompt:
+            preview_parts.append(f"[Hair Color: {actual_hair_color}]: {hair_color_prompt}")
+        if hairstyle_masc_prompt:
+            preview_parts.append(f"[Hairstyle Masc: {actual_hairstyle_masc}]: {hairstyle_masc_prompt}")
+        if hairstyle_fem_prompt:
+            preview_parts.append(f"[Hairstyle Fem: {actual_hairstyle_fem}]: {hairstyle_fem_prompt}")
+        if skin_tone_prompt:
+            preview_parts.append(f"[Skin Tone: {actual_skin_tone}]: {skin_tone_prompt}")
+        if composition_prompt:
+            preview_parts.append(f"[Composition: {actual_composition}]: {composition_prompt}")
+        if accessories_prompt:
+            preview_parts.append(f"[Accessories: {actual_accessories}]: {accessories_prompt}")
+        if eye_color_prompt:
+            preview_parts.append(f"[Eye Color: {actual_eye_color}]: {eye_color_prompt}")
+        if age_prompt:
+            preview_parts.append(f"[Age: {actual_age}]: {age_prompt}")
+        if body_type_prompt:
+            preview_parts.append(f"[Body Type: {actual_body_type}]: {body_type_prompt}")
+        if makeup_prompt:
+            preview_parts.append(f"[Makeup: {actual_makeup}]: {makeup_prompt}")
         if location_prompt:
             preview_parts.append(f"[Location: {actual_location}]: {location_prompt}")
         if outfit_prompt:
@@ -1375,8 +1693,11 @@ class DonutPromptInjection:
         injection_parts = [p for p in [
             style_prompt, camera_prompt, lighting_prompt, time_prompt,
             weather_prompt, color_prompt, climate_prompt, pose_prompt,
-            pose_props_prompt, vibe_prompt, expression_prompt, location_prompt,
-            outfit_prompt, outfit_masc_prompt, outfit_fem_prompt
+            pose_props_prompt, vibe_prompt, expression_prompt,
+            hair_color_prompt, hairstyle_masc_prompt, hairstyle_fem_prompt,
+            skin_tone_prompt, composition_prompt, accessories_prompt,
+            eye_color_prompt, age_prompt, body_type_prompt, makeup_prompt,
+            location_prompt, outfit_prompt, outfit_masc_prompt, outfit_fem_prompt
         ] if p]
         injection = separator.join(injection_parts)
 
