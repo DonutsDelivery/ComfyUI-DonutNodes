@@ -1054,36 +1054,50 @@ class DonutPromptInjection:
 
     @classmethod
     def INPUT_TYPES(cls):
-        # Main categories with Random option
-        main_categories = ["Random"] + list(STYLE_HIERARCHY.keys())
+        # All dropdowns get "None" and "Random" as first two options
+        # "None" = skip this category, "Random" = pick randomly
 
-        # Get first main category's subcategories for default
+        # Main style categories
+        main_categories = ["None", "Random"] + list(STYLE_HIERARCHY.keys())
+
+        # Get first main category's subcategories for default dropdown
         first_main = list(STYLE_HIERARCHY.keys())[0]
-        default_subcategories = ["Random"] + list(STYLE_HIERARCHY[first_main].keys())
+        default_subcategories = ["None", "Random"] + list(STYLE_HIERARCHY[first_main].keys())
 
-        # Get first subcategory's styles for default
+        # Get first subcategory's styles for default dropdown
         first_sub = list(STYLE_HIERARCHY[first_main].keys())[0]
-        default_styles = ["Random"] + list(STYLE_HIERARCHY[first_main][first_sub].keys())
+        # Filter out "None" from dict keys since we add it explicitly
+        style_keys = [k for k in STYLE_HIERARCHY[first_main][first_sub].keys() if k != "None"]
+        default_styles = ["None", "Random"] + style_keys
 
-        camera_shots = ["Random"] + list(CAMERA_SHOTS.keys())
-        lighting_options = ["Random"] + list(LIGHTING_STYLES.keys())
-        time_options = ["Random"] + list(TIME_OF_DAY.keys())
-        weather_options = ["Random"] + list(WEATHER_ATMOSPHERE.keys())
-        color_options = ["Random"] + list(COLOR_GRADING.keys())
-        climate_options = ["Random"] + list(CLIMATE_BIOME.keys())
-        pose_options = ["Random"] + list(SUBJECT_POSE.keys())
-        pose_with_props_options = ["Random"] + list(POSE_WITH_PROPS.keys())
-        vibe_options = ["Random"] + list(VIBE_ATMOSPHERE.keys())
-        location_categories = list(ALL_LOCATIONS.keys())
-        default_locations = ["Random"] + list(ALL_LOCATIONS[location_categories[0]].keys())
-        outfit_options = ["Random"] + list(OUTFIT_GENERAL.keys())
-        outfit_masc_options = ["Random"] + list(OUTFIT_MASCULINE.keys())
-        outfit_fem_options = ["Random"] + list(OUTFIT_FEMININE.keys())
+        # Helper to build options list: None, Random, then dict keys (excluding None from dict)
+        def build_options(d):
+            keys = [k for k in d.keys() if k != "None"]
+            return ["None", "Random"] + keys
+
+        camera_shots = build_options(CAMERA_SHOTS)
+        lighting_options = build_options(LIGHTING_STYLES)
+        time_options = build_options(TIME_OF_DAY)
+        weather_options = build_options(WEATHER_ATMOSPHERE)
+        color_options = build_options(COLOR_GRADING)
+        climate_options = build_options(CLIMATE_BIOME)
+        pose_options = build_options(SUBJECT_POSE)
+        pose_with_props_options = build_options(POSE_WITH_PROPS)
+        vibe_options = build_options(VIBE_ATMOSPHERE)
+
+        # Location has category + location dropdowns
+        location_categories = ["None", "Random"] + list(ALL_LOCATIONS.keys())
+        first_loc_cat = list(ALL_LOCATIONS.keys())[0]
+        default_locations = build_options(ALL_LOCATIONS[first_loc_cat])
+
+        outfit_options = build_options(OUTFIT_GENERAL)
+        outfit_masc_options = build_options(OUTFIT_MASCULINE)
+        outfit_fem_options = build_options(OUTFIT_FEMININE)
 
         return {
             "required": {
                 "prompt": ("STRING", {"multiline": True, "dynamicPrompts": True, "default": ""}),
-                "main_category": (main_categories, {"default": main_categories[1]}),
+                "main_category": (main_categories, {"default": "None"}),
                 "subcategory": (default_subcategories, {"default": "None"}),
                 "style": (default_styles, {"default": "None"}),
                 "camera": (camera_shots, {"default": "None"}),
@@ -1095,7 +1109,7 @@ class DonutPromptInjection:
                 "pose": (pose_options, {"default": "None"}),
                 "pose_with_props": (pose_with_props_options, {"default": "None"}),
                 "vibe": (vibe_options, {"default": "None"}),
-                "location_category": (location_categories, {"default": location_categories[0]}),
+                "location_category": (location_categories, {"default": "None"}),
                 "location": (default_locations, {"default": "None"}),
                 "outfit": (outfit_options, {"default": "None"}),
                 "outfit_masculine": (outfit_masc_options, {"default": "None"}),
@@ -1119,7 +1133,9 @@ class DonutPromptInjection:
         return True
 
     def _get_random_or_value(self, value, options_dict, rng):
-        """Helper to get a value from a dict, handling Random selection."""
+        """Helper to get a value from a dict, handling None and Random selection."""
+        if value == "None":
+            return "None", ""
         if value == "Random":
             available = [k for k in options_dict.keys() if k != "None"]
             if available:
@@ -1128,24 +1144,34 @@ class DonutPromptInjection:
             return "None", ""
         elif value in options_dict:
             return value, options_dict[value]
-        return value, ""
+        return "None", ""
 
     def _resolve_style_hierarchy(self, main_category, subcategory, style, rng):
         """
-        Resolve the hierarchical style selection, handling Random at each level.
+        Resolve the hierarchical style selection, handling None and Random at each level.
 
         Returns: (actual_main_cat, actual_subcat, actual_style, style_prompt)
         """
+        # Handle None at main category - no style injection
+        if main_category == "None":
+            return "None", "None", "None", ""
+
         actual_main = main_category
         actual_sub = subcategory
         actual_style = style
 
-        # Handle Random main category - pick random from all subcategories
+        # Handle Random main category - pick random from all main categories
         if main_category == "Random":
             actual_main = rng.choice(list(STYLE_HIERARCHY.keys()))
 
         # Get subcategories for the selected main category
         subcategories = STYLE_HIERARCHY.get(actual_main, {})
+        if not subcategories:
+            return actual_main, "None", "None", ""
+
+        # Handle None subcategory - no style from this hierarchy
+        if subcategory == "None":
+            return actual_main, "None", "None", ""
 
         # Handle Random subcategory
         if subcategory == "Random" or subcategory not in subcategories:
@@ -1157,6 +1183,12 @@ class DonutPromptInjection:
 
         # Get styles for the selected subcategory
         styles_dict = subcategories.get(actual_sub, {})
+        if not styles_dict:
+            return actual_main, actual_sub, "None", ""
+
+        # Handle None style - no style
+        if style == "None":
+            return actual_main, actual_sub, "None", ""
 
         # Handle Random style
         if style == "Random" or style not in styles_dict:
@@ -1194,16 +1226,31 @@ class DonutPromptInjection:
         actual_pose_props, pose_props_prompt = self._get_random_or_value(pose_with_props, POSE_WITH_PROPS, rng)
         actual_vibe, vibe_prompt = self._get_random_or_value(vibe, VIBE_ATMOSPHERE, rng)
 
-        # Handle location (similar to style handling)
+        # Handle location (two-level: category + location)
         location_prompt = ""
+        actual_loc_cat = location_category
         actual_location = location
-        if location == "Random":
-            available_locs = [l for l in ALL_LOCATIONS[location_category].keys() if l != "None"]
+
+        if location_category == "None":
+            actual_loc_cat = "None"
+            actual_location = "None"
+        elif location_category == "Random":
+            # Random category - pick random category then random location
+            actual_loc_cat = rng.choice(list(ALL_LOCATIONS.keys()))
+            available_locs = [l for l in ALL_LOCATIONS[actual_loc_cat].keys() if l != "None"]
             if available_locs:
                 actual_location = rng.choice(available_locs)
-                location_prompt = ALL_LOCATIONS[location_category][actual_location]
-        elif location_category in ALL_LOCATIONS and location in ALL_LOCATIONS[location_category]:
-            location_prompt = ALL_LOCATIONS[location_category][location]
+                location_prompt = ALL_LOCATIONS[actual_loc_cat][actual_location]
+        elif location_category in ALL_LOCATIONS:
+            if location == "None":
+                actual_location = "None"
+            elif location == "Random":
+                available_locs = [l for l in ALL_LOCATIONS[location_category].keys() if l != "None"]
+                if available_locs:
+                    actual_location = rng.choice(available_locs)
+                    location_prompt = ALL_LOCATIONS[location_category][actual_location]
+            elif location in ALL_LOCATIONS[location_category]:
+                location_prompt = ALL_LOCATIONS[location_category][location]
 
         actual_outfit, outfit_prompt = self._get_random_or_value(outfit, OUTFIT_GENERAL, rng)
         actual_outfit_masc, outfit_masc_prompt = self._get_random_or_value(outfit_masculine, OUTFIT_MASCULINE, rng)

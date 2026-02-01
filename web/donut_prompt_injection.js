@@ -44,6 +44,14 @@ async function fetchStyleHierarchy() {
 function updateSubcategoryOptions(node, mainCatWidget, subcatWidget, styleWidget, newMainCat) {
     if (!styleHierarchy) return;
 
+    // Handle "None" main category - still show subcategory options but they won't matter
+    if (newMainCat === "None") {
+        subcatWidget.options.values = ["None", "Random"];
+        subcatWidget.value = "None";
+        updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, "None");
+        return;
+    }
+
     // Handle "Random" main category - show all subcategories from all main categories
     let subcategories;
     if (newMainCat === "Random") {
@@ -67,8 +75,8 @@ function updateSubcategoryOptions(node, mainCatWidget, subcatWidget, styleWidget
         userSelections.mainCategory[oldMainCat] = subcatWidget.value;
     }
 
-    // Update subcategory options
-    const newSubcats = ["Random", ...subcategories];
+    // Update subcategory options - always include None and Random first
+    const newSubcats = ["None", "Random", ...subcategories];
     subcatWidget.options.values = newSubcats;
 
     // Restore previous selection or reset
@@ -91,6 +99,14 @@ function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newS
     if (!styleHierarchy) return;
 
     const mainCat = mainCatWidget.value;
+
+    // Handle "None" subcategory
+    if (newSubcat === "None" || mainCat === "None") {
+        styleWidget.options.values = ["None", "Random"];
+        styleWidget.value = "None";
+        return;
+    }
+
     let styles = [];
 
     if (newSubcat === "Random") {
@@ -102,7 +118,7 @@ function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newS
             for (const mc of Object.keys(styleHierarchy)) {
                 for (const sc of Object.keys(styleHierarchy[mc])) {
                     for (const style of styleHierarchy[mc][sc]) {
-                        allStyles.add(style);
+                        if (style !== "None") allStyles.add(style);
                     }
                 }
             }
@@ -112,7 +128,7 @@ function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newS
             const allStyles = new Set();
             for (const sc of Object.keys(styleHierarchy[mainCat])) {
                 for (const style of styleHierarchy[mainCat][sc]) {
-                    allStyles.add(style);
+                    if (style !== "None") allStyles.add(style);
                 }
             }
             styles = Array.from(allStyles).sort();
@@ -123,12 +139,12 @@ function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newS
             // Find the subcategory in any main category
             for (const mc of Object.keys(styleHierarchy)) {
                 if (styleHierarchy[mc][newSubcat]) {
-                    styles = styleHierarchy[mc][newSubcat];
+                    styles = styleHierarchy[mc][newSubcat].filter(s => s !== "None");
                     break;
                 }
             }
         } else if (styleHierarchy[mainCat] && styleHierarchy[mainCat][newSubcat]) {
-            styles = styleHierarchy[mainCat][newSubcat];
+            styles = styleHierarchy[mainCat][newSubcat].filter(s => s !== "None");
         }
     }
 
@@ -139,8 +155,8 @@ function updateStyleOptions(node, mainCatWidget, subcatWidget, styleWidget, newS
         userSelections.subcategory[oldKey] = styleWidget.value;
     }
 
-    // Update style options
-    const newStyles = ["Random", ...styles];
+    // Update style options - always include None and Random first
+    const newStyles = ["None", "Random", ...styles];
     styleWidget.options.values = newStyles;
 
     // Restore previous selection or reset
