@@ -36,6 +36,14 @@ PHOTO_STYLES = {
     "Concert Photography": "live concert photography, high ISO grain, energetic feel, live performance aesthetic",
     "Underwater Dreamy": "underwater photography, floating ethereal quality, submerged perspective, aquatic distortion",
     "Infrared Surreal": "infrared photography, white foliage, dark skies, surreal dreamlike, false color, otherworldly landscape",
+    # Casual & Amateur
+    "Smartphone Photo": "smartphone photography, phone camera quality, slight digital noise, casual framing, everyday snapshot",
+    "Disposable Camera": "disposable camera photo, direct flash, visible grain, off-center framing, party aesthetic, candid moment",
+    "Snapshot Aesthetic": "snapshot photography, quick casual photo, imperfect composition, authentic everyday moment, not posed",
+    "Amateur Photography": "amateur photography, imperfect framing, authentic unpolished feel, everyday photographer",
+    "Lo-fi Photo": "lo-fi photography, low quality charm, embraced imperfections, raw unedited, casual appeal",
+    "Mirror Selfie": "mirror selfie photo, reflection shot, casual self-portrait, personal authentic moment",
+    "Point and Shoot": "point and shoot camera, compact camera photo, auto settings, travel snapshots, everyday memories",
 }
 
 ILLUSTRATION_STYLES = {
@@ -382,7 +390,7 @@ LIGHTING_STYLES = {
     # Atmospheric & Environmental
     "Volumetric Light": "volumetric lighting, visible light rays, god rays through atmosphere, dramatic shafts",
     "Moonlight": "moonlight illumination, cool silver-blue tones, night atmosphere, soft lunar glow",
-    "Firelight": "firelight illumination, warm orange flickering, campfire atmosphere, dancing shadows",
+    "Firelight": "firelight illumination, warm orange flickering glow, dancing shadows, flame-lit ambiance",
     "Underwater Caustics": "underwater caustic lighting, rippling light patterns, aquatic atmosphere, dancing reflections",
     # Color Temperature
     "Warm Tungsten": "warm tungsten lighting, orange-yellow tones, cozy indoor atmosphere, incandescent glow",
@@ -781,6 +789,7 @@ HAIR_COLOR = {
 HAIRSTYLE_MASCULINE = {
     "None": "",
     # Short Styles
+    "Bald": "bald head, shaved head",
     "Buzz Cut": "buzz cut hairstyle",
     "Crew Cut": "crew cut hairstyle",
     "Fade": "fade haircut",
@@ -823,8 +832,6 @@ HAIRSTYLE_FEMININE = {
     "Pixie Cut": "pixie cut hairstyle",
     "Bob": "bob hairstyle",
     "Lob": "lob long bob hairstyle",
-    "Buzz Cut": "buzz cut hairstyle",
-    "Undercut": "undercut hairstyle",
     "Asymmetrical Bob": "asymmetrical bob",
     # Medium Styles
     "Shoulder Length": "shoulder length hair",
@@ -864,8 +871,8 @@ HAIRSTYLE_FEMININE = {
 
 SKIN_TONE = {
     "None": "",
-    "Very Fair": "very fair skin tone",
-    "Fair": "fair skin tone",
+    "Very Pale": "very pale skin tone",
+    "Pale": "pale skin tone",
     "Light": "light skin tone",
     "Light Medium": "light medium skin tone",
     "Medium": "medium skin tone",

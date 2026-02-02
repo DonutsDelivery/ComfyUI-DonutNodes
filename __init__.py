@@ -58,6 +58,10 @@ from .DonutDetailerZIT import NODE_DISPLAY_NAME_MAPPINGS as d_zit_detailer
 from .ModelMergeZIT import NODE_CLASS_MAPPINGS        as m_merge_zit
 from .ModelMergeZIT import NODE_DISPLAY_NAME_MAPPINGS as d_merge_zit
 
+# ZIT Model Merge Blocks (individual layer control)
+from .ModelMergeZITBlocks import NODE_CLASS_MAPPINGS        as m_merge_zit_blocks
+from .ModelMergeZITBlocks import NODE_DISPLAY_NAME_MAPPINGS as d_merge_zit_blocks
+
 # Model Save (No Workflow)
 from .DonutModelSave import NODE_CLASS_MAPPINGS        as m_model_save
 from .DonutModelSave import NODE_DISPLAY_NAME_MAPPINGS as d_model_save
@@ -114,6 +118,7 @@ NODE_CLASS_MAPPINGS = {
     **m_tiled_upscale,
     **m_zit_detailer,
     **m_merge_zit,
+    **m_merge_zit_blocks,
     **m_model_save,
     **m_face_detailer,
     **m_universal_detailer,
@@ -139,6 +144,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_tiled_upscale,
     **d_zit_detailer,
     **d_merge_zit,
+    **d_merge_zit_blocks,
     **d_model_save,
     **d_face_detailer,
     **d_universal_detailer,
