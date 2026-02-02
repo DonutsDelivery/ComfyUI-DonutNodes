@@ -44,6 +44,11 @@ PHOTO_STYLES = {
     "Lo-fi Photo": "lo-fi photography, low quality charm, embraced imperfections, raw unedited, casual appeal",
     "Mirror Selfie": "mirror selfie photo, reflection shot, casual self-portrait, personal authentic moment",
     "Point and Shoot": "point and shoot camera, compact camera photo, auto settings, travel snapshots, everyday memories",
+    # VHS & Retro Video
+    "VHS Footage": "VHS video footage, tracking lines, color bleeding, scan lines, analog distortion, magnetic tape artifacts",
+    "Camcorder Video": "home video camcorder footage, handheld shaky, date timestamp overlay, autofocus hunting, consumer video quality",
+    "Security Camera": "security camera footage, low resolution, grainy, timestamp overlay, fixed angle, CCTV quality",
+    "Expired VHS": "degraded VHS tape, severe tracking errors, color decay, warped distortion, worn magnetic tape, generation loss artifacts",
 }
 
 ILLUSTRATION_STYLES = {
