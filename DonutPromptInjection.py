@@ -43,6 +43,7 @@ PHOTO_STYLES = {
     "Amateur Photography": "amateur photography, imperfect framing, authentic unpolished feel, everyday photographer",
     "Lo-fi Photo": "lo-fi photography, low quality charm, embraced imperfections, raw unedited, casual appeal",
     "Mirror Selfie": "mirror selfie photo, reflection shot, casual self-portrait, personal authentic moment",
+    "Amateur Self-Shot": "casual phone camera quality, authentic candid framing, personal intimate snapshot, unpolished natural lighting",
     "Point and Shoot": "point and shoot camera, compact camera photo, auto settings, travel snapshots, everyday memories",
     # VHS & Retro Video
     "VHS Footage": "VHS video footage, tracking lines, color bleeding, scan lines, analog distortion, magnetic tape artifacts",
