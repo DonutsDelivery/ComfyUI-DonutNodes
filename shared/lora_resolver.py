@@ -219,8 +219,9 @@ def resolve_lora(name: str, expected_hash: Optional[str] = None,
 
     _notify({"status": "missing",
              "name": Path(name).name,
-             "message": f"Missing LoRA: {name}" +
-                        (f" (hash {expected_hash[:10]})" if expected_hash else " (no hash)")})
+             "message": (f"Path: {name}" +
+                         (f"\nHash: {expected_hash[:16]}…" if expected_hash
+                          else "\nNo hash stored — re-save workflow with the LoRA present to enable auto-download"))})
     return (None, "missing")
 
 
