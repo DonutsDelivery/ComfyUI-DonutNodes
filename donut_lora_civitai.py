@@ -149,115 +149,6 @@ class DonutLoRACivitAIInfo:
         }
 
 
-class DonutLoRAStackCivitAI:
-    """
-    Enhanced LoRA Stack with CivitAI metadata display.
-
-    Builds a stack of up to 3 LoRAs and automatically fetches
-    metadata from CivitAI for display.
-    """
-
-    class_type = "CUSTOM"
-    aux_id = "DonutsDelivery/ComfyUI-DonutNodes"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        loras = ["None"] + folder_paths.get_filename_list("loras")
-        return {
-            "required": {
-                # LoRA 1
-                "switch_1": (["Off", "On"],),
-                "lora_name_1": (loras,),
-                "model_weight_1": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-                "clip_weight_1": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-
-                # LoRA 2
-                "switch_2": (["Off", "On"],),
-                "lora_name_2": (loras,),
-                "model_weight_2": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-                "clip_weight_2": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-
-                # LoRA 3
-                "switch_3": (["Off", "On"],),
-                "lora_name_3": (loras,),
-                "model_weight_3": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-                "clip_weight_3": ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": 0.01}),
-
-                # CivitAI options
-                "fetch_metadata": (["Yes", "No"], {"default": "Yes"}),
-            },
-            "optional": {
-                "lora_stack": ("LORA_STACK",),
-                "api_key": ("STRING", {"default": "", "placeholder": "CivitAI API key (optional)"}),
-            }
-        }
-
-    RETURN_TYPES = ("LORA_STACK", "STRING", "STRING")
-    RETURN_NAMES = ("lora_stack", "lora_info", "trigger_words")
-    FUNCTION = "build_stack"
-    CATEGORY = "donut/LoRA"
-    OUTPUT_NODE = True
-
-    def build_stack(
-        self,
-        switch_1, lora_name_1, model_weight_1, clip_weight_1,
-        switch_2, lora_name_2, model_weight_2, clip_weight_2,
-        switch_3, lora_name_3, model_weight_3, clip_weight_3,
-        fetch_metadata: str = "Yes",
-        lora_stack=None,
-        api_key: str = ""
-    ) -> Tuple[List, str, str]:
-        """Build LoRA stack with CivitAI metadata."""
-
-        stack = list(lora_stack) if lora_stack else []
-        all_info = []
-        all_triggers = []
-
-        cache = get_cache() if fetch_metadata == "Yes" else None
-
-        def add_lora(switch, name, model_w, clip_w):
-            if switch != "On" or name == "None":
-                return
-
-            # Add to stack (using default block vector for compatibility)
-            block_vector = ",".join(["1"] * 12)
-            stack.append((name, model_w, clip_w, block_vector))
-
-            # Fetch metadata if enabled
-            if cache is not None:
-                lora_path = folder_paths.get_full_path("loras", name)
-                if lora_path and os.path.exists(lora_path):
-                    try:
-                        file_hash = get_or_compute_hash(lora_path, use_cache=True)
-                        info = cache.get_or_fetch_info(
-                            file_hash,
-                            api_key=api_key if api_key else None,
-                            download_preview=True
-                        )
-                        if info:
-                            display_name = info.get_display_name()
-                            all_info.append(f"- {display_name} (w:{model_w})")
-                            if info.trained_words:
-                                all_triggers.extend(info.trained_words)
-                            print(f"[DonutLoRAStackCivitAI] {name} -> {display_name}")
-                        else:
-                            all_info.append(f"- {name} (w:{model_w}) [not on CivitAI]")
-                    except Exception as e:
-                        print(f"[DonutLoRAStackCivitAI] Error fetching metadata: {e}")
-                        all_info.append(f"- {name} (w:{model_w})")
-            else:
-                all_info.append(f"- {name} (w:{model_w})")
-
-        add_lora(switch_1, lora_name_1, model_weight_1, clip_weight_1)
-        add_lora(switch_2, lora_name_2, model_weight_2, clip_weight_2)
-        add_lora(switch_3, lora_name_3, model_weight_3, clip_weight_3)
-
-        info_text = "\n".join(all_info) if all_info else "No LoRAs selected"
-        triggers_text = ", ".join(sorted(set(all_triggers))) if all_triggers else ""
-
-        return (stack, info_text, triggers_text)
-
-
 class DonutLoRALibrary:
     """
     LoRA Library Manager - View and manage cached CivitAI metadata.
@@ -522,7 +413,6 @@ class DonutOpenCivitAI:
 # Node registration
 NODE_CLASS_MAPPINGS = {
     "DonutLoRACivitAIInfo": DonutLoRACivitAIInfo,
-    "DonutLoRAStackCivitAI": DonutLoRAStackCivitAI,
     "DonutLoRALibrary": DonutLoRALibrary,
     "DonutLoRAHashLookup": DonutLoRAHashLookup,
     "DonutOpenCivitAI": DonutOpenCivitAI,
@@ -530,7 +420,6 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutLoRACivitAIInfo": "Donut LoRA CivitAI Info",
-    "DonutLoRAStackCivitAI": "Donut LoRA Stack (CivitAI)",
     "DonutLoRALibrary": "Donut LoRA Library Manager",
     "DonutLoRAHashLookup": "Donut LoRA Hash Lookup",
     "DonutOpenCivitAI": "Donut Open CivitAI",

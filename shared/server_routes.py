@@ -1096,6 +1096,34 @@ def register_routes():
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    @routes.get('/donut/lora/get_hash')
+    async def get_lora_hash(request):
+        """Return SHA256 hash for a LoRA, computing on first call. Used by
+        the DonutLoRAStack frontend to populate the hidden lora_hash_N
+        widget so the workflow file carries hashes for cross-machine resolution."""
+        if not HAS_FOLDER_PATHS or not HAS_LORA_HASH:
+            return web.json_response({"hash": ""})
+        name = request.query.get("name", "")
+        if not name or name == "None":
+            return web.json_response({"hash": ""})
+        path = folder_paths.get_full_path("loras", name)
+        if not path or not os.path.exists(path):
+            return web.json_response({"hash": "", "error": "not_found"})
+        try:
+            cache = None
+            if HAS_CIVITAI:
+                try:
+                    from .civitai_api import get_cache as _gc
+                    cache = _gc()
+                except Exception:
+                    cache = None
+            hash_cache_dir = str(cache.cache_dir / "hashes") if cache else None
+            sha = get_or_compute_hash(path, hash_type="SHA256",
+                                      use_cache=True, cache_dir=hash_cache_dir)
+            return web.json_response({"hash": sha})
+        except Exception as e:
+            return web.json_response({"hash": "", "error": str(e)}, status=500)
+
     # ============================================
     # Prompt Injection Styles Routes
     # ============================================

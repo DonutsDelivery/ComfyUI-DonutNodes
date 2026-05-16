@@ -11,10 +11,15 @@ try:
     from .shared.lora_hash import get_or_compute_hash
     from .shared.civitai_api import get_cache
     from .shared.config import get_civitai_api_key
+    from .shared.lora_resolver import resolve_lora, relative_name_for
     HAS_CIVITAI = True
 except ImportError:
     HAS_CIVITAI = False
     def get_civitai_api_key(): return ""
+    def resolve_lora(name, expected_hash=None, auto_download=True, api_key=None):
+        path = folder_paths.get_full_path("loras", name) if name and name != "None" else None
+        return (path, "exact" if path and os.path.exists(path) else "missing")
+    def relative_name_for(path): return os.path.basename(path) if path else None
     print("[DonutLoRAStack] CivitAI integration not available")
 
 # ------------------------------------------------------------------------
@@ -238,6 +243,7 @@ class DonutLoRAStack:
                 "clip_weight_1":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_1": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_1."}),
                 "block_vector_1": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "lora_hash_1":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "switch_2":       (["Off","On"],),
                 "lora_name_2":    (loras,),
@@ -245,6 +251,7 @@ class DonutLoRAStack:
                 "clip_weight_2":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_2": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_2."}),
                 "block_vector_2": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "lora_hash_2":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "switch_3":       (["Off","On"],),
                 "lora_name_3":    (loras,),
@@ -252,6 +259,7 @@ class DonutLoRAStack:
                 "clip_weight_3":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_3": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_3."}),
                 "block_vector_3": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "lora_hash_3":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "civitai_lookup": (["On", "Off"], {"default": "On", "tooltip": "Fetch LoRA info from CivitAI (requires API key in settings)"}),
             },
@@ -283,9 +291,9 @@ class DonutLoRAStack:
     def build_stack(
         self,
         model_type,
-        switch_1, lora_name_1, model_weight_1, clip_weight_1, block_preset_1, block_vector_1,
-        switch_2, lora_name_2, model_weight_2, clip_weight_2, block_preset_2, block_vector_2,
-        switch_3, lora_name_3, model_weight_3, clip_weight_3, block_preset_3, block_vector_3,
+        switch_1, lora_name_1, model_weight_1, clip_weight_1, block_preset_1, block_vector_1, lora_hash_1="",
+        switch_2="Off", lora_name_2="None", model_weight_2=1.0, clip_weight_2=1.0, block_preset_2="None", block_vector_2="", lora_hash_2="",
+        switch_3="Off", lora_name_3="None", model_weight_3=1.0, clip_weight_3=1.0, block_preset_3="None", block_vector_3="", lora_hash_3="",
         civitai_lookup="On",
         lora_stack=None
     ):
@@ -331,15 +339,35 @@ class DonutLoRAStack:
             # Use civitai_cache/hashes for hash caching (faster than alongside LoRA files)
             hash_cache_dir = os.path.join(cache.cache_dir, "hashes")
 
-        def _maybe_add(slot_idx, sw, name, mw, cw, bv):
+        def _maybe_add(slot_idx, sw, name, mw, cw, bv, expected_hash=""):
             if sw == "On" and name != "None":
+                # Resolve LoRA (handles renamed/moved files + auto-download from Civitai)
+                resolved_path, source = resolve_lora(
+                    name,
+                    expected_hash=expected_hash or None,
+                    auto_download=True,
+                    api_key=civitai_api_key if civitai_api_key else None,
+                )
+
+                # If resolver found a different local path, swap to the relative
+                # form ComfyUI expects (so the loader can open it)
+                resolved_name = name
+                if resolved_path and source != "exact":
+                    rel = relative_name_for(resolved_path)
+                    if rel:
+                        resolved_name = rel
+                        print(f"[DonutLoRAStack] Resolved '{name}' via {source} → '{rel}'")
+                elif not resolved_path:
+                    print(f"[DonutLoRAStack] WARNING: could not resolve LoRA '{name}'"
+                          + (f" (hash {expected_hash[:10]})" if expected_hash else ""))
+
                 # Always use block_vector - preset only populates the field via JS
                 final_bv = bv.strip()
-                stack.append((name, mw, cw, final_bv))
+                stack.append((resolved_name, mw, cw, final_bv))
 
                 # Fetch CivitAI metadata
                 if cache is not None:
-                    lora_path = folder_paths.get_full_path("loras", name)
+                    lora_path = resolved_path
                     if lora_path and os.path.exists(lora_path):
                         try:
                             file_hash = get_or_compute_hash(lora_path, use_cache=True, cache_dir=hash_cache_dir)
@@ -401,9 +429,9 @@ class DonutLoRAStack:
                     lora_info_lines.append(f"{name} (w:{mw})")
                     individual_infos[slot_idx] = name
 
-        _maybe_add(0, switch_1, lora_name_1, model_weight_1, clip_weight_1, block_vector_1)
-        _maybe_add(1, switch_2, lora_name_2, model_weight_2, clip_weight_2, block_vector_2)
-        _maybe_add(2, switch_3, lora_name_3, model_weight_3, clip_weight_3, block_vector_3)
+        _maybe_add(0, switch_1, lora_name_1, model_weight_1, clip_weight_1, block_vector_1, lora_hash_1)
+        _maybe_add(1, switch_2, lora_name_2, model_weight_2, clip_weight_2, block_vector_2, lora_hash_2)
+        _maybe_add(2, switch_3, lora_name_3, model_weight_3, clip_weight_3, block_vector_3, lora_hash_3)
 
         # Format outputs
         lora_info = "\n".join(lora_info_lines) if lora_info_lines else "No LoRAs selected"
@@ -460,62 +488,63 @@ class DonutApplyLoRAStack:
         unet, text_enc = model, clip
         loader = LoraLoaderBlockWeight()
 
+        seen = set()
         for i, (name, mw, cw, bv) in enumerate(lora_stack):
-            try:
-                if mw == 0.0 and cw == 0.0:
-                    continue
-
-                path = folder_paths.get_full_path("loras", name)
-                lora = comfy.utils.load_torch_file(path, safe_load=True)
-
-                # Auto-detect block count from LoRA keys if no vector provided
-                if bv:
-                    vector = bv
-                else:
-                    # Count unique block numbers to determine architecture
-                    block_nums = set()
-                    for k in lora.keys():
-                        if "layers." in k:  # Z-Image/Lumina2
-                            m = re.search(r'layers\.(\d+)', k)
-                            if m:
-                                block_nums.add(int(m.group(1)))
-                        elif "input_blocks." in k or "output_blocks." in k or "middle_block." in k:
-                            # UNet architecture (SD1.5/SDXL)
-                            pass
-                        elif "double_blocks." in k or "single_blocks." in k:
-                            # Flux
-                            pass
-
-                    if block_nums:  # Z-Image detected
-                        num_blocks = max(block_nums) + 1
-                        vector = ",".join(["1"] * (num_blocks + 1))  # +1 for base
-                    else:
-                        vector = ",".join(["1"] * 13)  # Default: base + 12 blocks (SDXL)
-
-                # 1) block-weighted UNet merge (pass clip=None to skip CLIP processing)
-                if mw != 0.0:
-                    unet, _, _ = loader.load_lora_for_models(
-                        unet, None, lora,  # clip=None skips CLIP processing entirely
-                        strength_model=mw,
-                        strength_clip=0.0,
-                        inverse=False,
-                        seed=0,
-                        A=1.0,
-                        B=1.0,
-                        block_vector=vector
-                    )
-
-                # 2) uniform CLIP merge (no block control)
-                if cw != 0.0:
-                    _, text_enc = comfy.sd.load_lora_for_models(
-                        unet, text_enc, lora,
-                        0.0,  # no UNet change
-                        cw    # clip strength
-                    )
-
-            except Exception as e:
-                print(f"[DonutApplyLoRAStack] Error applying LoRA {name}: {e}")
+            if mw == 0.0 and cw == 0.0:
                 continue
+
+            if name in seen:
+                print(f"[DonutApplyLoRAStack] Skipping duplicate LoRA '{name}' (already applied this run)")
+                continue
+            seen.add(name)
+
+            path = folder_paths.get_full_path("loras", name)
+            lora = comfy.utils.load_torch_file(path, safe_load=True)
+
+            # Auto-detect block count from LoRA keys if no vector provided
+            if bv:
+                vector = bv
+            else:
+                # Count unique block numbers to determine architecture
+                block_nums = set()
+                for k in lora.keys():
+                    if "layers." in k:  # Z-Image/Lumina2
+                        m = re.search(r'layers\.(\d+)', k)
+                        if m:
+                            block_nums.add(int(m.group(1)))
+                    elif "input_blocks." in k or "output_blocks." in k or "middle_block." in k:
+                        # UNet architecture (SD1.5/SDXL)
+                        pass
+                    elif "double_blocks." in k or "single_blocks." in k:
+                        # Flux
+                        pass
+
+                if block_nums:  # Z-Image detected
+                    num_blocks = max(block_nums) + 1
+                    vector = ",".join(["1"] * (num_blocks + 1))  # +1 for base
+                else:
+                    vector = ",".join(["1"] * 13)  # Default: base + 12 blocks (SDXL)
+
+            # 1) block-weighted UNet merge (pass clip=None to skip CLIP processing)
+            if mw != 0.0:
+                unet, _, _ = loader.load_lora_for_models(
+                    unet, None, lora,  # clip=None skips CLIP processing entirely
+                    strength_model=mw,
+                    strength_clip=0.0,
+                    inverse=False,
+                    seed=0,
+                    A=1.0,
+                    B=1.0,
+                    block_vector=vector
+                )
+
+            # 2) uniform CLIP merge (no block control)
+            if cw != 0.0:
+                _, text_enc = comfy.sd.load_lora_for_models(
+                    unet, text_enc, lora,
+                    0.0,  # no UNet change
+                    cw    # clip strength
+                )
 
         return (unet, text_enc, help_url)
 
