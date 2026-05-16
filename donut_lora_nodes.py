@@ -243,7 +243,6 @@ class DonutLoRAStack:
                 "clip_weight_1":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_1": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_1."}),
                 "block_vector_1": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
-                "lora_hash_1":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "switch_2":       (["Off","On"],),
                 "lora_name_2":    (loras,),
@@ -251,7 +250,6 @@ class DonutLoRAStack:
                 "clip_weight_2":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_2": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_2."}),
                 "block_vector_2": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
-                "lora_hash_2":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "switch_3":       (["Off","On"],),
                 "lora_name_3":    (loras,),
@@ -259,12 +257,15 @@ class DonutLoRAStack:
                 "clip_weight_3":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_3": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_3."}),
                 "block_vector_3": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
-                "lora_hash_3":    ("STRING", {"default": "", "donut_hidden": True}),
 
                 "civitai_lookup": (["On", "Off"], {"default": "On", "tooltip": "Fetch LoRA info from CivitAI (requires API key in settings)"}),
             },
             "optional": {
                 "lora_stack": ("LORA_STACK",),
+            },
+            "hidden": {
+                "extra_pnginfo": "EXTRA_PNGINFO",
+                "unique_id": "UNIQUE_ID",
             },
         }
         return inputs
@@ -291,12 +292,34 @@ class DonutLoRAStack:
     def build_stack(
         self,
         model_type,
-        switch_1, lora_name_1, model_weight_1, clip_weight_1, block_preset_1, block_vector_1, lora_hash_1="",
-        switch_2="Off", lora_name_2="None", model_weight_2=1.0, clip_weight_2=1.0, block_preset_2="None", block_vector_2="", lora_hash_2="",
-        switch_3="Off", lora_name_3="None", model_weight_3=1.0, clip_weight_3=1.0, block_preset_3="None", block_vector_3="", lora_hash_3="",
+        switch_1, lora_name_1, model_weight_1, clip_weight_1, block_preset_1, block_vector_1,
+        switch_2, lora_name_2, model_weight_2, clip_weight_2, block_preset_2, block_vector_2,
+        switch_3, lora_name_3, model_weight_3, clip_weight_3, block_preset_3, block_vector_3,
         civitai_lookup="On",
-        lora_stack=None
+        lora_stack=None,
+        extra_pnginfo=None,
+        unique_id=None,
     ):
+        # Pull per-slot hashes out of the workflow's node.properties (populated
+        # by the JS extension when a LoRA is selected). Lets workflows shared
+        # between machines self-locate via hash even if the path moved.
+        lora_hashes = ["", "", ""]
+        try:
+            if extra_pnginfo and unique_id is not None:
+                wf = extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
+                if wf:
+                    uid = str(unique_id)
+                    for n in wf.get("nodes", []):
+                        if str(n.get("id")) == uid:
+                            hashes = (n.get("properties") or {}).get("lora_hashes")
+                            if isinstance(hashes, list):
+                                for i in range(min(3, len(hashes))):
+                                    if isinstance(hashes[i], str):
+                                        lora_hashes[i] = hashes[i]
+                            break
+        except Exception as e:
+            print(f"[DonutLoRAStack] Could not read lora_hashes from workflow: {e}")
+        lora_hash_1, lora_hash_2, lora_hash_3 = lora_hashes
         stack = list(lora_stack) if lora_stack else []
 
         # Handle empty string values from cached workflows (backwards compatibility)
