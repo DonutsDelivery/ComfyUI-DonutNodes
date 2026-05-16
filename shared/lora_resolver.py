@@ -143,8 +143,18 @@ def _civitai_download(target_hash: str, requested_name: str,
         return None
 
     filename = info.file_name or short_name
-    save_path = get_download_path(info.model_type or "LORA",
-                                  info.base_model, filename)
+
+    # Place the file at the exact relative path the workflow asked for. Keeps
+    # workflows portable: the next load resolves via "exact" instead of falling
+    # to basename. Falls back to base-model subfolder organization only if the
+    # workflow asked for a bare basename.
+    roots = _loras_roots()
+    if roots and ("/" in requested_name or "\\" in requested_name):
+        save_path = os.path.join(roots[0], requested_name.replace("\\", "/"))
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    else:
+        save_path = get_download_path(info.model_type or "LORA",
+                                      info.base_model, filename)
 
     if os.path.exists(save_path):
         invalidate_folder_cache("loras")
