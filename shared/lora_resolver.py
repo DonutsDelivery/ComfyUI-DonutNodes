@@ -101,6 +101,31 @@ def _hash_cache_lookup(target_hash: str) -> Optional[str]:
     return None
 
 
+def _hash_cache_recover_by_basename(name: str) -> Optional[str]:
+    """The hash cache (civitai_cache/hashes/*.hash) stores file_path → SHA256
+    for every LoRA the user has ever loaded. If the workflow itself has no
+    hash but we've seen this LoRA before by basename, recover its SHA256
+    from that cache so we can still do Civitai lookups."""
+    basename = Path(name).name
+    hashes_dir = get_cache().cache_dir / "hashes"
+    if not hashes_dir.exists():
+        return None
+    for hf in hashes_dir.glob("*.hash"):
+        try:
+            with open(hf) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            continue
+        fp = data.get("file_path", "")
+        if not fp:
+            continue
+        if Path(fp).name == basename:
+            sha = (data.get("hashes") or {}).get("SHA256", "")
+            if sha:
+                return sha.upper()
+    return None
+
+
 def _civitai_download(target_hash: str, requested_name: str,
                       api_key: Optional[str] = None) -> Optional[str]:
     """Look up hash on Civitai, download, return local path. Blocks."""
@@ -203,6 +228,14 @@ def resolve_lora(name: str, expected_hash: Optional[str] = None,
                  "name": Path(name).name,
                  "message": f"Located {Path(name).name} at {path}"})
         return (path, "basename")
+
+    # If the workflow didn't carry a hash, try to recover it from the local
+    # hash cache (built up whenever a LoRA was loaded). Lets workflows saved
+    # before the hash mechanism existed still auto-download from Civitai.
+    if not expected_hash:
+        expected_hash = _hash_cache_recover_by_basename(name)
+        if expected_hash:
+            print(f"[DonutLoRAStack] Recovered hash for '{Path(name).name}' from local cache")
 
     if expected_hash:
         path = _hash_cache_lookup(expected_hash)
