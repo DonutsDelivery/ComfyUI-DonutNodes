@@ -9,6 +9,11 @@ import { api } from "../../scripts/api.js";
 // LoRA is auto-located or downloaded.
 
 const NAME_WIDGETS = ["lora_name_1", "lora_name_2", "lora_name_3"];
+const HASH_WIDGETS = ["lora_hash_1", "lora_hash_2", "lora_hash_3"];
+
+function getHashWidget(node, slot) {
+    return node.widgets?.find(w => w.name === HASH_WIDGETS[slot]);
+}
 
 function ensureHashStore(node) {
     if (!node.properties) node.properties = {};
@@ -18,7 +23,32 @@ function ensureHashStore(node) {
     while (node.properties.lora_hashes.length < NAME_WIDGETS.length) {
         node.properties.lora_hashes.push("");
     }
+    for (let slot = 0; slot < HASH_WIDGETS.length; slot++) {
+        const widget = getHashWidget(node, slot);
+        if (widget?.value && !node.properties.lora_hashes[slot]) {
+            node.properties.lora_hashes[slot] = widget.value;
+        } else if (widget && node.properties.lora_hashes[slot] && !widget.value) {
+            widget.value = node.properties.lora_hashes[slot];
+        }
+    }
     return node.properties.lora_hashes;
+}
+
+function hideHashWidgets(node) {
+    for (let slot = 0; slot < HASH_WIDGETS.length; slot++) {
+        const widget = getHashWidget(node, slot);
+        if (!widget) continue;
+        widget.type = "hidden";
+        widget.computeSize = () => [0, -4];
+        widget.serializeValue = () => widget.value || "";
+    }
+}
+
+function setStoredHash(node, slot, hash) {
+    const hashes = ensureHashStore(node);
+    hashes[slot] = hash || "";
+    const widget = getHashWidget(node, slot);
+    if (widget) widget.value = hashes[slot];
 }
 
 function toast(severity, summary, detail) {
@@ -41,17 +71,19 @@ function toast(severity, summary, detail) {
 async function fetchAndStoreHash(node, slot) {
     const nameWidget = node.widgets?.find(w => w.name === NAME_WIDGETS[slot]);
     if (!nameWidget) return;
-    const hashes = ensureHashStore(node);
+    ensureHashStore(node);
     const name = nameWidget.value;
     if (!name || name === "None") {
-        hashes[slot] = "";
+        setStoredHash(node, slot, "");
         return;
     }
     try {
         const r = await api.fetchApi(`/donut/lora/get_hash?name=${encodeURIComponent(name)}`);
         if (!r.ok) return;
         const data = await r.json();
-        hashes[slot] = data.hash || "";
+        if (data.hash) {
+            setStoredHash(node, slot, data.hash);
+        }
     } catch (e) {
         console.warn("[DonutLoRA] get_hash failed:", e);
     }
@@ -103,6 +135,7 @@ app.registerExtension({
             const ret = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
             const node = this;
             ensureHashStore(node);
+            hideHashWidgets(node);
 
             for (let slot = 0; slot < NAME_WIDGETS.length; slot++) {
                 const nameWidget = this.widgets?.find(w => w.name === NAME_WIDGETS[slot]);
@@ -122,6 +155,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function(info) {
             if (onConfigure) onConfigure.apply(this, arguments);
             ensureHashStore(this);
+            hideHashWidgets(this);
             for (let slot = 0; slot < NAME_WIDGETS.length; slot++) {
                 const nameWidget = this.widgets?.find(w => w.name === NAME_WIDGETS[slot]);
                 if (nameWidget?.value && nameWidget.value !== "None"

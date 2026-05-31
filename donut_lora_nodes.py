@@ -1,6 +1,7 @@
 import comfy.sd
 import comfy.utils
 import folder_paths
+import json
 import os
 import re
 import shutil
@@ -225,6 +226,101 @@ def build_preset_list(model_type=None):
 # Default preset list (all presets with vectors shown)
 BLOCK_PRESETS = build_preset_list()
 
+
+def _valid_lora_hash(value):
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{10,128}", value):
+        return value.upper()
+    return ""
+
+
+def _merge_lora_hashes(target, source):
+    if not isinstance(source, (list, tuple)):
+        return
+    for i in range(min(3, len(source))):
+        h = _valid_lora_hash(source[i])
+        if h:
+            target[i] = h
+
+
+def _hashes_from_workflow_node(node):
+    hashes = ["", "", ""]
+    if not isinstance(node, dict):
+        return hashes
+
+    props = node.get("properties") or {}
+    _merge_lora_hashes(hashes, props.get("lora_hashes"))
+    _merge_lora_hashes(hashes, node.get("lora_hashes"))
+
+    inputs = node.get("inputs") or {}
+    if isinstance(inputs, dict):
+        direct = [inputs.get("lora_hash_1"), inputs.get("lora_hash_2"), inputs.get("lora_hash_3")]
+        _merge_lora_hashes(hashes, direct)
+
+    values = node.get("widgets_values") or []
+    widget_hashes = [_valid_lora_hash(v) for v in values]
+    widget_hashes = [h for h in widget_hashes if h]
+    if widget_hashes:
+        _merge_lora_hashes(hashes, widget_hashes[-3:])
+
+    return hashes
+
+
+def _workflow_nodes_from_extra(extra_pnginfo):
+    if not isinstance(extra_pnginfo, dict):
+        return []
+    workflow = extra_pnginfo.get("workflow")
+    if isinstance(workflow, str):
+        try:
+            workflow = json.loads(workflow)
+        except json.JSONDecodeError:
+            workflow = None
+    if isinstance(workflow, dict):
+        nodes = workflow.get("nodes")
+        if isinstance(nodes, list):
+            return nodes
+    nodes = extra_pnginfo.get("nodes")
+    if isinstance(nodes, list):
+        return nodes
+    return []
+
+
+def _workflow_node_mentions_loras(node, lora_names):
+    values = node.get("widgets_values") or []
+    wanted = {name for name in lora_names if name and name != "None"}
+    if not wanted:
+        return False
+    return any(isinstance(v, str) and v in wanted for v in values)
+
+
+def _extract_lora_hashes(extra_pnginfo, unique_id, direct_hashes, lora_names):
+    hashes = ["", "", ""]
+
+    nodes = _workflow_nodes_from_extra(extra_pnginfo)
+    uid = str(unique_id) if unique_id is not None else ""
+
+    matched_node = None
+    for node in nodes:
+        if str(node.get("id")) == uid:
+            matched_node = node
+            break
+
+    if matched_node is None:
+        for node in nodes:
+            if node.get("type") == "DonutLoRAStack" and _workflow_node_mentions_loras(node, lora_names):
+                matched_node = node
+                break
+
+    if matched_node is not None:
+        _merge_lora_hashes(hashes, _hashes_from_workflow_node(matched_node))
+
+    _merge_lora_hashes(hashes, direct_hashes)
+
+    return hashes
+
+
 # ------------------------------------------------------------------------
 class DonutLoRAStack:
     class_type = "CUSTOM"
@@ -262,6 +358,9 @@ class DonutLoRAStack:
             },
             "optional": {
                 "lora_stack": ("LORA_STACK",),
+                "lora_hash_1": ("STRING", {"default": ""}),
+                "lora_hash_2": ("STRING", {"default": ""}),
+                "lora_hash_3": ("STRING", {"default": ""}),
             },
             "hidden": {
                 "extra_pnginfo": "EXTRA_PNGINFO",
@@ -297,28 +396,26 @@ class DonutLoRAStack:
         switch_3, lora_name_3, model_weight_3, clip_weight_3, block_preset_3, block_vector_3,
         civitai_lookup="On",
         lora_stack=None,
+        lora_hash_1="",
+        lora_hash_2="",
+        lora_hash_3="",
         extra_pnginfo=None,
         unique_id=None,
     ):
-        # Pull per-slot hashes out of the workflow's node.properties (populated
-        # by the JS extension when a LoRA is selected). Lets workflows shared
-        # between machines self-locate via hash even if the path moved.
-        lora_hashes = ["", "", ""]
         try:
-            if extra_pnginfo and unique_id is not None:
-                wf = extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
-                if wf:
-                    uid = str(unique_id)
-                    for n in wf.get("nodes", []):
-                        if str(n.get("id")) == uid:
-                            hashes = (n.get("properties") or {}).get("lora_hashes")
-                            if isinstance(hashes, list):
-                                for i in range(min(3, len(hashes))):
-                                    if isinstance(hashes[i], str):
-                                        lora_hashes[i] = hashes[i]
-                            break
+            lora_hashes = _extract_lora_hashes(
+                extra_pnginfo,
+                unique_id,
+                [lora_hash_1, lora_hash_2, lora_hash_3],
+                [lora_name_1, lora_name_2, lora_name_3],
+            )
         except Exception as e:
             print(f"[DonutLoRAStack] Could not read lora_hashes from workflow: {e}")
+            lora_hashes = [
+                _valid_lora_hash(lora_hash_1),
+                _valid_lora_hash(lora_hash_2),
+                _valid_lora_hash(lora_hash_3),
+            ]
         lora_hash_1, lora_hash_2, lora_hash_3 = lora_hashes
         stack = list(lora_stack) if lora_stack else []
 
