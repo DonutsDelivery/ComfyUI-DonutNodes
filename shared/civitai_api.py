@@ -7,6 +7,7 @@ Endpoints used:
 
 import json
 import os
+import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -34,12 +35,38 @@ except ImportError:
 
 
 CIVITAI_API_BASE = "https://civitai.com/api/v1"
+CIVITAI_RED_API_BASE = "https://civitai.red/api/v1"
 CIVITAI_HASH_ENDPOINT = f"{CIVITAI_API_BASE}/model-versions/by-hash"
 
 # Rate limiting - CivitAI recommends not hammering the API
 # 0.2s is reasonable - allows 5 requests/second which is within limits
 MIN_REQUEST_INTERVAL = 0.2  # seconds between requests
 _last_request_time = 0.0
+_ssl_context = None
+
+
+def get_civitai_ssl_context():
+    """Create a verified SSL context, preferring certifi's current CA bundle."""
+    global _ssl_context
+    if _ssl_context is not None:
+        return _ssl_context
+
+    try:
+        import certifi
+        _ssl_context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        _ssl_context = ssl.create_default_context()
+
+    return _ssl_context
+
+
+def civitai_urlopen(request, timeout: int = 30):
+    """Open CivitAI URLs with the shared verified SSL context."""
+    return urllib.request.urlopen(
+        request,
+        timeout=timeout,
+        context=get_civitai_ssl_context()
+    )
 
 
 @dataclass
@@ -275,7 +302,7 @@ def fetch_model_by_hash(file_hash: str, api_key: Optional[str] = None,
 
     try:
         request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with civitai_urlopen(request, timeout=timeout) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 return CivitAIModelInfo.from_api_response(data, local_hash=file_hash)
@@ -386,7 +413,8 @@ def search_models(
         for b in base_models_list:
             query_string += f"&baseModels={urllib.parse.quote(b)}"
 
-    url = f"{CIVITAI_API_BASE}/models?{query_string}"
+    api_base = CIVITAI_RED_API_BASE if nsfw else CIVITAI_API_BASE
+    url = f"{api_base}/models?{query_string}"
 
     print(f"[CivitAI] Searching: {url}")
 
@@ -400,7 +428,7 @@ def search_models(
 
     try:
         request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with civitai_urlopen(request, timeout=timeout) as response:
             if response.status == 200:
                 data = json.loads(response.read().decode("utf-8"))
                 metadata = data.get("metadata", {})
@@ -450,7 +478,7 @@ def get_model_by_id(model_id: int, api_key: Optional[str] = None, timeout: int =
 
     try:
         request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with civitai_urlopen(request, timeout=timeout) as response:
             if response.status == 200:
                 return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
@@ -482,7 +510,7 @@ def download_preview_image(image_url: str, save_path: str, timeout: int = 30) ->
             "User-Agent": "ComfyUI-DonutNodes/1.0"
         }
         request = urllib.request.Request(image_url, headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with civitai_urlopen(request, timeout=timeout) as response:
             # Create parent directory if needed
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 

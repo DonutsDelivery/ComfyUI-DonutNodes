@@ -28,7 +28,7 @@ from .config import load_config, save_config, get_config
 
 # Import CivitAI cache for LoRA browser
 try:
-    from .civitai_api import CivitAICache, get_civitai_cache_dir, search_models, get_model_by_id
+    from .civitai_api import CivitAICache, get_civitai_cache_dir, search_models, get_model_by_id, civitai_urlopen
     HAS_CIVITAI = True
 except ImportError:
     HAS_CIVITAI = False
@@ -191,7 +191,7 @@ def register_routes():
     # LoRA Browser Routes
     # ============================================
 
-    def get_lora_hash(filepath: str) -> str:
+    def compute_lora_hash_for_lookup(filepath: str) -> str:
         """Get hash of a LoRA file for CivitAI lookup.
 
         Uses full SHA256 hash (first 10 chars) which is what CivitAI accepts.
@@ -302,7 +302,7 @@ def register_routes():
                 return web.json_response({"error": "LoRA not found"}, status=404)
 
             # Get hash
-            file_hash = get_lora_hash(lora_path)
+            file_hash = compute_lora_hash_for_lookup(lora_path)
             if not file_hash:
                 return web.json_response({
                     "name": lora_name,
@@ -734,7 +734,7 @@ def register_routes():
                 "User-Agent": "ComfyUI-DonutNodes/1.0"
             }
             req = urllib.request.Request(image_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with civitai_urlopen(req, timeout=10) as response:
                 content_type = response.headers.get('Content-Type', 'image/jpeg')
                 data = response.read()
                 return web.Response(body=data, content_type=content_type)

@@ -1,13 +1,15 @@
-name: Publish to Comfy registry
+name: Publish to Comfy Registry
 on:
   workflow_dispatch:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
+      - master
+    paths:
+      - "pyproject.toml"
 
 permissions:
-  contents: write
-  issues: write
+  contents: read
 
 jobs:
   publish-node:
@@ -17,32 +19,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          submodules: true
-          ref: main
-
-      - name: Extract version from tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Update pyproject.toml version
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-          cat pyproject.toml
-
-      - name: Commit version bump
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml
-          git commit -m "Bump version to $VERSION [skip ci]" || echo "No changes to commit"
-          git push origin main
 
       - name: Publish Custom Node
-        uses: Comfy-Org/publish-node-action@v1
+        uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}

@@ -16,6 +16,8 @@ from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .civitai_api import civitai_urlopen
+
 # Try to import folder_paths for proper ComfyUI model directories
 try:
     import folder_paths
@@ -309,7 +311,7 @@ class CivitAIDownloader:
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
             # Open connection
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with civitai_urlopen(request, timeout=30) as response:
                 total_size = int(response.headers.get('Content-Length', 0))
 
                 with self._lock:
