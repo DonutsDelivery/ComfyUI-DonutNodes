@@ -9,11 +9,6 @@ import { api } from "../../scripts/api.js";
 // LoRA is auto-located or downloaded.
 
 const NAME_WIDGETS = ["lora_name_1", "lora_name_2", "lora_name_3"];
-const HASH_WIDGETS = ["lora_hash_1", "lora_hash_2", "lora_hash_3"];
-
-function getHashWidget(node, slot) {
-    return node.widgets?.find(w => w.name === HASH_WIDGETS[slot]);
-}
 
 function ensureHashStore(node) {
     if (!node.properties) node.properties = {};
@@ -23,32 +18,51 @@ function ensureHashStore(node) {
     while (node.properties.lora_hashes.length < NAME_WIDGETS.length) {
         node.properties.lora_hashes.push("");
     }
-    for (let slot = 0; slot < HASH_WIDGETS.length; slot++) {
-        const widget = getHashWidget(node, slot);
-        if (widget?.value && !node.properties.lora_hashes[slot]) {
-            node.properties.lora_hashes[slot] = widget.value;
-        } else if (widget && node.properties.lora_hashes[slot] && !widget.value) {
-            widget.value = node.properties.lora_hashes[slot];
-        }
-    }
     return node.properties.lora_hashes;
-}
-
-function hideHashWidgets(node) {
-    for (let slot = 0; slot < HASH_WIDGETS.length; slot++) {
-        const widget = getHashWidget(node, slot);
-        if (!widget) continue;
-        widget.type = "hidden";
-        widget.computeSize = () => [0, -4];
-        widget.serializeValue = () => widget.value || "";
-    }
 }
 
 function setStoredHash(node, slot, hash) {
     const hashes = ensureHashStore(node);
     hashes[slot] = hash || "";
-    const widget = getHashWidget(node, slot);
-    if (widget) widget.value = hashes[slot];
+}
+
+function isHash(value) {
+    return typeof value === "string" && /^[0-9a-fA-F]{10,128}$/.test(value.trim());
+}
+
+function setWidgetValue(node, name, value) {
+    const widget = node.widgets?.find(w => w.name === name);
+    if (widget) widget.value = value;
+}
+
+function migrateHashWidgetValues(node, info) {
+    const values = info?.widgets_values;
+    if (!Array.isArray(values) || values.length < 26) return;
+
+    const hashPositions = [8, 16, 24];
+    if (!hashPositions.some(pos => isHash(values[pos]))) return;
+
+    const hashes = ensureHashStore(node);
+    for (let slot = 0; slot < hashPositions.length; slot++) {
+        const hash = values[hashPositions[slot]];
+        if (isHash(hash)) hashes[slot] = hash.trim().toUpperCase();
+    }
+
+    setWidgetValue(node, "model_type", values[0]);
+    setWidgetValue(node, "civitai_lookup", values[1]);
+
+    for (let slot = 0; slot < 3; slot++) {
+        const base = 2 + slot * 8;
+        const n = slot + 1;
+        setWidgetValue(node, `switch_${n}`, values[base]);
+        setWidgetValue(node, `lora_name_${n}`, values[base + 1]);
+        setWidgetValue(node, `model_weight_${n}`, values[base + 2]);
+        setWidgetValue(node, `clip_weight_${n}`, values[base + 3]);
+        setWidgetValue(node, `block_preset_${n}`, values[base + 4]);
+        setWidgetValue(node, `block_vector_${n}`, values[base + 5]);
+    }
+
+    node.setDirtyCanvas?.(true, true);
 }
 
 function toast(severity, summary, detail) {
@@ -135,7 +149,6 @@ app.registerExtension({
             const ret = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
             const node = this;
             ensureHashStore(node);
-            hideHashWidgets(node);
 
             for (let slot = 0; slot < NAME_WIDGETS.length; slot++) {
                 const nameWidget = this.widgets?.find(w => w.name === NAME_WIDGETS[slot]);
@@ -155,7 +168,7 @@ app.registerExtension({
         nodeType.prototype.onConfigure = function(info) {
             if (onConfigure) onConfigure.apply(this, arguments);
             ensureHashStore(this);
-            hideHashWidgets(this);
+            migrateHashWidgetValues(this, info);
             for (let slot = 0; slot < NAME_WIDGETS.length; slot++) {
                 const nameWidget = this.widgets?.find(w => w.name === NAME_WIDGETS[slot]);
                 if (nameWidget?.value && nameWidget.value !== "None"

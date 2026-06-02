@@ -358,9 +358,6 @@ class DonutLoRAStack:
             },
             "optional": {
                 "lora_stack": ("LORA_STACK",),
-                "lora_hash_1": ("STRING", {"default": ""}),
-                "lora_hash_2": ("STRING", {"default": ""}),
-                "lora_hash_3": ("STRING", {"default": ""}),
             },
             "hidden": {
                 "extra_pnginfo": "EXTRA_PNGINFO",
@@ -396,9 +393,6 @@ class DonutLoRAStack:
         switch_3, lora_name_3, model_weight_3, clip_weight_3, block_preset_3, block_vector_3,
         civitai_lookup="On",
         lora_stack=None,
-        lora_hash_1="",
-        lora_hash_2="",
-        lora_hash_3="",
         extra_pnginfo=None,
         unique_id=None,
     ):
@@ -406,16 +400,12 @@ class DonutLoRAStack:
             lora_hashes = _extract_lora_hashes(
                 extra_pnginfo,
                 unique_id,
-                [lora_hash_1, lora_hash_2, lora_hash_3],
+                ["", "", ""],
                 [lora_name_1, lora_name_2, lora_name_3],
             )
         except Exception as e:
             print(f"[DonutLoRAStack] Could not read lora_hashes from workflow: {e}")
-            lora_hashes = [
-                _valid_lora_hash(lora_hash_1),
-                _valid_lora_hash(lora_hash_2),
-                _valid_lora_hash(lora_hash_3),
-            ]
+            lora_hashes = ["", "", ""]
         lora_hash_1, lora_hash_2, lora_hash_3 = lora_hashes
         stack = list(lora_stack) if lora_stack else []
 

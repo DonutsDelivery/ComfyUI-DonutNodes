@@ -255,18 +255,9 @@ app.registerExtension({
                 // Reorder widgets so each LoRA's config is followed by its info panel
                 const reorderedWidgets = [];
                 const widgetsByName = {};
-                const hiddenHashWidgets = ["lora_hash_1", "lora_hash_2", "lora_hash_3"];
 
                 for (const w of this.widgets) {
                     widgetsByName[w.name] = w;
-                }
-
-                for (const name of hiddenHashWidgets) {
-                    const widget = widgetsByName[name];
-                    if (!widget) continue;
-                    widget.type = "hidden";
-                    widget.computeSize = () => [0, -4];
-                    widget.serializeValue = () => widget.value || "";
                 }
 
                 // Add model_type and civitai_lookup first
@@ -282,7 +273,6 @@ app.registerExtension({
                         `clip_weight_${i}`,
                         `block_preset_${i}`,
                         `block_vector_${i}`,
-                        `lora_hash_${i}`,
                         `civitai_panel_${i}`
                     ];
                     for (const name of loraWidgets) {
