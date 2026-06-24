@@ -731,7 +731,7 @@ NODE_CLASS_MAPPINGS = {
     "DonutCAS": DonutCAS,
 }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "DonutHiRaLoAm": "Donut Local Contrast",
-    "DonutCAS": "Donut CAS (Contrast Adaptive Sharpen)",
-}
+# DonutHiRaLoAm and DonutCAS are hidden from the menu: folded into the unified
+# "Donut Image Adjust" node (DonutImageAdjust). Kept in NODE_CLASS_MAPPINGS so
+# saved workflows still load.
+NODE_DISPLAY_NAME_MAPPINGS = {}

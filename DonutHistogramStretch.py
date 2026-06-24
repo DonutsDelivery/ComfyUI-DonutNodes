@@ -179,6 +179,6 @@ NODE_CLASS_MAPPINGS = {
     "DonutHistogramStretch": DonutHistogramStretch,
 }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "DonutHistogramStretch": "Donut Histogram Stretch",
-}
+# Hidden from the menu: folded into the unified "Donut Image Adjust" node
+# (DonutImageAdjust). Kept in NODE_CLASS_MAPPINGS so saved workflows still load.
+NODE_DISPLAY_NAME_MAPPINGS = {}

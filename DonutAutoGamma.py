@@ -198,6 +198,6 @@ NODE_CLASS_MAPPINGS = {
     "DonutAutoGamma": DonutAutoGamma,
 }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "DonutAutoGamma": "Donut Auto Gamma",
-}
+# Hidden from the menu: folded into the unified "Donut Image Adjust" node
+# (DonutImageAdjust). Kept in NODE_CLASS_MAPPINGS so saved workflows still load.
+NODE_DISPLAY_NAME_MAPPINGS = {}
