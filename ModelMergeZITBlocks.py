@@ -1,15 +1,18 @@
-class ModelMergeZITBlocks:
+from .ModelMergeZIT import ModelMergeZIT
+
+
+class ModelMergeZITBlocks(ModelMergeZIT):
     """
-    Model merge for Z-Image Turbo (Lumina2) models with per-layer ratio control.
+    Thin back-compat alias of the unified ModelMergeZIT engine, pinned to the
+    "blocks" granularity (per-layer ratio control).
 
-    Like ModelMergeZIT but with individual control for all 30 transformer layers
-    instead of bundled groups.
+    Keeps its ORIGINAL 38-widget INPUT_TYPES (30 per-layer widgets + 8 non-layer
+    components, all in "required", exact original order) so already-saved
+    ModelMergeZITBlocks workflows deserialize byte-identically. All merge logic
+    lives in the shared engine; this subclass only forces granularity="blocks".
 
-    Layer functions (approximate):
-      - Layers 0-5: Translation/encoding - converts prompt to internal representation
-      - Layers 6-14: Composition/layout - structural arrangement
-      - Layers 15-23: Details/attributes - fine-grained features
-      - Layers 24-29: Refinement/aesthetics - style and quality
+    Like ModelMergeZIT (grouped) but with individual control for all 30
+    transformer layers instead of bundled groups.
 
     Non-layer components:
       - x_embedder: Patch embedding (converts image patches to tokens)
@@ -93,77 +96,16 @@ class ModelMergeZITBlocks:
     CATEGORY = "advanced/model_merging"
 
     def merge(self, model1, model2, **kwargs):
-        # Clone model1 as base
-        m = model1.clone()
-
-        # Get patches from model2's diffusion model
-        kp = model2.get_key_patches("diffusion_model.")
-
-        # Extract layer ratios from kwargs
-        layer_ratios = {}
-        for i in range(self.NUM_LAYERS):
-            layer_ratios[i] = kwargs.get(f"layer_{i}", 1.0)
-
-        # Extract non-layer component ratios
-        x_embedder = kwargs.get("x_embedder", 1.0)
-        t_embedder = kwargs.get("t_embedder", 1.0)
-        cap_embedder = kwargs.get("cap_embedder", 1.0)
-        context_refiner = kwargs.get("context_refiner", 1.0)
-        noise_refiner = kwargs.get("noise_refiner", 1.0)
-        final_layer = kwargs.get("final_layer", 1.0)
-        norm_final = kwargs.get("norm_final", 1.0)
-        other = kwargs.get("other", 1.0)
-
-        for k in kp:
-            ratio = other  # Default for unknown non-layer params
-
-            # Check if this key belongs to a specific layer
-            k_model = k[len("diffusion_model."):] if k.startswith("diffusion_model.") else k
-
-            # First check for layer membership
-            is_layer = False
-            for i in range(self.NUM_LAYERS):
-                layer_prefix = f"layers.{i}."
-                if k_model.startswith(layer_prefix):
-                    ratio = layer_ratios.get(i, other)
-                    is_layer = True
-                    break
-
-            # If not a layer, check for known non-layer components
-            if not is_layer:
-                key_prefix = k_model.split('.')[0]
-
-                if key_prefix == "x_embedder":
-                    ratio = x_embedder
-                elif key_prefix == "t_embedder":
-                    ratio = t_embedder
-                elif key_prefix == "cap_embedder":
-                    ratio = cap_embedder
-                elif key_prefix == "context_refiner":
-                    ratio = context_refiner
-                elif key_prefix == "noise_refiner":
-                    ratio = noise_refiner
-                elif key_prefix == "final_layer":
-                    ratio = final_layer
-                elif key_prefix == "norm_final":
-                    ratio = norm_final
-                # else: ratio stays as 'other'
-
-            # Skip if ratio is 0 (keep model1 entirely for this key)
-            if ratio == 0.0:
-                continue
-
-            # Apply merge: add_patches(patches, strength_patch, strength_model)
-            # ratio=0 -> keep model1, ratio=1 -> use model2
-            m.add_patches({k: kp[k]}, ratio, 1.0 - ratio)
-
-        return (m,)
+        # Pin granularity to "blocks"; delegate to the shared engine.
+        kwargs.pop("granularity", None)
+        return super().merge(model1, model2, granularity="blocks", **kwargs)
 
 
 NODE_CLASS_MAPPINGS = {
     "ModelMergeZITBlocks": ModelMergeZITBlocks,
 }
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "ModelMergeZITBlocks": "Model Merge ZIT Blocks",
-}
+# Deprecated: the unified "ModelMergeZIT" node (granularity="blocks") replaces
+# this in the menu. Keep the class registered above so saved workflows still
+# load, but drop its display name so it no longer appears in the add-node menu.
+NODE_DISPLAY_NAME_MAPPINGS = {}
