@@ -3,6 +3,7 @@ from .shared import server_routes  # noqa: F401
 
 # existing nodes' class mappings
 from .DonutDetailer         import NODE_CLASS_MAPPINGS as m1
+from .DonutDetailer         import NODE_DISPLAY_NAME_MAPPINGS as d_detailer
 from .DonutDetailer2        import NODE_CLASS_MAPPINGS as m2
 from .DonutDetailer4        import NODE_CLASS_MAPPINGS as m3
 from .DonutDetailer5        import NODE_CLASS_MAPPINGS as m4
@@ -102,6 +103,18 @@ from .DonutSharpen import NODE_DISPLAY_NAME_MAPPINGS as d_sharpen
 from .DonutPromptInjection import NODE_CLASS_MAPPINGS        as m_prompt_injection
 from .DonutPromptInjection import NODE_DISPLAY_NAME_MAPPINGS as d_prompt_injection
 
+# ZiT Conditioning Rebalance (input-side gain for Z-Image Turbo)
+from .DonutZitConditioningRebalance import NODE_CLASS_MAPPINGS        as m_zit_rebalance
+from .DonutZitConditioningRebalance import NODE_DISPLAY_NAME_MAPPINGS as d_zit_rebalance
+
+# ZiT Layer-Blend Encode (multi-layer depth blend for Z-Image Turbo)
+from .DonutZitLayerBlendEncode import NODE_CLASS_MAPPINGS        as m_zit_layerblend
+from .DonutZitLayerBlendEncode import NODE_DISPLAY_NAME_MAPPINGS as d_zit_layerblend
+
+# Image Adjust (unified tone/color/contrast/sharpen)
+from .DonutImageAdjust import NODE_CLASS_MAPPINGS        as m_image_adjust
+from .DonutImageAdjust import NODE_DISPLAY_NAME_MAPPINGS as d_image_adjust
+
 # build globals
 NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
@@ -129,6 +142,9 @@ NODE_CLASS_MAPPINGS = {
     **m_white_balance,
     **m_sharpen,
     **m_prompt_injection,
+    **m_zit_rebalance,
+    **m_zit_layerblend,
+    **m_image_adjust,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -155,7 +171,42 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_white_balance,
     **d_sharpen,
     **d_prompt_injection,
+    **d_zit_rebalance,
+    **d_zit_layerblend,
+    **d_detailer,
+    **d_image_adjust,
 }
+
+# Nodes that were folded into multipurpose nodes. They stay registered so saved
+# workflows keep loading, but ComfyUI's DEPRECATED flag hides them from the
+# Add-Node menu. Labels keep a "(DEPRECATED)" suffix for any frontend that still
+# lists deprecated nodes.
+_DEPRECATED_DISPLAY = {
+    "DonutModelSave":                  "Model Save (No Workflow) (DEPRECATED)",
+    "DonutCheckpointSave":             "Checkpoint Save (No Workflow) (DEPRECATED)",
+    "ModelMergeZITBlocks":             "Model Merge ZIT Blocks (DEPRECATED)",
+    "Donut Simple Calibration":        "Donut Simple Calibration (DEPRECATED)",
+    "Donut Sharpener (from reference)": "Donut Sharpener (from reference) (DEPRECATED)",
+    "Donut Sharpener":                 "Donut Sharpener (DEPRECATED)",
+    "DonutLoRACivitAIInfo":            "Donut LoRA CivitAI Info (DEPRECATED)",
+    "DonutLoRAHashLookup":             "Donut LoRA Hash Lookup (DEPRECATED)",
+    "DonutSampler (Advanced)":         "DonutSampler (Advanced) (DEPRECATED)",
+    "DonutMultiModelSampler":          "DonutMultiModelSampler (DEPRECATED)",
+    "Donut Detailer":                  "Donut Detailer (DEPRECATED)",
+    "Donut Detailer 2":                "Donut Detailer 2 (DEPRECATED)",
+    "Donut Detailer 4":                "Donut Detailer 4 (DEPRECATED)",
+    "DonutAutoGamma":                  "Donut Auto Gamma (DEPRECATED)",
+    "DonutGammaCorrection":            "Donut Gamma Correction (DEPRECATED)",
+    "DonutAutoWhiteBalance":           "Donut Auto White Balance (DEPRECATED)",
+    "DonutHistogramStretch":           "Donut Histogram Stretch (DEPRECATED)",
+    "DonutHiRaLoAm":                   "Donut Local Contrast (DEPRECATED)",
+    "DonutCAS":                        "Donut CAS (Contrast Adaptive Sharpen) (DEPRECATED)",
+}
+for _cid, _label in _DEPRECATED_DISPLAY.items():
+    _cls = NODE_CLASS_MAPPINGS.get(_cid)
+    if _cls is not None:
+        _cls.DEPRECATED = True
+        NODE_DISPLAY_NAME_MAPPINGS[_cid] = _label
 
 # Web directory for custom JavaScript extensions
 WEB_DIRECTORY = "./web"
