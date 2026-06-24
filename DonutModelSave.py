@@ -157,10 +157,16 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
     comfy.utils.save_torch_file(sd, output_path, metadata=metadata)
 
 
-class DonutModelSave:
+class DonutSave:
     """
-    Save the diffusion model only (UNet/DiT). Behaves like ComfyUI's stock
-    ModelSave node, except no workflow is embedded and dtype is selectable.
+    Connection-driven unified save node. Saves the diffusion model only when
+    clip/vae are unwired, or a full checkpoint (model + clip + vae) when they
+    are connected. Behaves like ComfyUI's stock ModelSave / CheckpointSave
+    nodes, except no workflow is embedded and dtype is selectable.
+
+    The save() method here is the shared engine; DonutModelSave and
+    DonutCheckpointSave are thin alias subclasses that keep their original
+    INPUT_TYPES for byte-identical deserialization of saved workflows.
     """
 
     def __init__(self):
@@ -171,57 +177,13 @@ class DonutModelSave:
         return {
             "required": {
                 "model": ("MODEL",),
-                "filename_prefix": ("STRING", {"default": "diffusion_models/ComfyUI"}),
+                "filename_prefix": ("STRING", {"default": "ComfyUI"}),
                 "dtype": (DTYPE_OPTIONS, {"default": "original"}),
-            }
-        }
-
-    RETURN_TYPES = ()
-    FUNCTION = "save"
-    OUTPUT_NODE = True
-    CATEGORY = "advanced/model_merging"
-
-    def save(self, model, filename_prefix, dtype="original"):
-        full_output_folder, filename, counter, subfolder, filename_prefix = \
-            folder_paths.get_save_image_path(filename_prefix, self.output_dir)
-
-        output_path = os.path.join(
-            full_output_folder, f"{filename}_{counter:05}_.safetensors"
-        )
-
-        _save_via_comfy(
-            model=model,
-            clip=None,
-            vae=None,
-            output_path=output_path,
-            filename=filename,
-            counter=counter,
-            dtype=dtype,
-        )
-        print(f"[DonutModelSave] Saved {dtype} model to {output_path}")
-        return {}
-
-
-class DonutCheckpointSave:
-    """
-    Save a full checkpoint (model + clip + vae). Behaves like ComfyUI's
-    stock CheckpointSave node, except no workflow is embedded and dtype
-    is selectable.
-    """
-
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "model": ("MODEL",),
+            },
+            "optional": {
                 "clip": ("CLIP",),
                 "vae": ("VAE",),
-                "filename_prefix": ("STRING", {"default": "checkpoints/ComfyUI"}),
-                "dtype": (DTYPE_OPTIONS, {"default": "original"}),
-            }
+            },
         }
 
     RETURN_TYPES = ()
@@ -229,7 +191,7 @@ class DonutCheckpointSave:
     OUTPUT_NODE = True
     CATEGORY = "advanced/model_merging"
 
-    def save(self, model, clip, vae, filename_prefix, dtype="original"):
+    def save(self, model, filename_prefix, dtype="original", clip=None, vae=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = \
             folder_paths.get_save_image_path(filename_prefix, self.output_dir)
 
@@ -246,16 +208,71 @@ class DonutCheckpointSave:
             counter=counter,
             dtype=dtype,
         )
-        print(f"[DonutCheckpointSave] Saved {dtype} checkpoint to {output_path}")
+        kind = "checkpoint" if (clip is not None or vae is not None) else "model"
+        print(f"[DonutSave] Saved {dtype} {kind} to {output_path}")
         return {}
 
 
+class DonutModelSave(DonutSave):
+    """
+    Alias of DonutSave preserving the original ModelSave INPUT_TYPES
+    (model + filename_prefix + dtype, no clip/vae). Delegates to
+    DonutSave.save().
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "filename_prefix": ("STRING", {"default": "diffusion_models/ComfyUI"}),
+                "dtype": (DTYPE_OPTIONS, {"default": "original"}),
+            }
+        }
+
+    def save(self, model, filename_prefix, dtype="original"):
+        return super().save(
+            model=model,
+            filename_prefix=filename_prefix,
+            dtype=dtype,
+        )
+
+
+class DonutCheckpointSave(DonutSave):
+    """
+    Alias of DonutSave preserving the original CheckpointSave INPUT_TYPES
+    (model + clip + vae + filename_prefix + dtype). Delegates to
+    DonutSave.save().
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "clip": ("CLIP",),
+                "vae": ("VAE",),
+                "filename_prefix": ("STRING", {"default": "checkpoints/ComfyUI"}),
+                "dtype": (DTYPE_OPTIONS, {"default": "original"}),
+            }
+        }
+
+    def save(self, model, clip, vae, filename_prefix, dtype="original"):
+        return super().save(
+            model=model,
+            filename_prefix=filename_prefix,
+            dtype=dtype,
+            clip=clip,
+            vae=vae,
+        )
+
+
 NODE_CLASS_MAPPINGS = {
+    "DonutSave": DonutSave,
     "DonutModelSave": DonutModelSave,
     "DonutCheckpointSave": DonutCheckpointSave,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "DonutModelSave": "Model Save (No Workflow)",
-    "DonutCheckpointSave": "Checkpoint Save (No Workflow)",
+    "DonutSave": "Donut Save (No Workflow)",
 }
