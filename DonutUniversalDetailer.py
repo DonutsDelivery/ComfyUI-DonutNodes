@@ -15,6 +15,12 @@ import comfy.utils
 import nodes
 from nodes import MAX_RESOLUTION
 
+# Shared detailer helpers (extracted to remove duplication; behavior-identical)
+try:
+    from .donut_detailer_core import filter_segs_by_area, sample_and_decode
+except ImportError:
+    from donut_detailer_core import filter_segs_by_area, sample_and_decode
+
 # Import from Impact Pack
 try:
     import impact.core as core
@@ -227,23 +233,6 @@ def bboxes_to_segs(bboxes, labels, image_shape, crop_factor=3.0, dilation=10):
         result.append(seg)
 
     return ((h, w), result)
-
-
-def filter_segs_by_area(segs, max_count):
-    """Filter SEGS to keep only the N largest by bounding box area."""
-    shape, seg_list = segs
-
-    if not seg_list or max_count <= 0 or len(seg_list) <= max_count:
-        return segs
-
-    def get_area(seg):
-        bbox = seg.bbox
-        width = bbox[2] - bbox[0]
-        height = bbox[3] - bbox[1]
-        return width * height
-
-    sorted_segs = sorted(seg_list, key=get_area, reverse=True)
-    return (shape, sorted_segs[:max_count])
 
 
 def filter_segs_by_area_percent(segs, image_shape, min_percent):
@@ -555,14 +544,12 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
                     if 'denoise_mask_function' not in model.model_options:
                         working_model = nodes_differential_diffusion.DifferentialDiffusion().execute(model)[0]
 
-                # Sample
-                refined_latent = impact_sampling.ksampler_wrapper(
+                # Sample -> VAE decode -> 5D->4D video-VAE reshape (shared helper)
+                enhanced_cropped = sample_and_decode(
                     working_model, seed + i, steps, cfg, sampler_name, scheduler,
-                    seg_positive, seg_negative, latent_image, denoise
+                    seg_positive, seg_negative, latent_image, denoise,
+                    vae, impact_sampling
                 )
-
-                # Decode
-                enhanced_cropped = vae.decode(refined_latent['samples'])
 
                 # Paste back
                 if paste_mask is None:

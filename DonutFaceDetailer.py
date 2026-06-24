@@ -15,6 +15,12 @@ import comfy.utils
 import nodes
 from nodes import MAX_RESOLUTION
 
+# Shared detailer helpers (extracted to remove duplication; behavior-identical)
+try:
+    from .donut_detailer_core import filter_segs_by_area, scale_to_megapixels, sample_and_decode
+except ImportError:
+    from donut_detailer_core import filter_segs_by_area, scale_to_megapixels, sample_and_decode
+
 # Import from Impact Pack
 try:
     import impact.core as core
@@ -25,53 +31,6 @@ try:
 except ImportError:
     IMPACT_AVAILABLE = False
     logging.warning("[DonutFaceDetailer] Impact Pack not found - node will be unavailable")
-
-
-def filter_segs_by_area(segs, max_count):
-    """
-    Filter SEGS to keep only the N largest by bounding box area.
-    segs format: (shape, list_of_seg)
-    """
-    shape, seg_list = segs
-
-    if not seg_list or max_count <= 0 or len(seg_list) <= max_count:
-        return segs
-
-    def get_area(seg):
-        bbox = seg.bbox
-        width = bbox[2] - bbox[0]
-        height = bbox[3] - bbox[1]
-        return width * height
-
-    sorted_segs = sorted(seg_list, key=get_area, reverse=True)
-    return (shape, sorted_segs[:max_count])
-
-
-def scale_to_megapixels(w, h, target_pixels, max_resolution=0):
-    """
-    Calculate new dimensions that maintain aspect ratio and hit target pixel count.
-    If max_resolution > 0, clamp so neither dimension exceeds it.
-    Returns (new_w, new_h) rounded to nearest 8 pixels.
-    """
-    current_pixels = w * h
-    if current_pixels <= 0:
-        return w, h
-
-    scale = math.sqrt(target_pixels / current_pixels)
-    new_w = int(round(w * scale / 8) * 8)
-    new_h = int(round(h * scale / 8) * 8)
-
-    # Clamp to max_resolution if specified
-    if max_resolution > 0 and (new_w > max_resolution or new_h > max_resolution):
-        clamp_scale = max_resolution / max(new_w, new_h)
-        new_w = int(round(new_w * clamp_scale / 8) * 8)
-        new_h = int(round(new_h * clamp_scale / 8) * 8)
-
-    # Ensure minimum size
-    new_w = max(64, new_w)
-    new_h = max(64, new_h)
-
-    return new_w, new_h
 
 
 if IMPACT_AVAILABLE:
@@ -261,13 +220,10 @@ if IMPACT_AVAILABLE:
             if noise_mask is not None:
                 latent_image['noise_mask'] = noise_mask.reshape((-1, 1, noise_mask.shape[-2], noise_mask.shape[-1]))
 
-            # Sample
-            refined_latent = impact_sampling.ksampler_wrapper(model, seed, steps, cfg, sampler_name, scheduler,
-                                                    positive, negative, latent_image, denoise,
-                                                    scheduler_func=scheduler_func)
-
-            # Decode
-            refined_image = vae.decode(refined_latent['samples'])
+            # Sample -> VAE decode -> 5D->4D video-VAE reshape (shared helper)
+            refined_image = sample_and_decode(model, seed, steps, cfg, sampler_name, scheduler,
+                                              positive, negative, latent_image, denoise,
+                                              vae, impact_sampling, scheduler_func=scheduler_func)
 
             # Hook post-processing
             if detailer_hook is not None:
