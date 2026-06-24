@@ -1844,9 +1844,32 @@ class DonutFillerClip:
         return (c,)
 
 
+class DonutFiller:
+    """Emits both a filler MODEL and a filler CLIP; wire whichever you need."""
+    class_type = "MODEL"
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {"required": {}, "optional": {}}
+    RETURN_TYPES = ("MODEL", "CLIP")
+    RETURN_NAMES = ("model", "clip")
+    FUNCTION = "execute"
+    CATEGORY = "utils"
+
+    def execute(self):
+        class _Stub:
+            def state_dict(self): return {}
+            def named_parameters(self): return iter([])
+        m = _Stub()
+        setattr(m, "_is_filler", True)
+        c = _Stub()
+        setattr(c, "_is_filler", True)
+        return (m, c)
+
+
 NODE_CLASS_MAPPINGS = {
     "DonutWidenMergeUNet": DonutWidenMergeUNet,
     "DonutWidenMergeCLIP": DonutWidenMergeCLIP,
+    "DonutFiller": DonutFiller,
     "DonutFillerClip": DonutFillerClip,
     "DonutFillerModel": DonutFillerModel,
 }

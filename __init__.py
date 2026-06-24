@@ -201,12 +201,17 @@ _DEPRECATED_DISPLAY = {
     "DonutHistogramStretch":           "Donut Histogram Stretch (DEPRECATED)",
     "DonutHiRaLoAm":                   "Donut Local Contrast (DEPRECATED)",
     "DonutCAS":                        "Donut CAS (Contrast Adaptive Sharpen) (DEPRECATED)",
+    "DonutFillerModel":                "Donut Filler Model (DEPRECATED)",
+    "DonutFillerClip":                 "Donut Filler Clip (DEPRECATED)",
 }
 for _cid, _label in _DEPRECATED_DISPLAY.items():
     _cls = NODE_CLASS_MAPPINGS.get(_cid)
     if _cls is not None:
         _cls.DEPRECATED = True
         NODE_DISPLAY_NAME_MAPPINGS[_cid] = _label
+
+# Display name for the combined filler (its module exports no display mapping)
+NODE_DISPLAY_NAME_MAPPINGS["DonutFiller"] = "Donut Filler (Model + CLIP)"
 
 # Web directory for custom JavaScript extensions
 WEB_DIRECTORY = "./web"
