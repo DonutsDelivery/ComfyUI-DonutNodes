@@ -18,6 +18,9 @@ class DonutBlockCalibration:
                 "middle_blocks_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),    # Middle blocks calibration strength
                 "output_1_blocks_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),  # Output blocks 0-4 calibration strength
                 "output_2_blocks_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),  # Output blocks 5-8 calibration strength
+            },
+            "optional": {
+                "preset": (["Manual", "Auto (full strength)"], {"default": "Manual"}),  # Auto forces all strengths to 1.0
             }
         }
 
@@ -202,7 +205,14 @@ class DonutBlockCalibration:
         
         return calibration_applied, calibration_details, skipped_groups
 
-    def calibrate(self, merged_model, reference_model, input_blocks_strength, middle_blocks_strength, output_1_blocks_strength, output_2_blocks_strength):
+    def calibrate(self, merged_model, reference_model, input_blocks_strength, middle_blocks_strength, output_1_blocks_strength, output_2_blocks_strength, preset="Manual"):
+        # Auto preset forces full strength on all block groups; Manual honors the sliders
+        if preset == "Auto (full strength)":
+            input_blocks_strength = 1.0
+            middle_blocks_strength = 1.0
+            output_1_blocks_strength = 1.0
+            output_2_blocks_strength = 1.0
+
         # Clone the merged model to avoid modifying the original
         calibrated_model = copy.deepcopy(merged_model)
         
@@ -265,10 +275,11 @@ class DonutBlockCalibration:
             return (calibrated_model, error_info)
 
 
-class DonutSimpleCalibration:
+class DonutSimpleCalibration(DonutBlockCalibration):
     """
-    Simplified calibration node that automatically calibrates all blocks with maximum strength.
-    Only requires merged and reference models as inputs - no parameters needed.
+    Thin alias of DonutBlockCalibration. Kept registered so already-saved
+    workflows deserialize byte-identically. Only requires merged and reference
+    models as inputs and always runs the engine with the Auto (full strength) preset.
     """
     class_type = "MODEL"
 
@@ -287,17 +298,15 @@ class DonutSimpleCalibration:
     CATEGORY = "donut/calibration"
 
     def calibrate(self, merged_model, reference_model):
-        # Use the existing complex calibration node with maximum strength for all blocks
-        calibration_node = DonutBlockCalibration()
-        
-        # Apply full calibration (1.0 strength) to all block groups
-        return calibration_node.calibrate(
+        # Delegate to the shared engine with full calibration (Auto preset)
+        return super().calibrate(
             merged_model=merged_model,
             reference_model=reference_model,
             input_blocks_strength=1.0,
             middle_blocks_strength=1.0,
             output_1_blocks_strength=1.0,
-            output_2_blocks_strength=1.0
+            output_2_blocks_strength=1.0,
+            preset="Auto (full strength)",
         )
 
 
@@ -308,5 +317,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Donut Block Calibration": "Donut Block Calibration",
-    "Donut Simple Calibration": "Donut Simple Calibration",
+    # "Donut Simple Calibration" intentionally omitted from the menu (deprecated/merged
+    # into Donut Block Calibration via the "preset" widget). The class stays registered
+    # in NODE_CLASS_MAPPINGS above so saved workflows still deserialize.
 }
