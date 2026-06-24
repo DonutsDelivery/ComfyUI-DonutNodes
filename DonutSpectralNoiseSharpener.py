@@ -748,12 +748,161 @@ class DonutSharpener:
             )
 
 
+class DonutSpectralSharpener(DonutSharpener):
+    """
+    Unified spectral sharpener.
+
+    Consolidates the two legacy sharpener nodes behind a single ``reference_source``
+    selector. The actual enhancement math is reused VERBATIM from the legacy engine
+    classes (``DonutSharpenerFromReference`` for the external/synthesized-reference
+    pipeline, and ``DonutSharpener`` for the self-amplify / generated-noise paths).
+
+    reference_source:
+      - "external_reference": match the spectrum of ``reference_image`` (falls back
+        to ``input_image`` when the reference is unwired).
+      - "generated_noise": synthesize a noise reference from ``input_image``
+        (legacy DonutSharpener with noise_strength > 0).
+      - "self_amplify": self-amplification (legacy DonutSharpener noise_strength == 0).
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_image": ("IMAGE",),
+                "reference_source": (["external_reference", "generated_noise", "self_amplify"], {"default": "external_reference"}),
+            },
+            "optional": {
+                "reference_image": ("IMAGE",),
+                "enhancement_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
+                "frequency_bands": ("INT", {"default": 16, "min": 8, "max": 32, "step": 1}),
+                "noise_type": (["gaussian", "perlin", "film_grain", "sensor_noise", "uniform", "realistic_grain"], {"default": "gaussian"}),
+                "noise_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 100.0, "step": 1.0}),
+                "noise_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "noise_saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "spectral_mode": (["full_spectrum", "high_freq_only", "adaptive"], {"default": "full_spectrum"}),
+                "blend_factor": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("enhanced_image", "noise_reference", "enhancement_report", "spectral_analysis")
+    FUNCTION = "enhance_spectral"
+    CATEGORY = "donut/enhancement"
+
+    def enhance_spectral(self, input_image, reference_source="external_reference", reference_image=None,
+                         enhancement_strength=1.0, frequency_bands=16, noise_type="gaussian",
+                         noise_strength=0.0, noise_scale=1.0, noise_saturation=1.0,
+                         spectral_mode="full_spectrum", blend_factor=0.8):
+        if reference_source == "external_reference":
+            # Match an external reference image. Fall back to the input image when
+            # the reference input is left unwired so the node never hard-fails.
+            ref = reference_image if reference_image is not None else input_image
+            enhanced_image, enhancement_report, spectral_analysis = self.reference_sharpener.enhance_spectral_noise(
+                input_image, ref, enhancement_strength, frequency_bands,
+                spectral_mode, blend_factor
+            )
+            return (enhanced_image, ref, enhancement_report, spectral_analysis)
+
+        elif reference_source == "self_amplify":
+            # Legacy DonutSharpener noise_strength == 0 path (self-amplification).
+            return self.enhance_with_noise_reference(
+                input_image, enhancement_strength, frequency_bands,
+                noise_type, 0.0, noise_scale, noise_saturation,
+                spectral_mode, blend_factor
+            )
+
+        else:
+            # generated_noise: synthesize a noise reference. Force a non-zero
+            # noise_strength so the legacy engine takes the synthesize branch even
+            # if the user left the widget at its 0.0 default.
+            effective_noise_strength = noise_strength if noise_strength > 0.0 else 1.0
+            return self.enhance_with_noise_reference(
+                input_image, enhancement_strength, frequency_bands,
+                noise_type, effective_noise_strength, noise_scale, noise_saturation,
+                spectral_mode, blend_factor
+            )
+
+
+class _DonutSharpenerFromReferenceAlias(DonutSpectralSharpener):
+    """Alias for legacy id "Donut Sharpener (from reference)".
+
+    Preserves the ORIGINAL 2-required/4-optional INPUT_TYPES, 3-output signature,
+    and FUNCTION name so already-saved workflows deserialize byte-identically.
+    Delegates to the shared engine in external_reference mode.
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_image": ("IMAGE",),
+                "reference_image": ("IMAGE",),
+            },
+            "optional": {
+                "enhancement_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
+                "frequency_bands": ("INT", {"default": 16, "min": 8, "max": 32, "step": 1}),
+                "spectral_mode": (["full_spectrum", "high_freq_only", "adaptive"], {"default": "full_spectrum"}),
+                "blend_factor": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("enhanced_image", "enhancement_report", "spectral_analysis")
+    FUNCTION = "enhance_spectral_noise"
+    CATEGORY = "donut/enhancement"
+
+    def enhance_spectral_noise(self, input_image, reference_image, enhancement_strength=1.0,
+                               frequency_bands=16, spectral_mode="full_spectrum",
+                               blend_factor=0.8):
+        return self.reference_sharpener.enhance_spectral_noise(
+            input_image, reference_image, enhancement_strength, frequency_bands,
+            spectral_mode, blend_factor
+        )
+
+
+class _DonutSharpenerAlias(DonutSpectralSharpener):
+    """Alias for legacy id "Donut Sharpener".
+
+    Preserves the ORIGINAL 1-required/9-optional single-input INPUT_TYPES,
+    4-output signature, and FUNCTION name so already-saved workflows deserialize
+    byte-identically. Delegates to the shared engine; noise_strength == 0 maps to
+    self_amplify, otherwise generated_noise (matching legacy behavior verbatim).
+    """
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_image": ("IMAGE",),
+            },
+            "optional": {
+                "enhancement_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
+                "frequency_bands": ("INT", {"default": 16, "min": 8, "max": 32, "step": 1}),
+                "noise_type": (["gaussian", "perlin", "film_grain", "sensor_noise", "uniform", "realistic_grain"], {"default": "gaussian"}),
+                "noise_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 100.0, "step": 1.0}),
+                "noise_scale": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "noise_saturation": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "spectral_mode": (["full_spectrum", "high_freq_only", "adaptive"], {"default": "full_spectrum"}),
+                "blend_factor": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 1.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE", "IMAGE", "STRING", "STRING")
+    RETURN_NAMES = ("enhanced_image", "noise_reference", "enhancement_report", "spectral_analysis")
+    FUNCTION = "enhance_with_noise_reference"
+    CATEGORY = "donut/enhancement"
+
+
 NODE_CLASS_MAPPINGS = {
-    "Donut Sharpener (from reference)": DonutSharpenerFromReference,
-    "Donut Sharpener": DonutSharpener,
+    "Donut Spectral Sharpener": DonutSpectralSharpener,
+    # Legacy ids kept registered as thin alias subclasses (de-cluttered from the
+    # display map below). DO NOT remove: needed for already-saved workflows.
+    "Donut Sharpener (from reference)": _DonutSharpenerFromReferenceAlias,
+    "Donut Sharpener": _DonutSharpenerAlias,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Donut Sharpener (from reference)": "Donut Sharpener (from reference)",
-    "Donut Sharpener": "Donut Sharpener",
+    "Donut Spectral Sharpener": "Donut Spectral Sharpener",
+    # Legacy displays removed so only the unified node shows in the menu.
 }
