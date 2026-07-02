@@ -364,6 +364,31 @@ def register_routes():
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
 
+    @routes.get('/donut/loras/analyze')
+    async def analyze_lora(request):
+        """Report LoRA composition: UNet/CLIP components and populated blocks/layers.
+
+        Reads only the safetensors header, so this is fast and safe to call
+        whenever a LoRA is selected in the UI.
+        """
+        if not HAS_FOLDER_PATHS:
+            return web.json_response({"error": "folder_paths not available"}, status=500)
+
+        lora_name = request.query.get("name", "")
+        if not lora_name:
+            return web.json_response({"error": "No lora name provided"}, status=400)
+
+        try:
+            from .lora_analysis import analyze_lora_file
+            lora_path = folder_paths.get_full_path("loras", lora_name)
+            if not lora_path or not os.path.exists(lora_path):
+                return web.json_response({"found": False, "error": "LoRA not found"})
+            result = dict(analyze_lora_file(lora_path))
+            result["name"] = lora_name
+            return web.json_response(result)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     @routes.get('/donut/loras/preview')
     async def get_lora_preview(request):
         """Get preview image for a LoRA."""

@@ -8,6 +8,159 @@ import { ComfyWidgets } from "../../scripts/widgets.js";
 // Block weight presets - uses "NAME:vector" format like Inspire
 // The vector part after ':' is extracted and used
 
+// ---------------------------------------------------------------------------
+// LoRA composition display: shows which components (UNet / text encoders) a
+// LoRA file contains and which blocks/layers actually hold weights.
+// Data comes from /donut/loras/analyze which reads only the safetensors header.
+
+// Expected block counts per model_type, used to size the strips so missing
+// trailing blocks are visible (e.g. a KREA2 LoRA trained on blocks 14-25).
+const ARCH_GROUP_COUNTS = {
+    SDXL: { input_blocks: 9, middle_block: 1, output_blocks: 9 },
+    SD15: { input_blocks: 12, middle_block: 1, output_blocks: 12 },
+    FLUX: { double_blocks: 19, single_blocks: 38 },
+    ZIT: { layers: 30 },
+    "ZIT-NE": { layers: 30 },
+    KREA2: { blocks: 28 },
+};
+
+const GROUP_SHORT_LABELS = {
+    input_blocks: "IN",
+    middle_block: "MID",
+    output_blocks: "OUT",
+    double_blocks: "DBL",
+    single_blocks: "SGL",
+    transformer_blocks: "BLK",
+    blocks: "BLK",
+    layers: "LYR",
+    "txtfusion.layerwise": "TXT-LW",
+    "txtfusion.refiner": "TXT-RF",
+    noise_refiner: "N-REF",
+    context_refiner: "C-REF",
+};
+
+const loraAnalysisCache = {};
+
+async function fetchLoraAnalysis(name) {
+    if (!name || name === "None") return null;
+    if (!(name in loraAnalysisCache)) {
+        loraAnalysisCache[name] = (async () => {
+            try {
+                const resp = await api.fetchApi(`/donut/loras/analyze?name=${encodeURIComponent(name)}`);
+                return resp.ok ? await resp.json() : null;
+            } catch (e) {
+                console.log("[DonutNodes] LoRA analyze failed:", e);
+                return null;
+            }
+        })();
+    }
+    return loraAnalysisCache[name];
+}
+
+function makeBlockStrip(group, expectedCount) {
+    const present = new Set(group.indices);
+    const maxIdx = group.indices.length ? group.indices[group.indices.length - 1] : -1;
+    const total = Math.max(maxIdx + 1, expectedCount || 0);
+
+    const strip = document.createElement("div");
+    strip.style.display = "flex";
+    strip.style.flexWrap = "wrap";
+    strip.style.gap = "1px";
+    strip.style.alignItems = "center";
+    for (let i = 0; i < total; i++) {
+        const cell = document.createElement("div");
+        cell.style.width = "5px";
+        cell.style.height = "9px";
+        cell.style.borderRadius = "1px";
+        cell.style.backgroundColor = present.has(i) ? "#6fbf6f" : "#3a3a4a";
+        cell.title = `${group.name} ${i}: ${present.has(i) ? "has weights" : "empty"}`;
+        strip.appendChild(cell);
+    }
+    return { strip, presentCount: group.indices.length, total };
+}
+
+function renderLoraComposition(div, data, modelType) {
+    div.innerHTML = "";
+    if (!data) {
+        div.style.display = "none";
+        return;
+    }
+    div.style.display = "block";
+
+    const note = (text) => {
+        const el = document.createElement("div");
+        el.style.color = "#888";
+        el.textContent = text;
+        div.appendChild(el);
+    };
+
+    if (data.found === false) {
+        note("file not found");
+        return;
+    }
+    if (!data.supported) {
+        note(`can't inspect: ${data.error || "unsupported format"}`);
+        return;
+    }
+    const comps = data.components || [];
+    if (!comps.length) {
+        note("no LoRA modules found");
+        return;
+    }
+
+    // Headline: which components the file contains
+    const hasUnet = comps.some(c => c.type === "unet");
+    const hasTe = comps.some(c => c.type === "te");
+    let headline = comps.map(c => c.name).join(" + ");
+    if (hasUnet && !hasTe) headline += " only (no CLIP/TE)";
+    else if (hasTe && !hasUnet) headline += " only (no UNet)";
+    const header = document.createElement("div");
+    header.style.color = "#9ecbff";
+    header.style.marginBottom = "2px";
+    header.textContent = headline;
+    div.appendChild(header);
+
+    const expected = ARCH_GROUP_COUNTS[modelType] || {};
+    for (const comp of comps) {
+        if (!comp.groups.length) {
+            note(`${comp.name}: no per-block info (${comp.modules} modules)`);
+            continue;
+        }
+        for (const group of comp.groups) {
+            const row = document.createElement("div");
+            row.style.display = "flex";
+            row.style.gap = "4px";
+            row.style.alignItems = "center";
+            row.style.marginBottom = "1px";
+
+            const label = document.createElement("span");
+            label.style.color = "#aaa";
+            label.style.whiteSpace = "nowrap";
+            label.style.minWidth = "42px";
+            label.textContent = comp.type === "te"
+                ? comp.name
+                : (GROUP_SHORT_LABELS[group.name] || group.name);
+            label.title = `${comp.name} ${group.name}`;
+            row.appendChild(label);
+
+            const expectedCount = comp.type === "unet" ? expected[group.name] : 0;
+            const { strip, presentCount, total } = makeBlockStrip(group, expectedCount);
+            row.appendChild(strip);
+
+            const count = document.createElement("span");
+            count.style.color = "#888";
+            count.style.whiteSpace = "nowrap";
+            count.textContent = `${presentCount}/${total}`;
+            row.appendChild(count);
+
+            div.appendChild(row);
+        }
+        if (comp.ungrouped > 0) {
+            note(`+${comp.ungrouped} base/other modules (vector position 0)`);
+        }
+    }
+}
+
 app.registerExtension({
     name: "donut.LoRAInfoDisplay",
 
@@ -167,6 +320,10 @@ app.registerExtension({
                             originalModelTypeCallback.call(this, value);
                         }
                         filterPresets(value);
+                        // Strip sizing depends on model type
+                        if (node._donutUpdateComposition) {
+                            for (let i = 1; i <= 3; i++) node._donutUpdateComposition(i);
+                        }
                     };
                     // Apply initial filter
                     filterPresets(modelTypeWidget.value || "Auto");
@@ -206,6 +363,24 @@ app.registerExtension({
                 this.infoImageWidgets = [];
 
                 for (let i = 1; i <= 3; i++) {
+                    // Outer column: composition strip on top, info+image row below
+                    const outer = document.createElement("div");
+                    outer.style.display = "flex";
+                    outer.style.flexDirection = "column";
+                    outer.style.gap = "4px";
+
+                    // Composition display (UNet/CLIP components + populated blocks)
+                    const compDiv = document.createElement("div");
+                    compDiv.style.display = "none";
+                    compDiv.style.backgroundColor = "#1a1a2e";
+                    compDiv.style.borderRadius = "4px";
+                    compDiv.style.padding = "4px 6px";
+                    compDiv.style.fontSize = "9px";
+                    compDiv.style.fontFamily = "monospace";
+                    compDiv.style.maxHeight = "58px";
+                    compDiv.style.overflowY = "auto";
+                    outer.appendChild(compDiv);
+
                     // Create container div with flexbox for side-by-side layout
                     const container = document.createElement("div");
                     container.style.display = "flex";
@@ -237,19 +412,50 @@ app.registerExtension({
                     imgDiv.style.alignItems = "center";
                     imgDiv.style.overflow = "hidden";
                     container.appendChild(imgDiv);
+                    outer.appendChild(container);
 
                     // Add as single DOM widget
-                    const widget = this.addDOMWidget(`civitai_panel_${i}`, "div", container, {
+                    const widget = this.addDOMWidget(`civitai_panel_${i}`, "div", outer, {
                         serialize: false,
                     });
-                    widget.computeSize = () => [this.size[0] - 20, 130];
+                    widget.computeSize = () => [this.size[0] - 20, 196];
 
                     // Store references for updating later
                     this.infoImageWidgets.push({
                         widget: widget,
                         textDiv: textDiv,
-                        imgDiv: imgDiv
+                        imgDiv: imgDiv,
+                        compDiv: compDiv
                     });
+                }
+
+                // Fetch + render LoRA composition for a slot
+                const updateComposition = async (slot) => {
+                    const nameWidget = node.widgets?.find(w => w.name === `lora_name_${slot}`);
+                    const entry = node.infoImageWidgets?.[slot - 1];
+                    if (!nameWidget || !entry) return;
+                    const name = nameWidget.value;
+                    const data = await fetchLoraAnalysis(name);
+                    if (nameWidget.value !== name) return; // stale response
+                    const modelType = node.widgets?.find(w => w.name === "model_type")?.value || "Auto";
+                    renderLoraComposition(entry.compDiv, data, modelType);
+                    node.setDirtyCanvas(true);
+                };
+                this._donutUpdateComposition = updateComposition;
+
+                // Update composition when a LoRA is selected
+                for (let i = 1; i <= 3; i++) {
+                    const nameWidget = this.widgets?.find(w => w.name === `lora_name_${i}`);
+                    if (nameWidget) {
+                        const originalCallback = nameWidget.callback;
+                        const slotNum = i;
+                        nameWidget.callback = function(value) {
+                            if (originalCallback) {
+                                originalCallback.call(this, value);
+                            }
+                            updateComposition(slotNum);
+                        };
+                    }
                 }
 
                 // Reorder widgets so each LoRA's config is followed by its info panel
@@ -286,7 +492,7 @@ app.registerExtension({
                 this.widgets = reorderedWidgets;
 
                 // Adjust node size
-                this.setSize([this.size[0], this.size[1] + 420]);
+                this.setSize([this.size[0], this.size[1] + 620]);
             };
 
             // Apply preset filter when node is configured (loaded from workflow)
@@ -301,6 +507,11 @@ app.registerExtension({
                 const modelTypeWidget = this.widgets?.find(w => w.name === "model_type");
                 if (modelTypeWidget && this._donutFilterPresets) {
                     this._donutFilterPresets(modelTypeWidget.value || "Auto");
+                }
+
+                // Show composition for LoRAs loaded from the workflow
+                if (this._donutUpdateComposition) {
+                    for (let i = 1; i <= 3; i++) this._donutUpdateComposition(i);
                 }
             };
 
