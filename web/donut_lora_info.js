@@ -33,11 +33,20 @@ const GROUP_SHORT_LABELS = {
     transformer_blocks: "BLK",
     blocks: "BLK",
     layers: "LYR",
-    "txtfusion.layerwise": "TXT-LW",
-    "txtfusion.refiner": "TXT-RF",
+    "txtfusion.layerwise": "TXT-fuse",
+    "txtfusion.refiner": "TXT-refine",
     noise_refiner: "N-REF",
     context_refiner: "C-REF",
 };
+
+// Text-conditioning components that live inside the diffusion transformer
+// (Krea 2 txtfusion / text MLPs). These are NOT a separate CLIP/text encoder:
+// they're driven by model_weight, and clip_weight has no effect on them.
+function isTextSide(name) {
+    return /^txt/.test(name);  // txtfusion.*, txtmlp_* (not tmlp_/tproj_, which are time embeds)
+}
+
+const TEXT_SIDE_TOOLTIP = "Fused text conditioning (inside the DiT) — driven by model_weight, not clip_weight";
 
 const loraAnalysisCache = {};
 
@@ -87,10 +96,11 @@ function renderLoraComposition(div, data, modelType) {
     }
     div.style.display = "block";
 
-    const note = (text) => {
+    const note = (text, tooltip) => {
         const el = document.createElement("div");
         el.style.color = "#888";
         el.textContent = text;
+        if (tooltip) el.title = tooltip;
         div.appendChild(el);
     };
 
@@ -111,13 +121,24 @@ function renderLoraComposition(div, data, modelType) {
     // Headline: which components the file contains
     const hasUnet = comps.some(c => c.type === "unet");
     const hasTe = comps.some(c => c.type === "te");
+    // Text conditioning fused into the diffusion model (Krea 2 txtfusion / txtmlp).
+    const hasFusedText = comps.some(c => c.type === "unet" && (
+        c.groups.some(g => isTextSide(g.name)) ||
+        (c.ungrouped_names || []).some(isTextSide)
+    ));
     let headline = comps.map(c => c.name).join(" + ");
-    if (hasUnet && !hasTe) headline += " only (no CLIP/TE)";
-    else if (hasTe && !hasUnet) headline += " only (no UNet)";
+    if (hasUnet && !hasTe) {
+        headline += hasFusedText
+            ? " + fused text (no separate CLIP/TE)"
+            : " only (no CLIP/TE)";
+    } else if (hasTe && !hasUnet) {
+        headline += " only (no UNet)";
+    }
     const header = document.createElement("div");
     header.style.color = "#9ecbff";
     header.style.marginBottom = "2px";
     header.textContent = headline;
+    if (hasFusedText && !hasTe) header.title = TEXT_SIDE_TOOLTIP;
     div.appendChild(header);
 
     const expected = ARCH_GROUP_COUNTS[modelType] || {};
@@ -128,7 +149,8 @@ function renderLoraComposition(div, data, modelType) {
             if (names.length) {
                 const shown = names.join(", ");
                 const more = comp.ungrouped > names.length ? ` +${comp.ungrouped - names.length} more` : "";
-                note(`${comp.name} targets: ${shown}${more}`);
+                const tip = names.some(isTextSide) ? TEXT_SIDE_TOOLTIP : undefined;
+                note(`${comp.name} targets: ${shown}${more}`, tip);
             } else {
                 note(`${comp.name}: ${comp.modules} module(s), no per-block info`);
             }
@@ -141,14 +163,15 @@ function renderLoraComposition(div, data, modelType) {
             row.style.alignItems = "center";
             row.style.marginBottom = "1px";
 
+            const textSide = comp.type === "unet" && isTextSide(group.name);
             const label = document.createElement("span");
-            label.style.color = "#aaa";
+            label.style.color = textSide ? "#c9a6ff" : "#aaa";
             label.style.whiteSpace = "nowrap";
-            label.style.minWidth = "42px";
+            label.style.minWidth = "52px";
             label.textContent = comp.type === "te"
                 ? comp.name
                 : (GROUP_SHORT_LABELS[group.name] || group.name);
-            label.title = `${comp.name} ${group.name}`;
+            label.title = textSide ? TEXT_SIDE_TOOLTIP : `${comp.name} ${group.name}`;
             row.appendChild(label);
 
             const expectedCount = comp.type === "unet" ? expected[group.name] : 0;
