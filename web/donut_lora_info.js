@@ -486,6 +486,18 @@ app.registerExtension({
                     if (nameWidget.value !== name) return; // stale response
                     const modelType = node.widgets?.find(w => w.name === "model_type")?.value || "Auto";
                     renderLoraComposition(entry.compDiv, data, modelType);
+
+                    // Flag the clip_weight slider itself when it can't do anything:
+                    // a LoRA with UNet weights but no separate CLIP/TE ignores clip_weight.
+                    const cw = node.widgets?.find(w => w.name === `clip_weight_${slot}`);
+                    if (cw) {
+                        const comps = (data && data.supported && data.components) || [];
+                        const hasUnet = comps.some(c => c.type === "unet");
+                        const hasTe = comps.some(c => c.type === "te");
+                        const inactive = hasUnet && !hasTe;
+                        cw.label = inactive ? "clip_weight (inactive)" : undefined;
+                        cw.disabled = inactive;
+                    }
                     node.setDirtyCanvas(true);
                 };
                 this._donutUpdateComposition = updateComposition;
