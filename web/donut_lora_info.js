@@ -123,7 +123,15 @@ function renderLoraComposition(div, data, modelType) {
     const expected = ARCH_GROUP_COUNTS[modelType] || {};
     for (const comp of comps) {
         if (!comp.groups.length) {
-            note(`${comp.name}: no per-block info (${comp.modules} modules)`);
+            // No numbered blocks — name what it actually targets instead.
+            const names = comp.ungrouped_names || [];
+            if (names.length) {
+                const shown = names.join(", ");
+                const more = comp.ungrouped > names.length ? ` +${comp.ungrouped - names.length} more` : "";
+                note(`${comp.name} targets: ${shown}${more}`);
+            } else {
+                note(`${comp.name}: ${comp.modules} module(s), no per-block info`);
+            }
             continue;
         }
         for (const group of comp.groups) {
@@ -156,7 +164,11 @@ function renderLoraComposition(div, data, modelType) {
             div.appendChild(row);
         }
         if (comp.ungrouped > 0) {
-            note(`+${comp.ungrouped} base/other modules (vector position 0)`);
+            const names = comp.ungrouped_names || [];
+            const detail = names.length
+                ? `: ${names.join(", ")}${comp.ungrouped > names.length ? " …" : ""}`
+                : "";
+            note(`+${comp.ungrouped} base/other module(s) (vector pos 0)${detail}`);
         }
     }
 }

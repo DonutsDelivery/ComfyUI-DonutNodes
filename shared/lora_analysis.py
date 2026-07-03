@@ -96,11 +96,11 @@ def analyze_lora_keys(keys):
     # Dedup tensors -> modules
     modules = {_TENSOR_SUFFIX.sub("", k) for k in keys}
 
-    components = {}  # name -> {"type", "groups": {label: set(indices)}, "ungrouped": int, "modules": int}
+    components = {}  # name -> {"type", "groups", "ungrouped_names": [], "modules": int}
     for mod in modules:
         domain, comp_name, rest = _classify_domain(mod)
         comp = components.setdefault(
-            comp_name, {"type": domain, "groups": {}, "ungrouped": 0, "modules": 0}
+            comp_name, {"type": domain, "groups": {}, "ungrouped_names": [], "modules": 0}
         )
         comp["modules"] += 1
 
@@ -112,18 +112,22 @@ def analyze_lora_keys(keys):
                 comp["groups"].setdefault(label, set()).add(idx)
                 break
         else:
-            comp["ungrouped"] += 1
+            # Not inside a numbered block: keep the module's own name so the UI
+            # can say what a small/surgical LoRA actually targets.
+            comp["ungrouped_names"].append(rest)
 
     # Order: unet first, then text encoders, then anything else
     order = {"unet": 0, "te": 1, "other": 2}
     result = []
     for name in sorted(components, key=lambda n: (order.get(components[n]["type"], 3), n)):
         comp = components[name]
+        ungrouped = sorted(comp["ungrouped_names"])
         result.append({
             "name": name,
             "type": comp["type"],
             "modules": comp["modules"],
-            "ungrouped": comp["ungrouped"],
+            "ungrouped": len(ungrouped),
+            "ungrouped_names": ungrouped[:12],  # cap for payload size
             "groups": [
                 {"name": label, "indices": sorted(idxs)}
                 for label, idxs in sorted(comp["groups"].items())
