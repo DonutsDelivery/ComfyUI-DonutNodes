@@ -141,6 +141,18 @@ function renderLoraComposition(div, data, modelType) {
     if (hasFusedText && !hasTe) header.title = TEXT_SIDE_TOOLTIP;
     div.appendChild(header);
 
+    // A LoRA with no separate CLIP/TE has nothing for clip_weight to apply to —
+    // it's a genuine no-op. Say so, since the widget still accepts a value.
+    if (hasUnet && !hasTe) {
+        const warn = document.createElement("div");
+        warn.style.color = "#e0a04a";
+        warn.style.marginBottom = "2px";
+        warn.textContent = "clip_weight has no effect — use model_weight";
+        warn.title = "This LoRA contains no separate CLIP/text-encoder weights, "
+            + "so clip_weight does nothing. Adjust model_weight (and the block vector) instead.";
+        div.appendChild(warn);
+    }
+
     const expected = ARCH_GROUP_COUNTS[modelType] || {};
     for (const comp of comps) {
         if (!comp.groups.length) {
