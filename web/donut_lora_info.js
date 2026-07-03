@@ -126,6 +126,11 @@ function renderLoraComposition(div, data, modelType) {
         c.groups.some(g => isTextSide(g.name)) ||
         (c.ungrouped_names || []).some(isTextSide)
     ));
+    // Non-text (image) weights that model_weight drives; absent for a pure text LoRA.
+    const hasImageWeights = comps.some(c => c.type === "unet" && (
+        c.groups.some(g => !isTextSide(g.name)) ||
+        (c.ungrouped_names || []).some(n => !isTextSide(n))
+    ));
     let headline = comps.map(c => c.name).join(" + ");
     if (hasUnet && !hasTe) {
         headline += hasFusedText
@@ -160,6 +165,19 @@ function renderLoraComposition(div, data, modelType) {
                 + "no fused text, so clip_weight does nothing. Adjust model_weight "
                 + "(and the block vector) instead.";
         }
+        div.appendChild(warn);
+    }
+
+    // Mirror of the clip notice: a pure-text LoRA (no image blocks) ignores model_weight.
+    if (!hasImageWeights) {
+        const warn = document.createElement("div");
+        warn.style.color = "#e0a04a";
+        warn.style.marginBottom = "2px";
+        warn.textContent = hasFusedText
+            ? "model_weight has no effect — use text_weight"
+            : "model_weight has no effect";
+        warn.title = "This LoRA has no image-block weights for model_weight to apply to. "
+            + (hasFusedText ? "Use text_weight instead." : "");
         div.appendChild(warn);
     }
 
@@ -497,17 +515,24 @@ app.registerExtension({
                     const modelType = node.widgets?.find(w => w.name === "model_type")?.value || "Auto";
                     renderLoraComposition(entry.compDiv, data, modelType);
 
-                    // Flag the clip_weight slider itself when it can't do anything:
-                    // a LoRA with UNet weights but no separate CLIP/TE ignores clip_weight.
+                    // Flag each strength slider when it can't do anything, mirroring
+                    // how DonutApplyLoRAStack routes the LoRA's weights.
+                    const comps = (data && data.supported && data.components) || [];
+                    const hasUnet = comps.some(c => c.type === "unet");
+                    const hasTe = comps.some(c => c.type === "te");
+                    const hasFusedText = comps.some(c => c.type === "unet" && (
+                        c.groups.some(g => isTextSide(g.name)) ||
+                        (c.ungrouped_names || []).some(isTextSide)
+                    ));
+                    // model_weight drives the "main" (non-text) weights; it's dead when
+                    // every module is text-side (e.g. a pure txtfusion.projector LoRA).
+                    const hasImageWeights = comps.some(c => c.type === "unet" && (
+                        c.groups.some(g => !isTextSide(g.name)) ||
+                        (c.ungrouped_names || []).some(n => !isTextSide(n))
+                    ));
+
                     const cw = node.widgets?.find(w => w.name === `clip_weight_${slot}`);
                     if (cw) {
-                        const comps = (data && data.supported && data.components) || [];
-                        const hasUnet = comps.some(c => c.type === "unet");
-                        const hasTe = comps.some(c => c.type === "te");
-                        const hasFusedText = comps.some(c => c.type === "unet" && (
-                            c.groups.some(g => isTextSide(g.name)) ||
-                            (c.ungrouped_names || []).some(isTextSide)
-                        ));
                         if (hasFusedText && !hasTe) {
                             // Repurposed: drives the fused-text path (see DonutApplyLoRAStack)
                             cw.label = "text_weight (txt-fuse+refine)";
@@ -519,6 +544,14 @@ app.registerExtension({
                             cw.label = undefined;
                             cw.disabled = false;
                         }
+                    }
+
+                    const mw = node.widgets?.find(w => w.name === `model_weight_${slot}`);
+                    if (mw) {
+                        // Only flag inactive once we actually have composition data.
+                        const inactive = comps.length > 0 && !hasImageWeights;
+                        mw.label = inactive ? "model_weight (inactive)" : undefined;
+                        mw.disabled = inactive;
                     }
                     node.setDirtyCanvas(true);
                 };
