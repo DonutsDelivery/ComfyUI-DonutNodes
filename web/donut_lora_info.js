@@ -141,15 +141,25 @@ function renderLoraComposition(div, data, modelType) {
     if (hasFusedText && !hasTe) header.title = TEXT_SIDE_TOOLTIP;
     div.appendChild(header);
 
-    // A LoRA with no separate CLIP/TE has nothing for clip_weight to apply to —
-    // it's a genuine no-op. Say so, since the widget still accepts a value.
+    // No separate CLIP/TE: clip_weight is either repurposed to drive the fused
+    // text path (if present) or a genuine no-op. Say which, since the widget
+    // still accepts a value.
     if (hasUnet && !hasTe) {
         const warn = document.createElement("div");
-        warn.style.color = "#e0a04a";
         warn.style.marginBottom = "2px";
-        warn.textContent = "clip_weight has no effect — use model_weight";
-        warn.title = "This LoRA contains no separate CLIP/text-encoder weights, "
-            + "so clip_weight does nothing. Adjust model_weight (and the block vector) instead.";
+        if (hasFusedText) {
+            warn.style.color = "#c9a6ff";
+            warn.textContent = "clip_weight drives fused text (txt-fuse/refine)";
+            warn.title = "This LoRA has no separate CLIP/text encoder, so clip_weight "
+                + "is repurposed to scale the fused-text path (txtfusion/txtmlp). "
+                + "model_weight controls the image blocks.";
+        } else {
+            warn.style.color = "#e0a04a";
+            warn.textContent = "clip_weight has no effect — use model_weight";
+            warn.title = "This LoRA contains no separate CLIP/text-encoder weights and "
+                + "no fused text, so clip_weight does nothing. Adjust model_weight "
+                + "(and the block vector) instead.";
+        }
         div.appendChild(warn);
     }
 
@@ -494,9 +504,21 @@ app.registerExtension({
                         const comps = (data && data.supported && data.components) || [];
                         const hasUnet = comps.some(c => c.type === "unet");
                         const hasTe = comps.some(c => c.type === "te");
-                        const inactive = hasUnet && !hasTe;
-                        cw.label = inactive ? "clip_weight (inactive)" : undefined;
-                        cw.disabled = inactive;
+                        const hasFusedText = comps.some(c => c.type === "unet" && (
+                            c.groups.some(g => isTextSide(g.name)) ||
+                            (c.ungrouped_names || []).some(isTextSide)
+                        ));
+                        if (hasFusedText && !hasTe) {
+                            // Repurposed: drives the fused-text path (see DonutApplyLoRAStack)
+                            cw.label = "text_weight (txt-fuse+refine)";
+                            cw.disabled = false;
+                        } else if (hasUnet && !hasTe) {
+                            cw.label = "clip_weight (inactive)";
+                            cw.disabled = true;
+                        } else {
+                            cw.label = undefined;
+                            cw.disabled = false;
+                        }
                     }
                     node.setDirtyCanvas(true);
                 };

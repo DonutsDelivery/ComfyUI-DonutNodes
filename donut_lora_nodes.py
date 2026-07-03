@@ -566,6 +566,28 @@ class DonutLoRAStack:
         }
 
 
+# Krea 2 (and similar single-stream DiT) fold text conditioning into the
+# diffusion model as "txtfusion"/"txtmlp" weights rather than a separate text
+# encoder. For such LoRAs there is no CLIP to patch, so DonutApplyLoRAStack
+# routes clip_weight (shown as "text_weight" in the UI) to these fused-text
+# weights instead of doing a no-op CLIP merge.
+_TEXT_SIDE_RE = re.compile(r"txtfusion|txtmlp")
+_REAL_TE_RE = re.compile(r"lora_te\d?_|text_encoder|text_model|text_encoders\.")
+_TEXT_MERGE_VECTOR = ",".join(["1"] * 60)  # weight 1.0 on the fused-text (non-block) bucket
+
+
+def _lora_has_real_text_encoder(lora):
+    return any(_REAL_TE_RE.search(k) for k in lora)
+
+
+def _split_fused_text(lora):
+    """Split a LoRA state dict into (main, fused_text) by key name."""
+    main, text = {}, {}
+    for k, v in lora.items():
+        (text if _TEXT_SIDE_RE.search(k) else main)[k] = v
+    return main, text
+
+
 # ------------------------------------------------------------------------
 # DonutApplyLoRAStack: per-block UNet + uniform CLIP merges, always in that order
 # ------------------------------------------------------------------------
@@ -628,17 +650,30 @@ class DonutApplyLoRAStack:
                     elif "double_blocks." in k or "single_blocks." in k:
                         # Flux
                         pass
+                    elif "blocks." in k:  # Krea 2 single-stream DiT
+                        m = re.search(r'(?<![a-z_])blocks\.(\d+)', k)
+                        if m:
+                            block_nums.add(int(m.group(1)))
 
-                if block_nums:  # Z-Image detected
+                if block_nums:  # single-stream DiT detected (Z-Image / Krea 2)
                     num_blocks = max(block_nums) + 1
                     vector = ",".join(["1"] * (num_blocks + 1))  # +1 for base
                 else:
                     vector = ",".join(["1"] * 13)  # Default: base + 12 blocks (SDXL)
 
-            # 1) block-weighted UNet merge (pass clip=None to skip CLIP processing)
-            if mw != 0.0:
+            has_real_te = _lora_has_real_text_encoder(lora)
+            lora_main, lora_text = _split_fused_text(lora)
+            # Route clip_weight to the fused-text path only when the LoRA has
+            # such weights and no separate text encoder to patch.
+            fused_text = bool(lora_text) and not has_real_te
+
+            # 1) block-weighted UNet merge (pass clip=None to skip CLIP processing).
+            #    When fused text is routed to clip_weight below, exclude those
+            #    keys here so they aren't applied twice.
+            merge_main = lora_main if fused_text else lora
+            if mw != 0.0 and merge_main:
                 unet, _, _ = loader.load_lora_for_models(
-                    unet, None, lora,  # clip=None skips CLIP processing entirely
+                    unet, None, merge_main,  # clip=None skips CLIP processing entirely
                     strength_model=mw,
                     strength_clip=0.0,
                     inverse=False,
@@ -648,8 +683,22 @@ class DonutApplyLoRAStack:
                     block_vector=vector
                 )
 
-            # 2) uniform CLIP merge (no block control)
-            if cw != 0.0:
+            # 2) text handling
+            if fused_text:
+                # clip_weight ("text_weight") scales the fused-text path into the UNet
+                if cw != 0.0:
+                    unet, _, _ = loader.load_lora_for_models(
+                        unet, None, lora_text,
+                        strength_model=cw,
+                        strength_clip=0.0,
+                        inverse=False,
+                        seed=0,
+                        A=1.0,
+                        B=1.0,
+                        block_vector=_TEXT_MERGE_VECTOR
+                    )
+            elif cw != 0.0:
+                # uniform CLIP merge (real text encoder present, no block control)
                 _, text_enc = comfy.sd.load_lora_for_models(
                     unet, text_enc, lora,
                     0.0,  # no UNet change
