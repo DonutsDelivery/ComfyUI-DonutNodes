@@ -35,8 +35,9 @@ except ImportError:
 #   SD1.5: 17 blocks (IN0-11, MID, OUT0-3)
 #   FLUX: 57 blocks (19 double + 38 single)
 #   ZIT: 30 transformer layers (+ x_embedder, refiners, etc. in position 0)
+#   KREA2: 28 single-stream DiT blocks (+ first, txtfusion, last, etc. in position 0)
 
-MODEL_TYPES = ["Auto", "SDXL", "SD15", "FLUX", "ZIT", "ZIT-NE"]
+MODEL_TYPES = ["Auto", "SDXL", "SD15", "FLUX", "ZIT", "ZIT-NE", "KREA2"]
 
 # Presets by model type
 # All presets use contiguous ranges only (no holes in the middle)
@@ -160,6 +161,33 @@ ZIT_NE_PRESETS = {
     "HALF": ",".join(["0"] + ["0.5"]*30),
 }
 
+# KREA2 (Krea 2 single-stream MMDiT): 28 transformer blocks
+# Early (0-6), Lower-Mid (7-13), Upper-Mid (14-20), Late (21-27)
+KREA2_PRESETS = {
+    "ALL": ",".join(["1"] * 29),
+    # Enable from start (cumulative)
+    "EARLY-ONLY": ",".join(["1"] + ["1"]*7 + ["0"]*21),          # Early only (0-6)
+    "EARLY-LOWMID": ",".join(["1"] + ["1"]*14 + ["0"]*14),       # Early + LowMid (0-13)
+    "EARLY-MID": ",".join(["1"] + ["1"]*21 + ["0"]*7),           # Early + all Mid (0-20)
+    # Enable from end (cumulative)
+    "LATE-ONLY": ",".join(["1"] + ["0"]*21 + ["1"]*7),           # Late only (21-27)
+    "UPMID-LATE": ",".join(["1"] + ["0"]*14 + ["1"]*14),         # UpMid + Late (14-27)
+    "MID-LATE": ",".join(["1"] + ["0"]*7 + ["1"]*21),            # All Mid + Late (7-27)
+    # Contiguous middle sections (gaps on edges only)
+    "LOWMID-ONLY": ",".join(["1"] + ["0"]*7 + ["1"]*7 + ["0"]*14),   # LowMid only (7-13)
+    "UPMID-ONLY": ",".join(["1"] + ["0"]*14 + ["1"]*7 + ["0"]*7),    # UpMid only (14-20)
+    "MID-ONLY": ",".join(["1"] + ["0"]*7 + ["1"]*14 + ["0"]*7),      # All Mid (7-20)
+    "CORE": ",".join(["1"] + ["0"]*9 + ["1"]*10 + ["0"]*9),          # Core center (9-18)
+    "CORE-WIDE": ",".join(["1"] + ["0"]*7 + ["1"]*14 + ["0"]*7),     # Wider core (7-20)
+    "CORE-NARROW": ",".join(["1"] + ["0"]*11 + ["1"]*6 + ["0"]*11),  # Narrow core (11-16)
+    # Eased gradients
+    "EASE-IN": ",".join(["1"] + [f"{i/27:.2f}" for i in range(28)]),
+    "EASE-OUT": ",".join(["1"] + [f"{1-i/27:.2f}" for i in range(28)]),
+    "EASE-MID": ",".join(["1"] + [f"{1-abs(i-13.5)/13.5:.2f}" for i in range(28)]),
+    # Half strength
+    "HALF": ",".join(["1"] + ["0.5"]*28),
+}
+
 # Build lookup dict for preset name -> vector
 def build_preset_lookup():
     """Build a lookup dictionary from preset name to vector.
@@ -183,6 +211,9 @@ def build_preset_lookup():
     for name, vec in ZIT_NE_PRESETS.items():
         lookup[f"ZIT-NE-{name}"] = vec
         lookup[f"ZIT-NE-{name}:{vec}"] = vec
+    for name, vec in KREA2_PRESETS.items():
+        lookup[f"KREA2-{name}"] = vec
+        lookup[f"KREA2-{name}:{vec}"] = vec
     return lookup
 
 PRESET_LOOKUP = build_preset_lookup()
@@ -205,6 +236,8 @@ def build_preset_list(model_type=None):
             presets.append(f"ZIT-{name}:{vec}")
         for name, vec in ZIT_NE_PRESETS.items():
             presets.append(f"ZIT-NE-{name}:{vec}")
+        for name, vec in KREA2_PRESETS.items():
+            presets.append(f"KREA2-{name}:{vec}")
     elif model_type == "SDXL":
         for name, vec in SDXL_PRESETS.items():
             presets.append(f"SDXL-{name}:{vec}")
@@ -220,6 +253,9 @@ def build_preset_list(model_type=None):
     elif model_type == "ZIT-NE":
         for name, vec in ZIT_NE_PRESETS.items():
             presets.append(f"ZIT-NE-{name}:{vec}")
+    elif model_type == "KREA2":
+        for name, vec in KREA2_PRESETS.items():
+            presets.append(f"KREA2-{name}:{vec}")
 
     return presets
 
@@ -338,21 +374,21 @@ class DonutLoRAStack:
                 "model_weight_1": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_1":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_1": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_1."}),
-                "block_vector_1": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "block_vector_1": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30, KREA2:28 blocks"}),
 
                 "switch_2":       (["Off","On"],),
                 "lora_name_2":    (loras,),
                 "model_weight_2": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_2":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_2": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_2."}),
-                "block_vector_2": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "block_vector_2": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30, KREA2:28 blocks"}),
 
                 "switch_3":       (["Off","On"],),
                 "lora_name_3":    (loras,),
                 "model_weight_3": ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "clip_weight_3":  ("FLOAT", {"default":1.0,"min":-1000,"max":1000,"step":0.01}),
                 "block_preset_3": (BLOCK_PRESETS, {"default": "None", "tooltip": "Select a preset to populate block_vector_3."}),
-                "block_vector_3": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30 blocks"}),
+                "block_vector_3": ("STRING",{"default":"","placeholder":"SDXL:12, SD1.5:17, ZIT:30, KREA2:28 blocks"}),
 
                 "civitai_lookup": (["On", "Off"], {"default": "On", "tooltip": "Fetch LoRA info from CivitAI (requires API key in settings)"}),
             },

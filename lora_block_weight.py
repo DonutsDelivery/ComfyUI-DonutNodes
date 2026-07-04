@@ -218,6 +218,7 @@ class LoraLoaderBlockWeight:
             double_blocks_set = set()
             single_blocks_set = set()
             layers_blocks_set = set()  # Z-Image/Lumina2 DiT layers
+            krea_blocks_set = set()  # Krea 2 single-stream DiT blocks
 
             for key, v in loaded.items():
                 if isinstance(key, tuple):
@@ -251,11 +252,15 @@ class LoraLoaderBlockWeight:
                     k_unet_num = k_unet[len("layers."):len("layers.") + 2]
                     k_unet_int = parse_unet_num(k_unet_num)
                     layers_blocks_set.add(k_unet_int)
+                elif k_unet.startswith("blocks."):
+                    k_unet_num = k_unet[len("blocks."):len("blocks.") + 2]
+                    k_unet_int = parse_unet_num(k_unet_num)
+                    krea_blocks_set.add(k_unet_int)
 
             pat1 = re.compile(r"(default|base)=([0-9.]+)")
-            pat2 = re.compile(r"(in|out|mid|double|single|layer)([0-9]+)-([0-9]+)=([0-9.]+)")
-            pat3 = re.compile(r"(in|out|mid|double|single|layer)([0-9]+)=([0-9.]+)")
-            pat4 = re.compile(r"(in|out|mid|double|single|layer)=([0-9.]+)")
+            pat2 = re.compile(r"(in|out|mid|double|single|layer|block)([0-9]+)-([0-9]+)=([0-9.]+)")
+            pat3 = re.compile(r"(in|out|mid|double|single|layer|block)([0-9]+)=([0-9.]+)")
+            pat4 = re.compile(r"(in|out|mid|double|single|layer|block)=([0-9.]+)")
 
             base_spec = None
             default_spec = 1.0
@@ -280,6 +285,7 @@ class LoraLoaderBlockWeight:
             double_blocks = [default_spec] * len(double_blocks_set)
             single_blocks = [default_spec] * len(single_blocks_set)
             layers_blocks = [default_spec] * len(layers_blocks_set)  # Z-Image/Lumina2
+            krea_blocks = [default_spec] * len(krea_blocks_set)  # Krea 2
 
             for item in items:
                 match = pat2.match(item)
@@ -302,6 +308,8 @@ class LoraLoaderBlockWeight:
                             single_blocks[x] = value
                         elif match[1] == 'layer' and len(layers_blocks) > x:
                             layers_blocks[x] = value
+                        elif match[1] == 'block' and len(krea_blocks) > x:
+                            krea_blocks[x] = value
 
                     continue
 
@@ -325,6 +333,8 @@ class LoraLoaderBlockWeight:
                         single_blocks[x] = value
                     elif match[1] == 'layer' and len(layers_blocks) > x:
                         layers_blocks[x] = value
+                    elif match[1] == 'block' and len(krea_blocks) > x:
+                        krea_blocks[x] = value
 
                     continue
 
@@ -344,12 +354,14 @@ class LoraLoaderBlockWeight:
                         single_blocks = [value] * len(single_blocks)
                     elif match[1] == 'layer':
                         layers_blocks = [value] * len(layers_blocks)
+                    elif match[1] == 'block':
+                        krea_blocks = [value] * len(krea_blocks)
 
                     continue
 
             # concat specs
             res = [str(base_spec)]
-            for x in (input_blocks + middle_blocks + output_blocks + double_blocks + single_blocks + layers_blocks):
+            for x in (input_blocks + middle_blocks + output_blocks + double_blocks + single_blocks + layers_blocks + krea_blocks):
                 res.append(str(x))
 
             return ",".join(res)
@@ -537,6 +549,7 @@ class LoraLoaderBlockWeight:
         double_blocks = []
         single_blocks = []
         layers_blocks = []  # Z-Image/Lumina2 DiT layers
+        krea_blocks = []  # Krea 2 single-stream DiT blocks
         others = []
         for key, v in loaded.items():
             if isinstance(key, tuple):
@@ -564,6 +577,9 @@ class LoraLoaderBlockWeight:
             elif k_unet.startswith("layers."):
                 k_unet_num = k_unet[len("layers."):len("layers.")+2]
                 layers_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
+            elif k_unet.startswith("blocks."):
+                k_unet_num = k_unet[len("blocks."):len("blocks.")+2]
+                krea_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
             else:
                 others.append((k, v, k_unet))
 
@@ -573,6 +589,7 @@ class LoraLoaderBlockWeight:
         double_blocks = sorted(double_blocks, key=lambda x: x[2])
         single_blocks = sorted(single_blocks, key=lambda x: x[2])
         layers_blocks = sorted(layers_blocks, key=lambda x: x[2])
+        krea_blocks = sorted(krea_blocks, key=lambda x: x[2])
 
         # prepare patch
         np.random.seed(seed % (2**31))
@@ -586,7 +603,7 @@ class LoraLoaderBlockWeight:
         block_weights = {}
         muted_weights = []
 
-        for k, v, k_unet_num, k_unet in (input_blocks + middle_blocks + output_blocks + double_blocks + single_blocks + layers_blocks):
+        for k, v, k_unet_num, k_unet in (input_blocks + middle_blocks + output_blocks + double_blocks + single_blocks + layers_blocks + krea_blocks):
             if last_k_unet_num != k_unet_num and len(vector) > vector_i:
                 ratios = LoraLoaderBlockWeight.convert_vector_value(A, B, vector[vector_i].strip())
                 ratio = ratios.pop(0)
