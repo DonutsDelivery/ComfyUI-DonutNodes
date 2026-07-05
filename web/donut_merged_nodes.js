@@ -82,12 +82,14 @@ function hideWidget(w) {
   w._donutCompute = w.computeSize;
   w.type = HIDDEN + w.type;
   w.computeSize = () => [0, -4];
+  w.hidden = true;            // modern ComfyUI frontend honors this; legacy ignores it
 }
 
 function showWidget(w) {
   if (!w || typeof w.type !== "string" || !w.type.startsWith(HIDDEN)) return;
   w.type = w._donutType;
   w.computeSize = w._donutCompute;
+  w.hidden = false;
   delete w._donutType;
   delete w._donutCompute;
 }

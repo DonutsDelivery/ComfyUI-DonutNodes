@@ -79,6 +79,10 @@ from .DonutUniversalDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_universal_de
 from .DonutPromptReceiver import NODE_CLASS_MAPPINGS        as m_prompt_receiver
 from .DonutPromptReceiver import NODE_DISPLAY_NAME_MAPPINGS as d_prompt_receiver
 
+# Weight-Vector Scale (helper for third-party ConditioningKrea2Rebalance and LoRA block_vector strings)
+from .DonutWeightVectorScale import NODE_CLASS_MAPPINGS        as m_weight_vector_scale
+from .DonutWeightVectorScale import NODE_DISPLAY_NAME_MAPPINGS as d_weight_vector_scale
+
 # Gamma Correction
 from .DonutGammaCorrection import NODE_CLASS_MAPPINGS        as m_gamma
 from .DonutGammaCorrection import NODE_DISPLAY_NAME_MAPPINGS as d_gamma
@@ -136,6 +140,7 @@ NODE_CLASS_MAPPINGS = {
     **m_face_detailer,
     **m_universal_detailer,
     **m_prompt_receiver,
+    **m_weight_vector_scale,
     **m_gamma,
     **m_auto_gamma,
     **m_hist_stretch,
@@ -165,6 +170,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_face_detailer,
     **d_universal_detailer,
     **d_prompt_receiver,
+    **d_weight_vector_scale,
     **d_gamma,
     **d_auto_gamma,
     **d_hist_stretch,

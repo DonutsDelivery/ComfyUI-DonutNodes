@@ -113,6 +113,7 @@ class DonutCivitaiBrowser {
             "Cog Video X",
             "Flux.1 Dev",
             "Flux.1 Schnell",
+            "Krea 2",
             "Hi Dream",
             "Hunyuan 1",
             "Hunyuan Video",
@@ -3512,6 +3513,8 @@ class DonutCivitaiBrowser {
             "SD 3": "sd3", "SD 3.5": "sd3", "SD 3.5 Large": "sd3", "SD 3.5 Medium": "sd3",
             // Flux
             "Flux.1 D": "flux", "Flux.1 S": "flux", "Flux.1 Schnell": "flux",
+            // Krea 2
+            "Krea 2": "krea2",
             // Lumina / ZIT
             "Lumina": "zit", "Lumina2": "zit", "ZImageTurbo": "zit",
             // Other

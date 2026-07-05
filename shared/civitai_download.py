@@ -62,6 +62,8 @@ BASE_MODEL_FOLDERS = {
     "Flux.1 D": "flux",
     "Flux.1 S": "flux",
     "Flux.1 Schnell": "flux",
+    # Krea 2 (single-stream MMDiT)
+    "Krea 2": "krea2",
     # Lumina / ZIT
     "Lumina": "zit",
     "Lumina2": "zit",
