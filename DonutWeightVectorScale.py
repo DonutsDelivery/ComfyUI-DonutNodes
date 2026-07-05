@@ -16,6 +16,12 @@ leave that node's own multiplier at 1.0.
 Also applies to LoRA block-weight vectors (e.g. DonutLoRAStack's
 block_vector fields), which use the same 1.0 = full-strength / neutral
 convention.
+
+The optional `rebalance` toggle renormalizes the scaled vector so its mean
+is exactly 1.0 (sum / n = 1). That makes it an actual rebalance rather than
+a pure gain: raising one layer's weight proportionally lowers the others,
+holding the overall conditioning strength (and therefore effective CFG)
+constant instead of letting it drift with the sum of the weights.
 """
 
 
@@ -33,6 +39,12 @@ class DonutWeightVectorScale:
                     "tooltip": "Scales each weight's deviation from 1.0. "
                                "1.0 = unchanged, 0.0 = all weights become 1.0 (neutral).",
                 }),
+                "rebalance": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Renormalize so the weights' mean is 1.0 - raising one "
+                               "layer proportionally lowers the others, keeping overall "
+                               "conditioning strength (and effective CFG) constant.",
+                }),
             },
         }
 
@@ -46,9 +58,15 @@ class DonutWeightVectorScale:
         parts = [p.strip() for chunk in s.split(";") for p in chunk.split(",")]
         return [float(p) for p in parts if p]
 
-    def scale_weights(self, weights, scale):
+    def scale_weights(self, weights, scale, rebalance=False):
         vals = self._parse(weights)
         scaled = [1.0 + scale * (v - 1.0) for v in vals]
+
+        if rebalance and scaled:
+            mean = sum(scaled) / len(scaled)
+            if abs(mean) > 1e-9:
+                scaled = [v / mean for v in scaled]
+
         out = ",".join(f"{v:g}" for v in scaled)
         return (out,)
 
