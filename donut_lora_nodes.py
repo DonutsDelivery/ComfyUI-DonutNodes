@@ -607,7 +607,7 @@ class DonutLoRAStack:
 # encoder. For such LoRAs there is no CLIP to patch, so DonutApplyLoRAStack
 # routes clip_weight (shown as "text_weight" in the UI) to these fused-text
 # weights instead of doing a no-op CLIP merge.
-_TEXT_SIDE_RE = re.compile(r"txtfusion|txtmlp")
+_TEXT_SIDE_RE = re.compile(r"txt(?:fusion|mlp)|text_(?:fusion|mlp)")  # comfy/kohya + diffusers spellings
 _REAL_TE_RE = re.compile(r"lora_te\d?_|text_encoder|text_model|text_encoders\.")
 _TEXT_MERGE_VECTOR = ",".join(["1"] * 60)  # weight 1.0 on the fused-text (non-block) bucket
 

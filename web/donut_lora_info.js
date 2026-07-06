@@ -43,7 +43,9 @@ const GROUP_SHORT_LABELS = {
 // (Krea 2 txtfusion / text MLPs). These are NOT a separate CLIP/text encoder:
 // they're driven by model_weight, and clip_weight has no effect on them.
 function isTextSide(name) {
-    return /^txt/.test(name);  // txtfusion.*, txtmlp_* (not tmlp_/tproj_, which are time embeds)
+    // txtfusion.*/txtmlp_* (comfy/kohya) and text_fusion.*/text_mlp (diffusers).
+    // Not tmlp_/tproj_, which are time embeds.
+    return /^(txt(fusion|mlp)|text_(fusion|mlp))/.test(name);
 }
 
 const TEXT_SIDE_TOOLTIP = "Fused text conditioning (inside the DiT) — driven by model_weight, not clip_weight";
