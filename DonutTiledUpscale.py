@@ -14,6 +14,11 @@ from nodes import VAEEncode, VAEDecode, VAEDecodeTiled
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
+try:
+    from .krea2_edit_integration import crop_aligned_reference, prepare_krea2_edit
+except ImportError:
+    from krea2_edit_integration import crop_aligned_reference, prepare_krea2_edit
+
 
 def upscale_with_model(upscale_model, image):
     """Upscale image using a model (adapted from ComfyUI's ImageUpscaleWithModel)"""
@@ -427,6 +432,22 @@ class DonutTiledUpscale:
                 "resampling_method": (resampling_methods, {"default": "lanczos"}),
                 "feather": ("FLOAT", {"default": 15.0, "min": 0.0, "max": 50.0, "step": 1.0, "tooltip": "Feather/blend zone as percentage of tile size. Higher = smoother transitions."}),
                 "tiled_vae": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {
+                "edit_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Use an aligned source-reference tile for Krea2 patching and grounding while refining the generated tile at the configured denoise.",
+                }),
+                "clip": ("CLIP", {"tooltip": "Required when edit_mode is enabled."}),
+                "edit_model": ("MODEL", {
+                    "tooltip": "Optional Krea2 model with the Identity Edit LoRA already applied. Falls back to model.",
+                }),
+                "edit_source_image": ("IMAGE", {
+                    "tooltip": "Reference image resized to the exact final canvas and cropped with every generated tile.",
+                }),
+                "edit_prompt": ("STRING", {"forceInput": True}),
+                "edit_negative_prompt": ("STRING", {"forceInput": True}),
+                "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
             }
         }
 
@@ -437,7 +458,9 @@ class DonutTiledUpscale:
 
     def upscale(self, image, upscale_model, model, positive, negative, vae, seed,
                 steps, cfg, sampler_name, scheduler, denoise,
-                rescale_factor, resampling_method, feather, tiled_vae):
+                rescale_factor, resampling_method, feather, tiled_vae,
+                edit_mode=False, clip=None, edit_prompt="Enhance fine details while preserving the source image.",
+                edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None):
 
         # Resampling filter mapping
         resample_filters = {
@@ -450,6 +473,8 @@ class DonutTiledUpscale:
 
         # Get image dimensions (B, H, W, C)
         batch_size, img_height, img_width, channels = image.shape
+        if edit_mode and edit_source_image is None:
+            raise ValueError("DonutTiledUpscale edit_mode requires edit_source_image.")
 
         # Find best grid configuration (calculates tile sizes automatically)
         config = find_best_tiling(img_width, img_height, rescale_factor, feather)
@@ -522,21 +547,37 @@ class DonutTiledUpscale:
                     # Convert to tensor for VAE encoding
                     tile_tensor = pil_to_tensor(tile)
 
-                    # Encode to latent
-                    latent = vae_encoder.encode(vae, tile_tensor)[0]
+                    sampling_model = model
+                    sampling_positive = positive
+                    sampling_negative = negative
+                    if edit_mode:
+                        reference_tile = crop_aligned_reference(
+                            edit_source_image, output_width, output_height,
+                            (x1, y1, x2, y2), batch_index=b,
+                        )
+                        sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
+                            edit_model if edit_model is not None else model,
+                            clip, vae, reference_tile, edit_prompt,
+                            edit_negative_prompt, grounding_px,
+                            tile_width, tile_height,
+                        )
+                        latent = vae_encoder.encode(vae, tile_tensor)[0]
+                    else:
+                        # Encode to latent for regular img2img sampling.
+                        latent = vae_encoder.encode(vae, tile_tensor)[0]
 
                     # Sample using the same approach as core KSampler
                     latent_image = latent["samples"]
-                    latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
+                    latent_image = comfy.sample.fix_empty_latent_channels(sampling_model, latent_image)
 
                     # Prepare noise
                     noise = comfy.sample.prepare_noise(latent_image, seed + tile_idx)
 
                     # Sample
-                    callback = latent_preview.prepare_callback(model, steps)
+                    callback = latent_preview.prepare_callback(sampling_model, steps)
                     samples = comfy.sample.sample(
-                        model, noise, steps, cfg, sampler_name, scheduler,
-                        positive, negative, latent_image,
+                        sampling_model, noise, steps, cfg, sampler_name, scheduler,
+                        sampling_positive, sampling_negative, latent_image,
                         denoise=denoise,
                         disable_noise=False,
                         start_step=None,

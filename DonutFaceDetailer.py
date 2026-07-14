@@ -21,6 +21,21 @@ try:
 except ImportError:
     from donut_detailer_core import filter_segs_by_area, scale_to_megapixels, sample_and_decode
 
+try:
+    from .krea2_edit_integration import (
+        crop_aligned_reference,
+        crop_image_padding,
+        pad_image_to_multiple,
+        prepare_krea2_edit,
+    )
+except ImportError:
+    from krea2_edit_integration import (
+        crop_aligned_reference,
+        crop_image_padding,
+        pad_image_to_multiple,
+        prepare_krea2_edit,
+    )
+
 # Import from Impact Pack
 try:
     import impact.core as core
@@ -105,6 +120,19 @@ if IMPACT_AVAILABLE:
                     "inpaint_model": ("BOOLEAN", {"default": False, "label_on": "enabled", "label_off": "disabled"}),
                     "noise_mask_feather": ("INT", {"default": 20, "min": 0, "max": 100, "step": 1}),
                     "scheduler_func_opt": ("SCHEDULER_FUNC",),
+                    "edit_mode": ("BOOLEAN", {
+                        "default": False,
+                        "tooltip": "Use natural 1-MiP Krea2 conditioning and pad the generated face target to a 32-pixel grid at the configured denoise.",
+                    }),
+                    "edit_prompt": ("STRING", {"forceInput": True}),
+                    "edit_model": ("MODEL", {
+                        "tooltip": "Optional Krea2 model with the Identity Edit LoRA already applied. Falls back to model.",
+                    }),
+                    "edit_source_image": ("IMAGE", {
+                        "tooltip": "Full source reference; the bbox-derived detail crop is aligned and cropped before Krea2 Edit.",
+                    }),
+                    "edit_negative_prompt": ("STRING", {"forceInput": True}),
+                    "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
                 }}
 
         RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "MASK", "DETAILER_PIPE", "IMAGE")
@@ -117,7 +145,10 @@ if IMPACT_AVAILABLE:
         def enhance_detail_megapixel(image, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, bbox, seed, steps, cfg,
                                       sampler_name, scheduler, positive, negative, denoise,
                                       noise_mask, force_inpaint, noise_mask_feather=0,
-                                      inpaint_model=False, detailer_hook=None, scheduler_func=None):
+                                      inpaint_model=False, detailer_hook=None, scheduler_func=None,
+                                      edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
+                                      edit_negative_prompt="", grounding_px=768, edit_model=None,
+                                      edit_source_crop=None):
             """
             Enhanced detail function using megapixel-based sizing.
             Scales crop region to target total pixel count regardless of aspect ratio.
@@ -188,9 +219,26 @@ if IMPACT_AVAILABLE:
 
             # Scale image
             scaled_image = impact_utils.tensor_resize(image, new_w, new_h)
+            target_image = scaled_image
+            target_padding = (0, 0, 0, 0)
 
-            # Encode to latent
-            latent_image = impact_utils.to_latent_image(scaled_image, vae)
+            sampling_model = model
+            sampling_positive = positive
+            sampling_negative = negative
+            if edit_mode:
+                if edit_source_crop is None:
+                    raise ValueError("DonutFaceDetailer edit_mode requires edit_source_image.")
+                target_image, target_padding = pad_image_to_multiple(scaled_image)
+                sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
+                    edit_model if edit_model is not None else model,
+                    clip, vae, edit_source_crop, edit_prompt,
+                    edit_negative_prompt, grounding_px,
+                    target_image.shape[2], target_image.shape[1],
+                )
+                latent_image = impact_utils.to_latent_image(target_image, vae)
+            else:
+                # Encode to latent for regular img2img sampling.
+                latent_image = impact_utils.to_latent_image(scaled_image, vae)
 
             # Scale mask if present using torch interpolate
             if noise_mask is not None:
@@ -212,6 +260,12 @@ if IMPACT_AVAILABLE:
                 elif len(orig_shape) == 3:
                     noise_mask = noise_mask.squeeze(0)
 
+                if edit_mode and any(target_padding):
+                    left, top, right, bottom = target_padding
+                    noise_mask = torch.nn.functional.pad(
+                        noise_mask, (left, right, top, bottom), value=0,
+                    )
+
             # Hook pre-processing
             if detailer_hook is not None:
                 latent_image = detailer_hook.touch_latent(latent_image)
@@ -221,9 +275,12 @@ if IMPACT_AVAILABLE:
                 latent_image['noise_mask'] = noise_mask.reshape((-1, 1, noise_mask.shape[-2], noise_mask.shape[-1]))
 
             # Sample -> VAE decode -> 5D->4D video-VAE reshape (shared helper)
-            refined_image = sample_and_decode(model, seed, steps, cfg, sampler_name, scheduler,
-                                              positive, negative, latent_image, denoise,
+            refined_image = sample_and_decode(sampling_model, seed, steps, cfg, sampler_name, scheduler,
+                                              sampling_positive, sampling_negative, latent_image, denoise,
                                               vae, impact_sampling, scheduler_func=scheduler_func)
+
+            if edit_mode and any(target_padding):
+                refined_image = crop_image_padding(refined_image, target_padding)
 
             # Hook post-processing
             if detailer_hook is not None:
@@ -238,12 +295,18 @@ if IMPACT_AVAILABLE:
                          sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
                          sam_mask_hint_use_negative, drop_size, bbox_detector, max_faces,
                          segm_detector=None, sam_model_opt=None, wildcard_opt=None, detailer_hook=None,
-                         cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None):
+                         cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None,
+                         edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
+                         edit_negative_prompt="", grounding_px=768, edit_model=None,
+                         edit_source_image=None):
 
             # Unload diffusion model before detection to free VRAM for SAM/detector
             comfy.model_management.unload_all_models()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
+
+            if edit_mode and edit_source_image is None:
+                raise ValueError("DonutFaceDetailer edit_mode requires edit_source_image.")
 
             # Detect faces
             bbox_detector.setAux('face')
@@ -290,6 +353,12 @@ if IMPACT_AVAILABLE:
                     crop_region = seg.crop_region
                     bbox = seg.bbox
 
+                    edit_source_crop = None
+                    if edit_mode:
+                        edit_source_crop = crop_aligned_reference(
+                            edit_source_image, image.shape[2], image.shape[1], crop_region,
+                        )
+
                     if cropped_image is None:
                         cropped_image = impact_utils.crop_image(image, crop_region)
 
@@ -320,7 +389,9 @@ if IMPACT_AVAILABLE:
                             enhanced_cropped, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, bbox, cycle_seed, steps, cfg,
                             sampler_name, scheduler, positive, negative, denoise,
                             noise_mask if c == 0 else None, force_inpaint, noise_mask_feather,
-                            inpaint_model, detailer_hook, scheduler_func_opt)
+                            inpaint_model, detailer_hook, scheduler_func_opt,
+                            edit_mode, edit_prompt, edit_negative_prompt, grounding_px,
+                            edit_model, edit_source_crop)
 
                         if result is not None:
                             # Resize back to original crop size
@@ -365,7 +436,10 @@ if IMPACT_AVAILABLE:
                  sam_detection_hint, sam_dilation, sam_threshold, sam_bbox_expansion, sam_mask_hint_threshold,
                  sam_mask_hint_use_negative, drop_size, bbox_detector, wildcard, cycle, max_faces,
                  sam_model_opt=None, segm_detector_opt=None, detailer_hook=None, inpaint_model=False,
-                 noise_mask_feather=0, scheduler_func_opt=None):
+                 noise_mask_feather=0, scheduler_func_opt=None, edit_mode=False,
+                 edit_prompt="Enhance facial details while preserving identity.",
+                 edit_negative_prompt="", grounding_px=768, edit_model=None,
+                 edit_source_image=None):
 
             # Convert resolution from square side length to total pixels
             resolution = resolution * resolution
@@ -380,6 +454,10 @@ if IMPACT_AVAILABLE:
                 logging.warning("[DonutFaceDetailer] WARN: Not designed for video. Use Detailer For AnimateDiff.")
 
             for i, single_image in enumerate(image):
+                single_edit_source = None
+                if edit_source_image is not None:
+                    source_index = min(i, len(edit_source_image) - 1)
+                    single_edit_source = edit_source_image[source_index].unsqueeze(0)
                 enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list = \
                     DonutFaceDetailer.enhance_face(
                         single_image.unsqueeze(0), model, clip, vae, resolution, max_resolution, guide_size_for,
@@ -389,7 +467,10 @@ if IMPACT_AVAILABLE:
                         sam_mask_hint_threshold, sam_mask_hint_use_negative, drop_size, bbox_detector,
                         max_faces, segm_detector_opt, sam_model_opt, wildcard, detailer_hook,
                         cycle=cycle, inpaint_model=inpaint_model, noise_mask_feather=noise_mask_feather,
-                        scheduler_func_opt=scheduler_func_opt)
+                        scheduler_func_opt=scheduler_func_opt, edit_mode=edit_mode,
+                        edit_prompt=edit_prompt, edit_negative_prompt=edit_negative_prompt,
+                        grounding_px=grounding_px, edit_model=edit_model,
+                        edit_source_image=single_edit_source)
 
                 result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
                 result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask
