@@ -11,6 +11,10 @@ import urllib.error
 import time
 import uuid
 import threading
+import shutil
+import subprocess
+import json
+import socket
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
@@ -95,7 +99,7 @@ MODEL_TYPE_TO_FOLDER = {
     "LORA": "loras",
     "LoCon": "loras",
     "DoRA": "loras",
-    "Checkpoint": "checkpoints",
+    "Checkpoint": "diffusion_models",
     "TextualInversion": "embeddings",
     "Hypernetwork": "hypernetworks",
     "AestheticGradient": "loras",  # No specific folder, use loras
@@ -124,6 +128,12 @@ def get_model_folder(model_type: str) -> str:
     """
     folder_name = MODEL_TYPE_TO_FOLDER.get(model_type, "loras")
 
+    # Keep checkpoints in the physical diffusion_models folder
+    # instead of ComfyUI's diffusion_models -> unet alias.
+    if model_type == "Checkpoint" and HAS_FOLDER_PATHS:
+        return os.path.join(folder_paths.models_dir, "diffusion_models")
+
+
     if HAS_FOLDER_PATHS:
         try:
             paths = folder_paths.get_folder_paths(folder_name)
@@ -140,7 +150,13 @@ def get_model_folder(model_type: str) -> str:
     return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models", folder_name)
 
 
-def get_download_path(model_type: str, base_model: str, filename: str, use_subfolder: bool = True) -> str:
+def get_download_path(
+    model_type: str,
+    base_model: str,
+    filename: str,
+    use_subfolder: bool = True,
+    selected_folder: Optional[str] = None
+) -> str:
     """
     Get the full download path for a model.
 
@@ -148,16 +164,36 @@ def get_download_path(model_type: str, base_model: str, filename: str, use_subfo
         model_type: CivitAI model type (LORA, Checkpoint, etc.)
         base_model: CivitAI base model (SDXL 1.0, Pony, etc.)
         filename: Original filename from CivitAI
-        use_subfolder: Whether to organize into base model subfolders (default True for LoRAs)
+        use_subfolder: Whether to organize into base model subfolders
+        selected_folder: Optional folder relative to the model-type root.
+            An empty string selects the root folder itself. None keeps the
+            existing automatic destination behavior.
 
     Returns:
         Full path where the file should be saved
     """
-    base_dir = get_model_folder(model_type)
+    base_dir = os.path.abspath(get_model_folder(model_type))
 
-    # For LoRAs/LoCon/DoRA, organize by base model subfolder
-    # For other types (checkpoints, VAE, etc.), put directly in folder
-    if use_subfolder and model_type in ("LORA", "LoCon", "DoRA"):
+    if selected_folder is not None:
+        # The browser sends a path relative to the correct model root.
+        # Reject absolute paths and anything that tries to escape that root.
+        if os.path.isabs(selected_folder):
+            raise ValueError("Selected download folder must be relative")
+
+        normalized_folder = os.path.normpath(selected_folder)
+
+        if normalized_folder in ("", "."):
+            full_dir = base_dir
+        else:
+            full_dir = os.path.abspath(
+                os.path.join(base_dir, normalized_folder)
+            )
+
+            if os.path.commonpath([base_dir, full_dir]) != base_dir:
+                raise ValueError("Selected download folder is outside the model directory")
+
+    # Preserve the existing automatic organization when no override is sent.
+    elif use_subfolder and model_type in ("LORA", "LoCon", "DoRA"):
         subfolder = normalize_base_model(base_model)
         if subfolder:
             full_dir = os.path.join(base_dir, subfolder)
@@ -166,9 +202,7 @@ def get_download_path(model_type: str, base_model: str, filename: str, use_subfo
     else:
         full_dir = base_dir
 
-    # Create directory if needed
     Path(full_dir).mkdir(parents=True, exist_ok=True)
-
     return os.path.join(full_dir, filename)
 
 
@@ -222,7 +256,8 @@ class CivitAIDownloader:
     def __init__(self):
         self.downloads: Dict[str, DownloadStatus] = {}
         self._lock = threading.Lock()
-
+        self._aria2_processes = {}
+        
     def start_download(
         self,
         download_url: str,
@@ -312,6 +347,273 @@ class CivitAIDownloader:
             # Create directory if needed
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
+            # Use aria2c when available for faster multi-connection downloads
+            aria2_path = shutil.which("aria2c")
+
+            if aria2_path:
+                print("[CivitAI Download] aria2c found - using accelerated download")
+
+                # Resolve CivitAI's authenticated URL to the final CDN URL
+                aria2_download_url = download_url
+
+                try:
+                    resolve_request = urllib.request.Request(
+                        download_url,
+                        headers=headers
+                    )
+
+                    with civitai_urlopen(resolve_request, timeout=30) as resolve_response:
+                        aria2_download_url = resolve_response.geturl()
+                        total_size = int(
+                            resolve_response.headers.get("Content-Length", 0)
+                        )
+
+                    with self._lock:
+                        status.total_size = total_size
+
+                    print(
+                        "[CivitAI Download] Resolved authenticated download "
+                        "to CDN URL"
+                    )
+
+                except Exception as e:
+                    print(
+                        f"[CivitAI Download] Could not resolve CDN URL: {e}"
+                    )
+
+                save_directory = str(Path(save_path).parent)
+                save_filename = Path(save_path).name
+
+                # Give this aria2 process its own temporary local RPC port.
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.bind(("127.0.0.1", 0))
+                    rpc_port = sock.getsockname()[1]
+
+                rpc_secret = uuid.uuid4().hex
+                rpc_url = f"http://127.0.0.1:{rpc_port}/jsonrpc"
+
+                command = [
+                    aria2_path,
+                    "--continue=true",
+                    "--max-connection-per-server=16",
+                    "--split=16",
+                    "--min-split-size=4M",
+                    "--file-allocation=none",
+                    "--allow-overwrite=true",
+                    "--auto-file-renaming=false",
+                    "--console-log-level=warn",
+                    "--summary-interval=0",
+                    "--user-agent=ComfyUI-DonutNodes/1.0",
+                    "--enable-rpc=true",
+                    "--rpc-listen-all=false",
+                    f"--rpc-listen-port={rpc_port}",
+                    f"--rpc-secret={rpc_secret}",
+                    "--dir", save_directory,
+                    "--out", save_filename,
+                    aria2_download_url
+                ]
+
+                process = subprocess.Popen(
+                    command,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+
+                with self._lock:
+                    self._aria2_processes[download_id] = process
+
+                def aria2_rpc(method, params=None):
+                    rpc_params = [f"token:{rpc_secret}"]
+
+                    if params:
+                        rpc_params.extend(params)
+
+                    payload = {
+                        "jsonrpc": "2.0",
+                        "id": download_id,
+                        "method": method,
+                        "params": rpc_params
+                    }
+
+                    rpc_request = urllib.request.Request(
+                        rpc_url,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={"Content-Type": "application/json"}
+                    )
+
+                    with urllib.request.urlopen(
+                        rpc_request,
+                        timeout=2
+                    ) as rpc_response:
+                        rpc_data = json.loads(
+                            rpc_response.read().decode("utf-8")
+                        )
+
+                    return rpc_data.get("result")
+
+                stat_keys = [
+                    "completedLength",
+                    "totalLength",
+                    "downloadSpeed",
+                    "status",
+                    "errorCode",
+                    "errorMessage"
+                ]
+
+                aria2_finished = False
+
+                while process.poll() is None:
+                    with self._lock:
+                        was_cancelled = status.status == "cancelled"
+
+                    if was_cancelled:
+                        try:
+                            aria2_rpc("aria2.forceShutdown")
+                        except Exception:
+                            process.terminate()
+
+                        try:
+                            process.wait(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+
+                        if os.path.exists(save_path):
+                            os.remove(save_path)
+
+                        aria2_control_file = save_path + ".aria2"
+                        if os.path.exists(aria2_control_file):
+                            os.remove(aria2_control_file)
+
+                        with self._lock:
+                            self._aria2_processes.pop(download_id, None)
+
+                        return
+
+                    aria2_status = None
+
+                    try:
+                        active = aria2_rpc(
+                            "aria2.tellActive",
+                            [stat_keys]
+                        )
+
+                        if active:
+                            aria2_status = active[0]
+                        else:
+                            waiting = aria2_rpc(
+                                "aria2.tellWaiting",
+                                [0, 1, stat_keys]
+                            )
+
+                            if waiting:
+                                aria2_status = waiting[0]
+                            else:
+                                # Completed/error downloads move out of the active
+                                # list. This dedicated aria2 instance has only one
+                                # download, so the newest stopped result is ours.
+                                stopped = aria2_rpc(
+                                    "aria2.tellStopped",
+                                    [-1, 1, stat_keys]
+                                )
+
+                                if stopped:
+                                    aria2_status = stopped[0]
+
+                    except Exception:
+                        # RPC may need a moment to start.
+                        aria2_status = None
+
+                    if aria2_status:
+                        aria2_state = aria2_status.get("status", "")
+                        completed_length = int(
+                            aria2_status.get("completedLength", 0)
+                        )
+                        total_length = int(
+                            aria2_status.get("totalLength", 0)
+                        )
+                        download_speed = float(
+                            aria2_status.get("downloadSpeed", 0)
+                        )
+
+                        with self._lock:
+                            status.downloaded_size = completed_length
+                            status.speed_bps = download_speed
+
+                            if total_length > 0:
+                                status.total_size = total_length
+
+                        if on_progress:
+                            on_progress(status)
+
+                        if aria2_state == "complete":
+                            aria2_finished = True
+
+                            try:
+                                aria2_rpc("aria2.shutdown")
+                            except Exception:
+                                process.terminate()
+
+                            break
+
+                        if aria2_state in ("error", "removed"):
+                            error_code = aria2_status.get("errorCode", "")
+                            error_message = aria2_status.get(
+                                "errorMessage",
+                                "Unknown aria2 download error"
+                            )
+                            raise RuntimeError(
+                                f"aria2 download failed ({error_code}): "
+                                f"{error_message}"
+                            )
+
+                    time.sleep(0.5)
+
+                if aria2_finished and process.poll() is None:
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
+
+                return_code = process.returncode
+
+                with self._lock:
+                    self._aria2_processes.pop(download_id, None)
+
+                if return_code != 0:
+                    raise RuntimeError(
+                        f"aria2c exited with error code {return_code}"
+                    )
+
+                final_size = (
+                    os.path.getsize(save_path)
+                    if os.path.exists(save_path)
+                    else 0
+                )
+
+                with self._lock:
+                    status.downloaded_size = final_size
+                    status.total_size = final_size
+                    status.speed_bps = 0.0
+                    status.status = "completed"
+                    status.completed_at = datetime.now().isoformat()
+
+                if on_progress:
+                    on_progress(status)
+
+                # Save the SHA256 hash cache when provided
+                if sha256:
+                    self._save_hash_file(save_path, sha256)
+
+                # Make the downloaded model visible in ComfyUI
+                folder_name = MODEL_TYPE_TO_FOLDER.get(
+                    model_type,
+                    "loras"
+                )
+                invalidate_folder_cache(folder_name)
+
+                return
+            
             # Open connection
             with civitai_urlopen(request, timeout=30) as response:
                 total_size = int(response.headers.get('Content-Length', 0))
@@ -350,22 +652,43 @@ class CivitAIDownloader:
                             on_progress(status)
 
                 # Check final status
+                cancelled = False
+
                 with self._lock:
                     if status.status == "cancelled":
-                        # Clean up partial file
-                        if os.path.exists(save_path):
-                            os.remove(save_path)
+                        cancelled = True
                     else:
+                        final_size = (
+                            os.path.getsize(save_path)
+                            if os.path.exists(save_path)
+                            else downloaded
+                        )
+
+                        status.downloaded_size = final_size
+                        status.total_size = final_size
+                        status.speed_bps = 0.0
                         status.status = "completed"
                         status.completed_at = datetime.now().isoformat()
 
-                        # Save the SHA256 hash to a .hash file if provided
-                        if sha256:
-                            self._save_hash_file(save_path, sha256)
+                if cancelled:
+                    # Clean up partial file
+                    if os.path.exists(save_path):
+                        os.remove(save_path)
+                else:
+                    # Force one final completed/100% update to the UI
+                    if on_progress:
+                        on_progress(status)
 
-                        # Invalidate folder cache so the new file is visible in dropdowns
-                        folder_name = MODEL_TYPE_TO_FOLDER.get(model_type, "loras")
-                        invalidate_folder_cache(folder_name)
+                    # Save the SHA256 hash to a .hash file if provided
+                    if sha256:
+                        self._save_hash_file(save_path, sha256)
+
+                    # Invalidate folder cache so the new file is visible
+                    folder_name = MODEL_TYPE_TO_FOLDER.get(
+                        model_type,
+                        "loras"
+                    )
+                    invalidate_folder_cache(folder_name)
 
         except urllib.error.HTTPError as e:
             error_msg = f"HTTP {e.code}: {e.reason}"

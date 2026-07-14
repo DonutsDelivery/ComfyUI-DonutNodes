@@ -914,11 +914,11 @@ class DonutCivitaiBrowser {
         this.updateLoadingState();
     }
 
-    async startDownload(modelVersion, loadToSlot = null, buttonElement = null) {
+    async startDownload(modelVersion, loadToSlot = null, buttonElement = null, selectedFile = null) {
         const model = this.currentModel;
         if (!model || !modelVersion) return;
 
-        const file = modelVersion.files?.[0];
+        const file = selectedFile || modelVersion.files?.[0];
         if (!file) {
             alert("No downloadable file found");
             return;
@@ -954,6 +954,9 @@ class DonutCivitaiBrowser {
             if (textSpan) textSpan.style.cssText = "position: relative; z-index: 1;";
         }
 
+        const folderSelect = document.getElementById("donut-civitai-folder");
+        const selectedFolder = folderSelect ? folderSelect.value : null;
+
         try {
             const response = await api.fetchApi("/donut/civitai/download", {
                 method: "POST",
@@ -963,6 +966,7 @@ class DonutCivitaiBrowser {
                     modelType: model.type,
                     baseModel: modelVersion.baseModel,
                     filename: file.name,
+                    selectedFolder: selectedFolder,
                     sha256: file.hashes?.SHA256  // Pass hash to save after download
                 })
             });
@@ -1129,7 +1133,7 @@ class DonutCivitaiBrowser {
                 "LORA": "loras",
                 "LoCon": "loras",
                 "DoRA": "loras",
-                "Checkpoint": "checkpoints",
+                "Checkpoint": "diffusion_models",
                 "TextualInversion": "embeddings",
                 "Controlnet": "controlnet",
                 "Upscaler": "upscale_models",
@@ -3005,6 +3009,74 @@ class DonutCivitaiBrowser {
         await this.startQuickDownload(downloadUrl, filename, modelType, baseModel, modelName, slot, sha256);
     }
 
+    populateFileDropdown(modelVersion) {
+        const fileSelect = document.getElementById("donut-civitai-file");
+        const savePath = document.getElementById("donut-civitai-save-path");
+
+        if (!fileSelect || !modelVersion) return;
+
+        fileSelect.innerHTML = "";
+
+        const files = modelVersion.files || [];
+
+        if (files.length === 0) {
+            const option = document.createElement("option");
+            option.value = "0";
+            option.textContent = "No files found";
+            fileSelect.appendChild(option);
+            fileSelect.disabled = true;
+            return;
+        }
+
+        fileSelect.disabled = false;
+
+        files.forEach((file, index) => {
+            const option = document.createElement("option");
+            option.value = index.toString();
+
+            const size = file.sizeKB
+                ? ` - ${(file.sizeKB / 1024 / 1024).toFixed(2)} GB`
+                : "";
+
+            const format = file.metadata?.format
+                ? ` - ${file.metadata.format}`
+                : "";
+
+            const fp = file.metadata?.fp
+                ? ` - ${file.metadata.fp}`
+                : "";
+
+            const type = file.type
+                ? ` - ${file.type}`
+                : "";
+
+            option.textContent =
+                `${file.name}${fp || format || type}${size}`;
+
+            fileSelect.appendChild(option);
+        });
+
+        if (savePath && files[0]) {
+            this.updateDownloadPathPreview(modelVersion);
+        }
+
+        fileSelect.onchange = () => {
+            this.updateDownloadPathPreview(modelVersion);
+        };
+    }
+
+    getSelectedCivitaiFile(modelVersion) {
+        const fileSelect =
+            document.getElementById("donut-civitai-file");
+
+        const fileIndex = fileSelect
+            ? parseInt(fileSelect.value)
+            : 0;
+
+        return modelVersion?.files?.[fileIndex]
+            || modelVersion?.files?.[0];
+    }
+    
     renderDetailView() {
         const content = this.dialog?.querySelector("#donut-civitai-content");
         if (!content || !this.currentModel) return;
@@ -3291,12 +3363,45 @@ class DonutCivitaiBrowser {
                 versionSelect.appendChild(opt);
             }
 
+            versionSelect.onchange = () => {
+                const selectedVersion =
+                    model.modelVersions[parseInt(versionSelect.value)];
+
+                this.populateFileDropdown(selectedVersion);
+                this.populateFolderDropdown(selectedVersion);
+            };
+            
             versionSection.appendChild(versionSelect);
             rightSide.appendChild(versionSection);
-        }
+                      
+            }
+            // File selector
+            const fileSection = document.createElement("div");
+            fileSection.style.cssText = "margin-bottom: 20px;";
 
+            const fileLabel = document.createElement("div");
+            fileLabel.textContent = "File";
+            fileLabel.style.cssText = "font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 8px;";
+            fileSection.appendChild(fileLabel);
+
+            const fileSelect = document.createElement("select");
+            fileSelect.id = "donut-civitai-file";
+            fileSelect.style.cssText = `
+                width: 100%;
+                padding: 10px;
+                background: #0d0d1a;
+                border: 1px solid #333;
+                border-radius: 6px;
+                color: #eee;
+                font-size: 14px;
+                cursor: pointer;
+            `;
+
+            fileSection.appendChild(fileSelect);
+            rightSide.appendChild(fileSection);
+            
         // File info & Download
-        const file = version?.files?.[0];
+        const file = this.getSelectedCivitaiFile(version);
         if (file) {
             const downloadSection = document.createElement("div");
             downloadSection.style.cssText = `
@@ -3356,7 +3461,7 @@ class DonutCivitaiBrowser {
                         const versionSelect = document.getElementById("donut-civitai-version");
                         const versionIndex = versionSelect ? parseInt(versionSelect.value) : 0;
                         const selectedVersion = model.modelVersions[versionIndex];
-                        const selectedFile = selectedVersion?.files?.[0];
+                        const selectedFile = this.getSelectedCivitaiFile(selectedVersion);
                         const selectedSha256 = selectedFile?.hashes?.SHA256;
 
                         if (this.isModelDownloaded(selectedVersion) && selectedSha256) {
@@ -3368,7 +3473,7 @@ class DonutCivitaiBrowser {
                                 baseModel: selectedVersion.baseModel
                             });
                         } else {
-                            this.startDownload(selectedVersion, slot, slotBtn);
+                            this.startDownload(selectedVersion, slot, slotBtn, selectedFile);
                         }
                     };
                     slotBtnContainer.appendChild(slotBtn);
@@ -3399,7 +3504,8 @@ class DonutCivitaiBrowser {
                         const versionSelect = document.getElementById("donut-civitai-version");
                         const versionIndex = versionSelect ? parseInt(versionSelect.value) : 0;
                         const selectedVersion = model.modelVersions[versionIndex];
-                        const selectedSha256 = selectedVersion?.files?.[0]?.hashes?.SHA256;
+                        const selectedSha256 =
+                            this.getSelectedCivitaiFile(selectedVersion)?.hashes?.SHA256;
                         if (selectedSha256) {
                             this.deleteLora(selectedSha256, model.name);
                         }
@@ -3440,6 +3546,35 @@ class DonutCivitaiBrowser {
                 downloadSection.appendChild(apiWarning);
             }
 
+            // Download folder selector
+            const folderSection = document.createElement("div");
+            folderSection.style.cssText = "margin-bottom: 12px;";
+
+            const folderLabel = document.createElement("div");
+            folderLabel.textContent = "Folder";
+            folderLabel.style.cssText = "font-size: 12px; font-weight: 600; color: #888; text-transform: uppercase; margin-bottom: 8px;";
+            folderSection.appendChild(folderLabel);
+
+            const folderSelect = document.createElement("select");
+            folderSelect.id = "donut-civitai-folder";
+            folderSelect.style.cssText = `
+                width: 100%;
+                padding: 10px;
+                background: #0d0d1a;
+                border: 1px solid #333;
+                border-radius: 6px;
+                color: #eee;
+                font-size: 13px;
+                cursor: pointer;
+            `;
+
+            const loadingFolderOption = document.createElement("option");
+            loadingFolderOption.value = "";
+            loadingFolderOption.textContent = "Loading folders...";
+            folderSelect.appendChild(loadingFolderOption);
+            folderSection.appendChild(folderSelect);
+            downloadSection.appendChild(folderSection);
+
             const downloadBtn = document.createElement("button");
             downloadBtn.innerHTML = "&#8595; Download Only";
             downloadBtn.style.cssText = `
@@ -3460,13 +3595,16 @@ class DonutCivitaiBrowser {
                 const versionSelect = document.getElementById("donut-civitai-version");
                 const versionIndex = versionSelect ? parseInt(versionSelect.value) : 0;
                 const selectedVersion = model.modelVersions[versionIndex];
-                this.startDownload(selectedVersion, null, downloadBtn);
+                const selectedFile = this.getSelectedCivitaiFile(selectedVersion);
+                
+                this.startDownload(selectedVersion, null, downloadBtn, selectedFile);
             };
 
             downloadSection.appendChild(downloadBtn);
 
             // Show where it will be saved
             const savePath = document.createElement("div");
+            savePath.id = "donut-civitai-save-path";
             savePath.style.cssText = "font-size: 11px; color: #666; margin-top: 10px; word-break: break-all;";
             savePath.textContent = `Will save to: ${this.getExpectedPath(model.type, version?.baseModel, file.name)}`;
             downloadSection.appendChild(savePath);
@@ -3484,6 +3622,83 @@ class DonutCivitaiBrowser {
 
         container.appendChild(rightSide);
         content.appendChild(container);
+
+        this.populateFileDropdown(version);
+        this.populateFolderDropdown(version);
+    }
+
+    async populateFolderDropdown(modelVersion) {
+        const folderSelect = document.getElementById("donut-civitai-folder");
+        if (!folderSelect || !modelVersion || !this.currentModel) return;
+
+        const params = new URLSearchParams({
+            modelType: this.currentModel.type,
+            baseModel: modelVersion.baseModel || ""
+        });
+
+        folderSelect.disabled = true;
+
+        try {
+            const response = await api.fetchApi(
+                `/donut/civitai/download/folders?${params}`
+            );
+
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+
+            const data = await response.json();
+            folderSelect.innerHTML = "";
+            folderSelect.dataset.rootName = data.rootName || "models";
+
+            for (const folder of data.folders || []) {
+                const option = document.createElement("option");
+                option.value = folder.value;
+                option.textContent = folder.label;
+                if (folder.value === (data.defaultFolder || "")) {
+                    option.selected = true;
+                }
+                folderSelect.appendChild(option);
+            }
+
+            folderSelect.disabled = false;
+            folderSelect.onchange = () => {
+                this.updateDownloadPathPreview(modelVersion);
+            };
+            this.updateDownloadPathPreview(modelVersion);
+
+        } catch (error) {
+            console.error("[CivitAI Browser] Could not load folders:", error);
+            folderSelect.innerHTML = "";
+
+            const option = document.createElement("option");
+            option.value = "";
+            option.textContent = "Default folder";
+            folderSelect.appendChild(option);
+            folderSelect.disabled = true;
+            this.updateDownloadPathPreview(modelVersion);
+        }
+    }
+
+    updateDownloadPathPreview(modelVersion) {
+        const savePath = document.getElementById("donut-civitai-save-path");
+        const folderSelect = document.getElementById("donut-civitai-folder");
+        const selectedFile = this.getSelectedCivitaiFile(modelVersion);
+
+        if (!savePath || !selectedFile) return;
+
+        if (folderSelect && folderSelect.dataset.rootName) {
+            const selectedFolder = folderSelect.value;
+            const folderPart = selectedFolder ? `/${selectedFolder}` : "";
+            savePath.textContent =
+                `Will save to: models/${folderSelect.dataset.rootName}${folderPart}/${selectedFile.name}`;
+        } else {
+            savePath.textContent = `Will save to: ${this.getExpectedPath(
+                this.currentModel.type,
+                modelVersion.baseModel,
+                selectedFile.name
+            )}`;
+        }
     }
 
     getExpectedPath(modelType, baseModel, filename) {
@@ -3492,7 +3707,7 @@ class DonutCivitaiBrowser {
             "LORA": "loras",
             "LoCon": "loras",
             "DoRA": "loras",
-            "Checkpoint": "checkpoints",
+            "Checkpoint": "diffusion_models",
             "TextualInversion": "embeddings",
             "Controlnet": "controlnet",
             "Upscaler": "upscale_models",
