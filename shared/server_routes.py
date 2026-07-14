@@ -35,7 +35,7 @@ except ImportError:
 
 # Import download manager
 try:
-    from .civitai_download import get_downloader, get_download_path, normalize_base_model, invalidate_folder_cache, MODEL_TYPE_TO_FOLDER
+    from .civitai_download import get_downloader, get_download_path, get_model_folder, normalize_base_model, invalidate_folder_cache, MODEL_TYPE_TO_FOLDER
     HAS_DOWNLOADER = True
 except ImportError:
     HAS_DOWNLOADER = False
@@ -612,6 +612,56 @@ def register_routes():
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
 
+    @routes.get('/donut/civitai/download/folders')
+    async def civitai_download_folders(request):
+        """List valid download folders for a CivitAI model type."""
+        if not HAS_DOWNLOADER:
+            return web.json_response(
+                {"error": "Download module not available"},
+                status=500
+            )
+
+        try:
+            model_type = request.query.get("modelType", "LORA")
+            base_model = request.query.get("baseModel", "")
+            base_dir = os.path.abspath(get_model_folder(model_type))
+            root_name = os.path.basename(base_dir.rstrip(os.sep))
+
+            folders = {""}
+            if os.path.isdir(base_dir):
+                for root, dirs, _files in os.walk(base_dir):
+                    for directory in dirs:
+                        full_path = os.path.join(root, directory)
+                        relative_path = os.path.relpath(full_path, base_dir)
+                        folders.add(relative_path.replace(os.sep, "/"))
+
+            default_folder = ""
+            if model_type in ("LORA", "LoCon", "DoRA"):
+                default_folder = normalize_base_model(base_model)
+                if default_folder:
+                    folders.add(default_folder)
+
+            ordered_folders = sorted(
+                folders,
+                key=lambda value: (value != "", value.lower())
+            )
+
+            return web.json_response({
+                "rootName": root_name,
+                "defaultFolder": default_folder,
+                "folders": [
+                    {
+                        "value": value,
+                        "label": root_name if not value
+                        else f"{root_name}/{value}"
+                    }
+                    for value in ordered_folders
+                ]
+            })
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     @routes.post('/donut/civitai/download')
     async def civitai_download(request):
         """Start a model download."""
@@ -626,6 +676,7 @@ def register_routes():
             filename = data.get("filename", "model.safetensors")
             sha256 = data.get("sha256")  # Pre-known hash from CivitAI
             skip_duplicate_check = data.get("skipDuplicateCheck", False)
+            selected_folder = data.get("selectedFolder", None)
 
             if not download_url:
                 return web.json_response({"error": "No download URL provided"}, status=400)
@@ -643,7 +694,12 @@ def register_routes():
                     }, status=409)  # 409 Conflict
 
             # Get download path based on model type and base model
-            save_path = get_download_path(model_type, base_model, filename)
+            save_path = get_download_path(
+                model_type,
+                base_model,
+                filename,
+                selected_folder=selected_folder
+            )
 
             # Get API key for authenticated downloads
             config = load_config(force_reload=True)  # Force reload to get latest API key
