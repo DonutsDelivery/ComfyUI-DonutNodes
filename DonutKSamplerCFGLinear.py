@@ -24,6 +24,23 @@ import comfy.utils
 import comfy.k_diffusion.sampling as k_diffusion_sampling
 import latent_preview
 
+try:
+    from .krea2_edit_integration import (
+        make_krea2_edit_target,
+        patch_krea2_edit_model,
+        prepare_krea2_edit,
+        scale_image_to_megapixels,
+        solve_multiple_target,
+    )
+except ImportError:
+    from krea2_edit_integration import (
+        make_krea2_edit_target,
+        patch_krea2_edit_model,
+        prepare_krea2_edit,
+        scale_image_to_megapixels,
+        solve_multiple_target,
+    )
+
 
 class _DonutSamplerEngine:
     """
@@ -1012,6 +1029,19 @@ class DonutSampler(_DonutSamplerEngine):
                 "switch_at_step_2": ("INT", {"default": 15, "min": 1, "max": 10000}),
                 "model_2": ("MODEL",),
                 "model_3": ("MODEL",),
+                "edit_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Use natural 1-MiP Krea2 source conditioning and replace latent_image with the closest-aspect 32-grid empty target.",
+                }),
+                "source_image": ("IMAGE", {"tooltip": "Required when edit_mode is enabled."}),
+                "vae": ("VAE", {"tooltip": "Required when edit_mode is enabled."}),
+                "clip": ("CLIP", {"tooltip": "Required when edit_mode is enabled."}),
+                "edit_model": ("MODEL", {
+                    "tooltip": "Optional Krea2 model with the Identity Edit LoRA already applied. Falls back to model.",
+                }),
+                "edit_prompt": ("STRING", {"forceInput": True}),
+                "edit_negative_prompt": ("STRING", {"forceInput": True}),
+                "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
             }
         }
 
@@ -1025,10 +1055,33 @@ class DonutSampler(_DonutSamplerEngine):
                mode="simple", cfg_curve="linear", add_noise="enable", start_at_step=0,
                end_at_step=10000, return_with_leftover_noise="disable",
                randomize_seed_per_model="enable", switch_at_step_1=10, switch_at_step_2=15,
-               model_2=None, model_3=None):
+               model_2=None, model_3=None, edit_mode=False, source_image=None,
+               vae=None, clip=None, edit_prompt="", edit_negative_prompt="", grounding_px=768,
+               edit_model=None):
         # Reset per-call state before dispatching to the selected mode.
         self.cfg_history = []
         self.model_phases = []
+
+        if edit_mode:
+            if source_image is None:
+                raise ValueError("DonutSampler edit_mode requires source_image.")
+            conditioning_image = scale_image_to_megapixels(source_image)
+            target_width, target_height = solve_multiple_target(
+                conditioning_image.shape[2], conditioning_image.shape[1],
+            )
+            model, positive, negative, source_latent, conditioning_image = prepare_krea2_edit(
+                edit_model if edit_model is not None else model,
+                clip, vae, source_image, edit_prompt,
+                edit_negative_prompt, grounding_px,
+                target_width, target_height,
+            )
+            latent_image = make_krea2_edit_target(
+                source_latent, target_width, target_height,
+            )
+            if model_2 is not None:
+                model_2 = patch_krea2_edit_model(model_2, source_latent)
+            if model_3 is not None:
+                model_3 = patch_krea2_edit_model(model_3, source_latent)
 
         if mode == "advanced":
             return self.run_advanced(

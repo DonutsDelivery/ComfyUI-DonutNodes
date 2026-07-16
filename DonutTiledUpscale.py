@@ -14,6 +14,11 @@ from nodes import VAEEncode, VAEDecode, VAEDecodeTiled
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
+try:
+    from .krea2_edit_integration import prepare_krea2_edit
+except ImportError:
+    from krea2_edit_integration import prepare_krea2_edit
+
 
 def upscale_with_model(upscale_model, image):
     """Upscale image using a model (adapted from ComfyUI's ImageUpscaleWithModel)"""
@@ -226,6 +231,11 @@ def find_best_tiling(input_width, input_height, target_scale, feather_percent, m
     return all_configs[0]
 
 
+def snap_scaled_dimensions(width, height, scale, multiple=32):
+    """Scale a canvas and snap each edge to the nearest latent-safe multiple."""
+    output_width = max(multiple, round(width * scale / multiple) * multiple)
+    output_height = max(multiple, round(height * scale / multiple) * multiple)
+    return output_width, output_height
 
 
 def tensor_to_pil(tensor, batch_index=0):
@@ -423,10 +433,26 @@ class DonutTiledUpscale:
                 "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
                 "scheduler": (comfy.samplers.KSampler.SCHEDULERS,),
                 "denoise": ("FLOAT", {"default": 0.35, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "rescale_factor": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.5, "tooltip": "Upscale factor. Tiles are ~1MP and auto-selected to best match this scale."}),
+                "rescale_factor": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.5, "tooltip": "Upscale factor. Regular mode selects ~1MP tiles; edit mode snaps the full-frame target to a 32-pixel grid."}),
                 "resampling_method": (resampling_methods, {"default": "lanczos"}),
-                "feather": ("FLOAT", {"default": 15.0, "min": 0.0, "max": 50.0, "step": 1.0, "tooltip": "Feather/blend zone as percentage of tile size. Higher = smoother transitions."}),
-                "tiled_vae": ("BOOLEAN", {"default": False}),
+                "feather": ("FLOAT", {"default": 15.0, "min": 0.0, "max": 50.0, "step": 1.0, "tooltip": "Regular tiled mode only. Feather/blend zone as percentage of tile size."}),
+                "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Regular mode only. Edit mode forces one full-frame regular VAE decode."}),
+            },
+            "optional": {
+                "edit_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Run one full-frame Krea2 img2img upscale against the full reference at the configured denoise; no diffusion or VAE tiling.",
+                }),
+                "clip": ("CLIP", {"tooltip": "Required when edit_mode is enabled."}),
+                "edit_model": ("MODEL", {
+                    "tooltip": "Optional Krea2 model with the Identity Edit LoRA already applied. Falls back to model.",
+                }),
+                "edit_source_image": ("IMAGE", {
+                    "tooltip": "Full identity reference used for edit-mode source patching and grounded encoding.",
+                }),
+                "edit_prompt": ("STRING", {"forceInput": True}),
+                "edit_negative_prompt": ("STRING", {"forceInput": True}),
+                "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
             }
         }
 
@@ -437,7 +463,9 @@ class DonutTiledUpscale:
 
     def upscale(self, image, upscale_model, model, positive, negative, vae, seed,
                 steps, cfg, sampler_name, scheduler, denoise,
-                rescale_factor, resampling_method, feather, tiled_vae):
+                rescale_factor, resampling_method, feather, tiled_vae,
+                edit_mode=False, clip=None, edit_prompt="Enhance fine details while preserving the source image.",
+                edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None):
 
         # Resampling filter mapping
         resample_filters = {
@@ -450,9 +478,34 @@ class DonutTiledUpscale:
 
         # Get image dimensions (B, H, W, C)
         batch_size, img_height, img_width, channels = image.shape
+        if edit_mode and edit_source_image is None:
+            raise ValueError("DonutTiledUpscale edit_mode requires edit_source_image.")
 
-        # Find best grid configuration (calculates tile sizes automatically)
-        config = find_best_tiling(img_width, img_height, rescale_factor, feather)
+        if edit_mode:
+            # Identity edits may move subjects across the frame. Process the full
+            # generated canvas against the full reference so identity remains
+            # available regardless of its original coordinates.
+            output_width, output_height = snap_scaled_dimensions(
+                img_width, img_height, rescale_factor,
+            )
+            config = {
+                'nx': 1,
+                'ny': 1,
+                'tile_width': output_width,
+                'tile_height': output_height,
+                'overlap_x': 0,
+                'overlap_y': 0,
+                'output_width': output_width,
+                'output_height': output_height,
+                'scale': output_width / img_width,
+                'step_x': output_width,
+                'step_y': output_height,
+            }
+        else:
+            # Regular mode retains the existing approximately 1-MP tile solver.
+            config = find_best_tiling(
+                img_width, img_height, rescale_factor, feather,
+            )
 
         num_tiles_x = config['nx']
         num_tiles_y = config['ny']
@@ -487,7 +540,7 @@ class DonutTiledUpscale:
 
         # VAE encoder/decoder
         vae_encoder = VAEEncode()
-        vae_decoder = VAEDecode() if not tiled_vae else VAEDecodeTiled()
+        vae_decoder = VAEDecode() if edit_mode or not tiled_vae else VAEDecodeTiled()
 
         # Process each batch item
         result_images = []
@@ -522,21 +575,36 @@ class DonutTiledUpscale:
                     # Convert to tensor for VAE encoding
                     tile_tensor = pil_to_tensor(tile)
 
-                    # Encode to latent
-                    latent = vae_encoder.encode(vae, tile_tensor)[0]
+                    sampling_model = model
+                    sampling_positive = positive
+                    sampling_negative = negative
+                    if edit_mode:
+                        assert edit_source_image is not None
+                        reference_index = min(b, len(edit_source_image) - 1)
+                        reference_tile = edit_source_image[reference_index].unsqueeze(0)
+                        sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
+                            edit_model if edit_model is not None else model,
+                            clip, vae, reference_tile, edit_prompt,
+                            edit_negative_prompt, grounding_px,
+                            tile_width, tile_height,
+                        )
+                        latent = vae_encoder.encode(vae, tile_tensor)[0]
+                    else:
+                        # Encode to latent for regular img2img sampling.
+                        latent = vae_encoder.encode(vae, tile_tensor)[0]
 
                     # Sample using the same approach as core KSampler
                     latent_image = latent["samples"]
-                    latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
+                    latent_image = comfy.sample.fix_empty_latent_channels(sampling_model, latent_image)
 
                     # Prepare noise
                     noise = comfy.sample.prepare_noise(latent_image, seed + tile_idx)
 
                     # Sample
-                    callback = latent_preview.prepare_callback(model, steps)
+                    callback = latent_preview.prepare_callback(sampling_model, steps)
                     samples = comfy.sample.sample(
-                        model, noise, steps, cfg, sampler_name, scheduler,
-                        positive, negative, latent_image,
+                        sampling_model, noise, steps, cfg, sampler_name, scheduler,
+                        sampling_positive, sampling_negative, latent_image,
                         denoise=denoise,
                         disable_noise=False,
                         start_step=None,
@@ -550,7 +618,7 @@ class DonutTiledUpscale:
 
                     # Decode
                     sampled_latent = {"samples": samples}
-                    if tiled_vae:
+                    if tiled_vae and not edit_mode:
                         decoded = vae_decoder.decode(vae, sampled_latent, 512)[0]
                     else:
                         decoded = vae_decoder.decode(vae, sampled_latent)[0]
