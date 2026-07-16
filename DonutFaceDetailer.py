@@ -23,14 +23,12 @@ except ImportError:
 
 try:
     from .krea2_edit_integration import (
-        crop_aligned_reference,
         crop_image_padding,
         pad_image_to_multiple,
         prepare_krea2_edit,
     )
 except ImportError:
     from krea2_edit_integration import (
-        crop_aligned_reference,
         crop_image_padding,
         pad_image_to_multiple,
         prepare_krea2_edit,
@@ -128,8 +126,8 @@ if IMPACT_AVAILABLE:
                     "edit_model": ("MODEL", {
                         "tooltip": "Optional Krea2 model with the Identity Edit LoRA already applied. Falls back to model.",
                     }),
-                    "edit_source_image": ("IMAGE", {
-                        "tooltip": "Full source reference; the bbox-derived detail crop is aligned and cropped before Krea2 Edit.",
+                    "face_reference": ("IMAGE", {
+                        "tooltip": "Required in edit mode. The connected bbox detector extracts the identity face independently of its image position.",
                     }),
                     "edit_negative_prompt": ("STRING", {"forceInput": True}),
                     "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
@@ -148,7 +146,7 @@ if IMPACT_AVAILABLE:
                                       inpaint_model=False, detailer_hook=None, scheduler_func=None,
                                       edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
                                       edit_negative_prompt="", grounding_px=768, edit_model=None,
-                                      edit_source_crop=None):
+                                      face_reference_crop=None):
             """
             Enhanced detail function using megapixel-based sizing.
             Scales crop region to target total pixel count regardless of aspect ratio.
@@ -226,12 +224,12 @@ if IMPACT_AVAILABLE:
             sampling_positive = positive
             sampling_negative = negative
             if edit_mode:
-                if edit_source_crop is None:
-                    raise ValueError("DonutFaceDetailer edit_mode requires edit_source_image.")
+                if face_reference_crop is None:
+                    raise ValueError("DonutFaceDetailer edit_mode requires face_reference.")
                 target_image, target_padding = pad_image_to_multiple(scaled_image)
                 sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
                     edit_model if edit_model is not None else model,
-                    clip, vae, edit_source_crop, edit_prompt,
+                    clip, vae, face_reference_crop, edit_prompt,
                     edit_negative_prompt, grounding_px,
                     target_image.shape[2], target_image.shape[1],
                 )
@@ -298,24 +296,57 @@ if IMPACT_AVAILABLE:
                          cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None,
                          edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
                          edit_negative_prompt="", grounding_px=768, edit_model=None,
-                         edit_source_image=None):
+                         face_reference=None):
 
             # Unload diffusion model before detection to free VRAM for SAM/detector
             comfy.model_management.unload_all_models()
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
 
-            if edit_mode and edit_source_image is None:
-                raise ValueError("DonutFaceDetailer edit_mode requires edit_source_image.")
+            if edit_mode and face_reference is None:
+                raise ValueError("DonutFaceDetailer edit_mode requires face_reference.")
 
-            # Detect faces
+            # Detect generated faces and, independently, the identity reference face.
             bbox_detector.setAux('face')
-            segs = bbox_detector.detect(image, bbox_threshold, bbox_dilation, bbox_crop_factor, drop_size,
-                                        detailer_hook=detailer_hook)
-            bbox_detector.setAux(None)
+            try:
+                segs = bbox_detector.detect(
+                    image, bbox_threshold, bbox_dilation, bbox_crop_factor,
+                    drop_size, detailer_hook=detailer_hook,
+                )
+                reference_faces = []
+                if edit_mode and segs[1]:
+                    reference_segs = bbox_detector.detect(
+                        face_reference, bbox_threshold, bbox_dilation,
+                        bbox_crop_factor, drop_size, detailer_hook=detailer_hook,
+                    )
+                    reference_faces = sorted(
+                        reference_segs[1],
+                        key=lambda seg: (
+                            (seg.bbox[2] - seg.bbox[0])
+                            * (seg.bbox[3] - seg.bbox[1])
+                        ),
+                        reverse=True,
+                    )
+                    if not reference_faces:
+                        raise ValueError(
+                            "DonutFaceDetailer found no face in face_reference."
+                        )
+            finally:
+                bbox_detector.setAux(None)
 
             # Filter to keep only the N largest faces
             segs = filter_segs_by_area(segs, max_faces)
+            segs = (
+                segs[0],
+                sorted(
+                    segs[1],
+                    key=lambda seg: (
+                        (seg.bbox[2] - seg.bbox[0])
+                        * (seg.bbox[3] - seg.bbox[1])
+                    ),
+                    reverse=True,
+                ),
+            )
 
             # bbox + sam combination
             if sam_model_opt is not None:
@@ -346,18 +377,23 @@ if IMPACT_AVAILABLE:
                 cropped_enhanced_alpha = []
                 cnet_pil_list = []
 
-                for seg in segs[1]:
+                for face_index, seg in enumerate(segs[1]):
                     # Get crop region
                     cropped_image = seg.cropped_image
                     cropped_mask = seg.cropped_mask
                     crop_region = seg.crop_region
                     bbox = seg.bbox
 
-                    edit_source_crop = None
+                    face_reference_crop = None
                     if edit_mode:
-                        edit_source_crop = crop_aligned_reference(
-                            edit_source_image, image.shape[2], image.shape[1], crop_region,
-                        )
+                        reference_seg = reference_faces[
+                            min(face_index, len(reference_faces) - 1)
+                        ]
+                        face_reference_crop = reference_seg.cropped_image
+                        if face_reference_crop is None:
+                            face_reference_crop = impact_utils.crop_image(
+                                face_reference, reference_seg.crop_region,
+                            )
 
                     if cropped_image is None:
                         cropped_image = impact_utils.crop_image(image, crop_region)
@@ -391,7 +427,7 @@ if IMPACT_AVAILABLE:
                             noise_mask if c == 0 else None, force_inpaint, noise_mask_feather,
                             inpaint_model, detailer_hook, scheduler_func_opt,
                             edit_mode, edit_prompt, edit_negative_prompt, grounding_px,
-                            edit_model, edit_source_crop)
+                            edit_model, face_reference_crop)
 
                         if result is not None:
                             # Resize back to original crop size
@@ -439,7 +475,7 @@ if IMPACT_AVAILABLE:
                  noise_mask_feather=0, scheduler_func_opt=None, edit_mode=False,
                  edit_prompt="Enhance facial details while preserving identity.",
                  edit_negative_prompt="", grounding_px=768, edit_model=None,
-                 edit_source_image=None):
+                 face_reference=None):
 
             # Convert resolution from square side length to total pixels
             resolution = resolution * resolution
@@ -454,10 +490,10 @@ if IMPACT_AVAILABLE:
                 logging.warning("[DonutFaceDetailer] WARN: Not designed for video. Use Detailer For AnimateDiff.")
 
             for i, single_image in enumerate(image):
-                single_edit_source = None
-                if edit_source_image is not None:
-                    source_index = min(i, len(edit_source_image) - 1)
-                    single_edit_source = edit_source_image[source_index].unsqueeze(0)
+                single_face_reference = None
+                if face_reference is not None:
+                    reference_index = min(i, len(face_reference) - 1)
+                    single_face_reference = face_reference[reference_index].unsqueeze(0)
                 enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list = \
                     DonutFaceDetailer.enhance_face(
                         single_image.unsqueeze(0), model, clip, vae, resolution, max_resolution, guide_size_for,
@@ -470,7 +506,7 @@ if IMPACT_AVAILABLE:
                         scheduler_func_opt=scheduler_func_opt, edit_mode=edit_mode,
                         edit_prompt=edit_prompt, edit_negative_prompt=edit_negative_prompt,
                         grounding_px=grounding_px, edit_model=edit_model,
-                        edit_source_image=single_edit_source)
+                        face_reference=single_face_reference)
 
                 result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
                 result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask

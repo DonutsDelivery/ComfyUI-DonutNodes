@@ -119,6 +119,10 @@ from .DonutZitLayerBlendEncode import NODE_DISPLAY_NAME_MAPPINGS as d_zit_layerb
 from .DonutKrea2ImageConditioning import NODE_CLASS_MAPPINGS        as m_krea2_cond
 from .DonutKrea2ImageConditioning import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_cond
 
+# Krea2 Fusion Control (pure activation-space tap + projector controls)
+from .DonutKrea2FusionControl import NODE_CLASS_MAPPINGS        as m_krea2_fusion
+from .DonutKrea2FusionControl import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_fusion
+
 # Image Adjust (unified tone/color/contrast/sharpen)
 from .DonutImageAdjust import NODE_CLASS_MAPPINGS        as m_image_adjust
 from .DonutImageAdjust import NODE_DISPLAY_NAME_MAPPINGS as d_image_adjust
@@ -154,6 +158,7 @@ NODE_CLASS_MAPPINGS = {
     **m_zit_rebalance,
     **m_zit_layerblend,
     **m_krea2_cond,
+    **m_krea2_fusion,
     **m_image_adjust,
 }
 
@@ -185,6 +190,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_zit_rebalance,
     **d_zit_layerblend,
     **d_krea2_cond,
+    **d_krea2_fusion,
     **d_detailer,
     **d_image_adjust,
 }
