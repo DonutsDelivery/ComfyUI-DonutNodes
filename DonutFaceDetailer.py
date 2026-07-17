@@ -17,9 +17,9 @@ from nodes import MAX_RESOLUTION
 
 # Shared detailer helpers (extracted to remove duplication; behavior-identical)
 try:
-    from .donut_detailer_core import filter_segs_by_area, scale_to_megapixels, sample_and_decode
+    from .donut_detailer_core import scale_to_megapixels, sample_and_decode
 except ImportError:
-    from donut_detailer_core import filter_segs_by_area, scale_to_megapixels, sample_and_decode
+    from donut_detailer_core import scale_to_megapixels, sample_and_decode
 
 try:
     from .krea2_edit_integration import (
@@ -131,6 +131,12 @@ if IMPACT_AVAILABLE:
                     }),
                     "edit_negative_prompt": ("STRING", {"forceInput": True}),
                     "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
+                    "vary_seed_per_face": ("BOOLEAN", {
+                        "default": False,
+                        "label_on": "per-face",
+                        "label_off": "shared",
+                        "tooltip": "Use a unique seed offset for each detected face. Off preserves the same seed across faces.",
+                    }),
                 }}
 
         RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "MASK", "DETAILER_PIPE", "IMAGE")
@@ -154,9 +160,6 @@ if IMPACT_AVAILABLE:
             if noise_mask is not None:
                 noise_mask = impact_utils.tensor_gaussian_blur_mask(noise_mask, noise_mask_feather)
                 noise_mask = noise_mask.squeeze(3)
-
-                if noise_mask_feather > 0 and 'denoise_mask_function' not in model.model_options:
-                    model = nodes_differential_diffusion.DifferentialDiffusion().execute(model)[0]
 
             h = image.shape[1]
             w = image.shape[2]
@@ -238,6 +241,12 @@ if IMPACT_AVAILABLE:
                 # Encode to latent for regular img2img sampling.
                 latent_image = impact_utils.to_latent_image(scaled_image, vae)
 
+            if (noise_mask is not None and noise_mask_feather > 0
+                    and 'denoise_mask_function' not in sampling_model.model_options):
+                sampling_model = nodes_differential_diffusion.DifferentialDiffusion().execute(
+                    sampling_model,
+                )[0]
+
             # Scale mask if present using torch interpolate
             if noise_mask is not None:
                 # Ensure mask is 4D (N, C, H, W) for interpolate
@@ -296,7 +305,7 @@ if IMPACT_AVAILABLE:
                          cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None,
                          edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
                          edit_negative_prompt="", grounding_px=768, edit_model=None,
-                         face_reference=None):
+                         face_reference=None, vary_seed_per_face=False):
 
             # Unload diffusion model before detection to free VRAM for SAM/detector
             comfy.model_management.unload_all_models()
@@ -306,47 +315,18 @@ if IMPACT_AVAILABLE:
             if edit_mode and face_reference is None:
                 raise ValueError("DonutFaceDetailer edit_mode requires face_reference.")
 
-            # Detect generated faces and, independently, the identity reference face.
+            # Detect generated faces. Reference detection happens after final
+            # SAM/segmentation refinement so pairing uses the actual targets.
             bbox_detector.setAux('face')
             try:
                 segs = bbox_detector.detect(
                     image, bbox_threshold, bbox_dilation, bbox_crop_factor,
                     drop_size, detailer_hook=detailer_hook,
                 )
-                reference_faces = []
-                if edit_mode and segs[1]:
-                    reference_segs = bbox_detector.detect(
-                        face_reference, bbox_threshold, bbox_dilation,
-                        bbox_crop_factor, drop_size, detailer_hook=detailer_hook,
-                    )
-                    reference_faces = sorted(
-                        reference_segs[1],
-                        key=lambda seg: (
-                            (seg.bbox[2] - seg.bbox[0])
-                            * (seg.bbox[3] - seg.bbox[1])
-                        ),
-                        reverse=True,
-                    )
-                    if not reference_faces:
-                        raise ValueError(
-                            "DonutFaceDetailer found no face in face_reference."
-                        )
             finally:
                 bbox_detector.setAux(None)
 
-            # Filter to keep only the N largest faces
-            segs = filter_segs_by_area(segs, max_faces)
-            segs = (
-                segs[0],
-                sorted(
-                    segs[1],
-                    key=lambda seg: (
-                        (seg.bbox[2] - seg.bbox[0])
-                        * (seg.bbox[3] - seg.bbox[1])
-                    ),
-                    reverse=True,
-                ),
-            )
+            reference_faces = []
 
             # bbox + sam combination
             if sam_model_opt is not None:
@@ -364,6 +344,42 @@ if IMPACT_AVAILABLE:
                 else:
                     segm_mask = core.segs_to_combined_mask(segm_segs)
                     segs = core.segs_bitwise_and_mask(segs, segm_mask)
+
+            def segment_area(seg):
+                return (
+                    (seg.bbox[2] - seg.bbox[0])
+                    * (seg.bbox[3] - seg.bbox[1])
+                )
+
+            def has_nonzero_mask(seg):
+                mask = seg.cropped_mask
+                if mask is None:
+                    return False
+                if torch.is_tensor(mask):
+                    return bool(torch.count_nonzero(mask))
+                return bool(np.count_nonzero(mask))
+
+            final_faces = [seg for seg in segs[1] if has_nonzero_mask(seg)]
+            final_faces.sort(key=segment_area, reverse=True)
+            segs = (segs[0], final_faces[:max_faces])
+
+            if edit_mode and segs[1]:
+                bbox_detector.setAux('face')
+                try:
+                    reference_segs = bbox_detector.detect(
+                        face_reference, bbox_threshold, bbox_dilation,
+                        bbox_crop_factor, drop_size,
+                        detailer_hook=detailer_hook,
+                    )
+                finally:
+                    bbox_detector.setAux(None)
+                reference_faces = sorted(
+                    reference_segs[1], key=segment_area, reverse=True,
+                )
+                if not reference_faces:
+                    raise ValueError(
+                        "DonutFaceDetailer found no face in face_reference."
+                    )
 
             # Unload detection models before inpainting to free VRAM
             comfy.model_management.unload_all_models()
@@ -419,8 +435,11 @@ if IMPACT_AVAILABLE:
 
                     # Run detail enhancement cycles
                     enhanced_cropped = cropped_image
+                    face_seed = (
+                        seed + face_index if vary_seed_per_face else seed
+                    ) & 0xffffffffffffffff
                     for c in range(cycle):
-                        cycle_seed = seed + c * 1000
+                        cycle_seed = (face_seed + c * 1000) & 0xffffffffffffffff
                         result, _ = DonutFaceDetailer.enhance_detail_megapixel(
                             enhanced_cropped, model, clip, vae, resolution, max_resolution, guide_size_for_bbox, bbox, cycle_seed, steps, cfg,
                             sampler_name, scheduler, positive, negative, denoise,
@@ -475,7 +494,7 @@ if IMPACT_AVAILABLE:
                  noise_mask_feather=0, scheduler_func_opt=None, edit_mode=False,
                  edit_prompt="Enhance facial details while preserving identity.",
                  edit_negative_prompt="", grounding_px=768, edit_model=None,
-                 face_reference=None):
+                 face_reference=None, vary_seed_per_face=False):
 
             # Convert resolution from square side length to total pixels
             resolution = resolution * resolution
@@ -506,7 +525,8 @@ if IMPACT_AVAILABLE:
                         scheduler_func_opt=scheduler_func_opt, edit_mode=edit_mode,
                         edit_prompt=edit_prompt, edit_negative_prompt=edit_negative_prompt,
                         grounding_px=grounding_px, edit_model=edit_model,
-                        face_reference=single_face_reference)
+                        face_reference=single_face_reference,
+                        vary_seed_per_face=vary_seed_per_face)
 
                 result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
                 result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask
