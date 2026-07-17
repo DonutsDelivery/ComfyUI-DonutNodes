@@ -1,12 +1,25 @@
-"""Shared bridge to the optional ComfyUI-Krea2Edit node pack."""
+"""Shared bridge to the optional ComfyUI-Krea2Edit node pack.
+
+The appearance-token forward is adapted from ComfyUI-Krea2Edit revision
+17af88332728c97ab5c7d26296b2cae59c935976 under Apache-2.0 and modified by
+Donut for authoritative target latents, strict batching, composable wrappers,
+and zero-timestep clean-reference modulation. See THIRD_PARTY_NOTICES.md.
+"""
 
 import math
 
 import nodes
+import torch
 import torch.nn.functional as F
 
+import comfy.ldm.common_dit
+import comfy.patcher_extension
+from comfy.ldm.flux.layers import timestep_embedding
 
-_REQUIRED_NODE_IDS = ("Krea2EditModelPatch", "Krea2EditGroundedEncode")
+
+_REQUIRED_NODE_IDS = ("Krea2EditGroundedEncode",)
+_EDIT_WRAPPER_KEY = "donut_krea2_edit"
+_LEGACY_EDIT_WRAPPER_KEY = "krea2_edit"
 
 
 def scale_image_to_megapixels(image, megapixels=1.0):
@@ -134,38 +147,315 @@ def crop_aligned_reference(image, canvas_width, canvas_height, region, batch_ind
     return canvas[index:index + 1, y1:y2, x1:x2, :]
 
 
-def patch_krea2_edit_model(model, source_latent):
-    """Apply the installed Krea2 edit source-token patch to one model."""
-    if "Krea2EditModelPatch" not in nodes.NODE_CLASS_MAPPINGS:
-        raise RuntimeError(
-            "Krea2 edit mode requires comfyui-krea2edit. Missing node: Krea2EditModelPatch"
+def _imgids(batch, frame, height, width, device):
+    ids = torch.zeros(height, width, 3, device=device, dtype=torch.float32)
+    ids[..., 0] = frame
+    ids[..., 1] = torch.arange(height, device=device, dtype=torch.float32)[:, None]
+    ids[..., 2] = torch.arange(width, device=device, dtype=torch.float32)[None, :]
+    return ids.reshape(1, height * width, 3).repeat(batch, 1, 1)
+
+
+def _to_4d(value):
+    if value.ndim == 5:
+        batch, channels, frames, height, width = value.shape
+        return value.reshape(batch * frames, channels, height, width)
+    return value
+
+
+def _patchify(value, patch):
+    batch, channels, height, width = value.shape
+    patch_height, patch_width = height // patch, width // patch
+    return value.reshape(
+        batch, channels, patch_height, patch, patch_width, patch,
+    ).permute(0, 2, 4, 1, 3, 5).reshape(
+        batch, patch_height * patch_width, channels * patch * patch,
+    )
+
+
+def _match_source_batch(source, runtime_batch, target_batch):
+    if target_batch < 1 or runtime_batch % target_batch != 0:
+        raise ValueError(
+            f"Krea2 edit runtime batch {runtime_batch} is not a multiple of target batch {target_batch}."
         )
-    return nodes.NODE_CLASS_MAPPINGS["Krea2EditModelPatch"]().patch(
-        model, source_latent,
-    )[0]
+    if source.shape[0] != 1:
+        raise ValueError(
+            f"Krea2 edit supports one source image broadcast across the target batch, got {source.shape[0]}."
+        )
+    return source.expand(runtime_batch, *source.shape[1:])
 
 
-def make_krea2_edit_target(source_latent, width=None, height=None):
-    """Create an empty target, optionally at independent pixel dimensions."""
-    target = source_latent.copy()
-    samples = source_latent["samples"]
-    shape = samples.shape
-    if width is not None and height is not None:
-        shape = (shape[0], shape[1], int(height) // 8, int(width) // 8)
-        target["downscale_ratio_spacial"] = 8
-    target["samples"] = samples.new_zeros(shape)
-    target.pop("noise_mask", None)
+def _modulated_segments(value, active_scale, active_shift, clean_scale, clean_shift,
+                        text_length, source_length):
+    source_slice = slice(text_length, text_length + source_length)
+    output = (1 + active_scale) * value + active_shift
+    output[:, source_slice] = (
+        (1 + clean_scale) * value[:, source_slice] + clean_shift
+    )
+    return output
+
+
+def _gated_segments(value, active_gate, clean_gate, text_length, source_length):
+    source_slice = slice(text_length, text_length + source_length)
+    output = active_gate * value
+    output[:, source_slice] = clean_gate * value[:, source_slice]
+    return output
+
+
+def _run_clean_reference_block(block, value, active_vec, clean_vec, freqs,
+                               text_length, source_length, transformer_options):
+    active = block.mod(active_vec)
+    clean = block.mod(clean_vec)
+    active_pre_scale, active_pre_shift, active_pre_gate = active[:3]
+    clean_pre_scale, clean_pre_shift, clean_pre_gate = clean[:3]
+    normalized = block.prenorm(value)
+    attention_input = _modulated_segments(
+        normalized,
+        active_pre_scale, active_pre_shift,
+        clean_pre_scale, clean_pre_shift,
+        text_length, source_length,
+    )
+    attention = block.attn(
+        attention_input, freqs, None, transformer_options=transformer_options,
+    )
+    value = value + _gated_segments(
+        attention, active_pre_gate, clean_pre_gate, text_length, source_length,
+    )
+
+    active_post_scale, active_post_shift, active_post_gate = active[3:]
+    clean_post_scale, clean_post_shift, clean_post_gate = clean[3:]
+    normalized = block.postnorm(value)
+    mlp_input = _modulated_segments(
+        normalized,
+        active_post_scale, active_post_shift,
+        clean_post_scale, clean_post_shift,
+        text_length, source_length,
+    )
+    mlp = block.mlp(mlp_input)
+    return value + _gated_segments(
+        mlp, active_post_gate, clean_post_gate, text_length, source_length,
+    )
+
+
+def krea2_edit_forward(model, x, timesteps, context, source_latent,
+                       target_batch, transformer_options=None):
+    """Krea2 edit forward with zero-timestep modulation for clean references."""
+    transformer_options = transformer_options or {}
+    patch = model.patch
+    temporal = x.ndim == 5
+    if temporal:
+        batch_5d, _channels_5d, frames_5d, height_5d, width_5d = x.shape
+    x = _to_4d(x)
+    batch, _channels, original_height, original_width = x.shape
+
+    x = comfy.ldm.common_dit.pad_to_patch_size(x, (patch, patch))
+    height, width = x.shape[-2:]
+    patch_height, patch_width = height // patch, width // patch
+
+    source = _to_4d(source_latent).to(device=x.device, dtype=x.dtype)
+    if source.shape[-2:] != (original_height, original_width):
+        source = F.interpolate(
+            source.float(), size=(original_height, original_width), mode="bilinear",
+        ).to(x.dtype)
+    source = comfy.ldm.common_dit.pad_to_patch_size(source, (patch, patch))
+
+    context = model._unpack_context(context)
+    if context.shape[0] != batch:
+        raise ValueError(
+            f"Krea2 edit conditioning batch must match runtime batch {batch}, got {context.shape[0]}."
+        )
+    target_image = model.first(_patchify(x, patch))
+    source_image = model.first(_patchify(source, patch))
+    source_image = _match_source_batch(source_image, batch, target_batch)
+
+    active_t = model.tmlp(
+        timestep_embedding(timesteps, model.tdim).unsqueeze(1).to(target_image.dtype)
+    )
+    clean_t_single = model.tmlp(
+        timestep_embedding(torch.zeros_like(timesteps[:1]), model.tdim)
+        .unsqueeze(1).to(target_image.dtype)
+    )
+    active_vec = model.tproj(active_t)
+    clean_vec = model.tproj(clean_t_single).expand(batch, -1, -1)
+
+    context = model.txtfusion(context, mask=None, transformer_options=transformer_options)
+    context = model.txtmlp(context)
+    text_length = context.shape[1]
+    source_length = source_image.shape[1]
+    target_length = target_image.shape[1]
+    combined = torch.cat((context, source_image, target_image), dim=1)
+
+    device = combined.device
+    positions = torch.cat((
+        torch.zeros(batch, text_length, 3, device=device, dtype=torch.float32),
+        _imgids(batch, 1, patch_height, patch_width, device),
+        _imgids(batch, 0, patch_height, patch_width, device),
+    ), dim=1)
+    freqs = model.pe_embedder(positions)
+
+    for block in model.blocks:
+        combined = _run_clean_reference_block(
+            block, combined, active_vec, clean_vec, freqs,
+            text_length, source_length, transformer_options,
+        )
+
+    target_start = text_length + source_length
+    target_tokens = combined[:, target_start:target_start + target_length]
+    final = model.last(target_tokens, active_t)
+    output = final.reshape(
+        batch, patch_height, patch_width, model.channels, patch, patch,
+    ).permute(0, 3, 1, 4, 2, 5).reshape(
+        batch, model.channels, patch_height * patch, patch_width * patch,
+    )
+    output = output[:, :, :original_height, :original_width]
+    if temporal:
+        output = output.reshape(
+            batch_5d, frames_5d, model.channels, height_5d, width_5d,
+        ).movedim(1, 2)
+    return output
+
+
+def _is_krea2_model(model):
+    diffusion_model = getattr(getattr(model, "model", None), "diffusion_model", None)
+    required = (
+        "patch", "channels", "tdim", "first", "tmlp", "tproj",
+        "txtfusion", "txtmlp", "blocks", "last", "pe_embedder",
+        "_unpack_context",
+    )
+    return diffusion_model is not None and all(
+        hasattr(diffusion_model, name) for name in required
+    )
+
+
+class _Krea2EditWrapper:
+    def __init__(self, source_samples, target_batch):
+        self.source_samples = source_samples
+        self.target_batch = target_batch
+
+    def to(self, device_or_dtype):
+        return type(self)(self.source_samples.to(device_or_dtype), self.target_batch)
+
+    def __call__(self, executor, x, timesteps, context, attention_mask=None,
+                 transformer_options=None, **kwargs):
+        diffusion_model = executor.class_obj
+
+        def local_forward(x, timesteps, context, attention_mask=None,
+                          transformer_options=None, **kwargs):
+            return krea2_edit_forward(
+                diffusion_model, x, timesteps, context,
+                self.source_samples, self.target_batch, transformer_options,
+            )
+
+        # ComfyUI has no public replace-terminal API. Continue at the next wrapper
+        # with Donut's edit forward as the terminal so wrappers on both sides run.
+        remaining = comfy.patcher_extension.WrapperExecutor.new_class_executor(
+            local_forward,
+            diffusion_model,
+            executor.wrappers,
+            idx=executor.idx + 1,
+        )
+        return remaining.execute(
+            x, timesteps, context, attention_mask,
+            transformer_options or {}, **kwargs,
+        )
+
+
+def _remove_edit_wrapper(model, key):
+    wrapper_type = comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL
+    if hasattr(model, "remove_wrappers_with_key"):
+        model.remove_wrappers_with_key(wrapper_type, key)
+    transformer_options = model.model_options.setdefault("transformer_options", {})
+    wrappers = transformer_options.get("wrappers", {})
+    wrappers.get(wrapper_type, {}).pop(key, None)
+
+
+def patch_krea2_edit_model(model, source_latent, target_batch=None):
+    """Apply Donut's clean-reference Krea2 edit patch to one model clone."""
+    if not _is_krea2_model(model):
+        raise RuntimeError("Krea2 edit mode requires a Krea 2 diffusion model.")
+    source_samples = model.model.process_latent_in(source_latent["samples"])
+    source_batch = _to_4d(source_samples).shape[0]
+    if target_batch is None:
+        target_batch = 1
+    target_batch = int(target_batch)
+    if source_batch != 1:
+        raise ValueError(
+            f"Krea2 edit supports one source image broadcast across the target batch, got {source_batch}."
+        )
+
+    patched = model.clone()
+    _remove_edit_wrapper(patched, _EDIT_WRAPPER_KEY)
+    _remove_edit_wrapper(patched, _LEGACY_EDIT_WRAPPER_KEY)
+    patched.add_wrapper_with_key(
+        comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+        _EDIT_WRAPPER_KEY,
+        _Krea2EditWrapper(source_samples, target_batch),
+    )
+    return patched
+
+
+def make_krea2_edit_target(target_latent):
+    """Return a zeroed edit target while preserving caller latent metadata."""
+    target = target_latent.copy()
+    target["samples"] = torch.zeros_like(target_latent["samples"])
     return target
+
+
+def validate_krea2_edit_target(target_latent, source_image, mode, denoise,
+                               add_noise, start_at_step):
+    """Validate empty-target edit semantics and return samples plus pixel geometry."""
+    if source_image is None:
+        raise ValueError("DonutSampler edit_mode requires source_image.")
+    if not isinstance(target_latent, dict) or "samples" not in target_latent:
+        raise ValueError("DonutSampler edit_mode requires a valid latent_image target.")
+    samples = target_latent["samples"]
+    if not torch.is_tensor(samples) or samples.ndim != 4:
+        raise ValueError("DonutSampler edit_mode requires 4D latent samples shaped B,C,H,W.")
+    if samples.shape[0] < 1:
+        raise ValueError("DonutSampler edit_mode target batch must be at least 1.")
+    if (not torch.is_tensor(source_image) or source_image.ndim != 4
+            or source_image.shape[0] != 1):
+        raise ValueError(
+            "DonutSampler edit_mode supports one source image broadcast across the target batch."
+        )
+    if not math.isclose(float(denoise), 1.0, rel_tol=0.0, abs_tol=1e-9):
+        raise ValueError("DonutSampler edit_mode requires denoise=1.0 for its empty target.")
+    if mode in ("advanced", "multi_model"):
+        if add_noise != "enable":
+            raise ValueError("DonutSampler edit_mode requires add_noise=enable.")
+        if start_at_step != 0:
+            raise ValueError("DonutSampler edit_mode requires start_at_step=0.")
+
+    noise_mask = target_latent.get("noise_mask")
+    if noise_mask is not None:
+        if not torch.is_tensor(noise_mask) or not bool(torch.all(noise_mask == 1)):
+            raise ValueError(
+                "DonutSampler edit_mode does not support partial noise_mask values; "
+                "use an all-ones mask or remove it."
+            )
+
+    if target_latent.get("downscale_ratio_temporal") is not None:
+        raise ValueError("DonutSampler edit_mode does not support temporal target latents.")
+    downscale_ratio_value = target_latent.get("downscale_ratio_spacial")
+    downscale_ratio = 8.0 if downscale_ratio_value is None else float(downscale_ratio_value)
+    if not math.isfinite(downscale_ratio) or downscale_ratio <= 0:
+        raise ValueError("DonutSampler edit_mode requires a positive finite latent downscale ratio.")
+    target_width = round(int(samples.shape[-1]) * downscale_ratio)
+    target_height = round(int(samples.shape[-2]) * downscale_ratio)
+    if target_width * target_height > 2 * 1024 * 1024:
+        raise ValueError(
+            "DonutSampler edit_mode supports targets up to 2 MiP; upscale larger outputs afterward."
+        )
+    return samples, target_width, target_height
 
 
 def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
                        negative_prompt="", grounding_px=768,
-                       target_width=None, target_height=None):
+                       target_width=None, target_height=None, target_batch=None):
     """Build target-matched VAE source tokens and natural 1-MiP grounding.
 
-    The implementation is deliberately resolved through ComfyUI's node registry so
-    Donut nodes use the installed ComfyUI-Krea2Edit implementation rather than
-    carrying a fork that can drift from the Identity Edit LoRA's inference path.
+    Grounded semantic conditioning remains delegated to the installed
+    ComfyUI-Krea2Edit node. Donut owns the appearance-token model patch so its
+    target, batch, and clean-reference semantics stay consistent.
     """
     if clip is None:
         raise ValueError("Krea2 edit mode requires a CLIP input")
@@ -192,7 +482,9 @@ def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
 
     grounded_node = nodes.NODE_CLASS_MAPPINGS["Krea2EditGroundedEncode"]()
 
-    patched_model = patch_krea2_edit_model(model, source_latent)
+    patched_model = patch_krea2_edit_model(
+        model, source_latent, target_batch=target_batch,
+    )
     positive = grounded_node.encode(
         clip, positive_prompt, image=conditioning_image, grounding_px=grounding_px,
     )[0]
