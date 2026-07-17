@@ -29,16 +29,14 @@ try:
         make_krea2_edit_target,
         patch_krea2_edit_model,
         prepare_krea2_edit,
-        scale_image_to_megapixels,
-        solve_multiple_target,
+        validate_krea2_edit_target,
     )
 except ImportError:
     from krea2_edit_integration import (
         make_krea2_edit_target,
         patch_krea2_edit_model,
         prepare_krea2_edit,
-        scale_image_to_megapixels,
-        solve_multiple_target,
+        validate_krea2_edit_target,
     )
 
 
@@ -1031,7 +1029,7 @@ class DonutSampler(_DonutSamplerEngine):
                 "model_3": ("MODEL",),
                 "edit_mode": ("BOOLEAN", {
                     "default": False,
-                    "tooltip": "Use natural 1-MiP Krea2 source conditioning and replace latent_image with the closest-aspect 32-grid empty target.",
+                    "tooltip": "Use the supplied latent_image shape as an empty Krea2 edit target; source_image provides clean reference conditioning.",
                 }),
                 "source_image": ("IMAGE", {"tooltip": "Required when edit_mode is enabled."}),
                 "vae": ("VAE", {"tooltip": "Required when edit_mode is enabled."}),
@@ -1063,25 +1061,26 @@ class DonutSampler(_DonutSamplerEngine):
         self.model_phases = []
 
         if edit_mode:
-            if source_image is None:
-                raise ValueError("DonutSampler edit_mode requires source_image.")
-            conditioning_image = scale_image_to_megapixels(source_image)
-            target_width, target_height = solve_multiple_target(
-                conditioning_image.shape[2], conditioning_image.shape[1],
+            target_samples, target_width, target_height = validate_krea2_edit_target(
+                latent_image, source_image, mode, denoise, add_noise, start_at_step,
             )
             model, positive, negative, source_latent, conditioning_image = prepare_krea2_edit(
                 edit_model if edit_model is not None else model,
                 clip, vae, source_image, edit_prompt,
                 edit_negative_prompt, grounding_px,
                 target_width, target_height,
+                target_batch=int(target_samples.shape[0]),
             )
-            latent_image = make_krea2_edit_target(
-                source_latent, target_width, target_height,
-            )
-            if model_2 is not None:
-                model_2 = patch_krea2_edit_model(model_2, source_latent)
-            if model_3 is not None:
-                model_3 = patch_krea2_edit_model(model_3, source_latent)
+            latent_image = make_krea2_edit_target(latent_image)
+            if mode == "multi_model":
+                if model_2 is not None:
+                    model_2 = patch_krea2_edit_model(
+                        model_2, source_latent, target_batch=int(target_samples.shape[0]),
+                    )
+                if model_3 is not None:
+                    model_3 = patch_krea2_edit_model(
+                        model_3, source_latent, target_batch=int(target_samples.shape[0]),
+                    )
 
         if mode == "advanced":
             return self.run_advanced(
