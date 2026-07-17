@@ -45,7 +45,7 @@ Source: https://github.com/lbouaraba/comfyui-krea2edit
 
 Pinned source revision: `17af88332728c97ab5c7d26296b2cae59c935976`
 
-The Krea2 edit appearance-token forward in `krea2_edit_integration.py` is adapted from ComfyUI-Krea2Edit under the Apache License 2.0. Donut's version is prominently modified: the caller's target latent controls output geometry and metadata; source batching is validated and repeated deterministically; edit wrapper registration composes with other diffusion wrappers; and clean reference tokens use zero-timestep modulation instead of the active noisy-target timestep.
+The Krea2 edit appearance-token forward in `krea2_edit_integration.py` is adapted from ComfyUI-Krea2Edit under the Apache License 2.0. Donut's version is prominently modified: the caller's target latent controls output geometry and metadata; source batching is restricted to one reference broadcast deterministically; and edit wrapper registration composes with other diffusion wrappers. Source, text, and target tokens retain the upstream active-timestep modulation required by the Identity Edit LoRA's training-matched inference path.
 
 ### Apache License 2.0
 
