@@ -81,6 +81,18 @@ class FakeBlock:
         self.attention_input = None
         self.mlp_input = None
 
+    def __call__(self, value, vec, freqs, mask=None,
+                 transformer_options=None):
+        pre_scale, pre_shift, pre_gate, post_scale, post_shift, post_gate = self.mod(vec)
+        attention_input = (1 + pre_scale) * self.prenorm(value) + pre_shift
+        attention = self.attn(
+            attention_input, freqs, mask,
+            transformer_options=transformer_options,
+        )
+        value = value + pre_gate * attention
+        mlp_input = (1 + post_scale) * self.postnorm(value) + post_shift
+        return value + post_gate * self.mlp(mlp_input)
+
     def mod(self, value):
         self.mod_inputs.append(value.detach().clone())
         return value.chunk(6, dim=-1)
@@ -172,8 +184,8 @@ def all_diffusion_wrappers(model_patcher):
     return [wrapper for wrappers in keyed.values() for wrapper in wrappers]
 
 
-class CleanReferenceForwardTests(unittest.TestCase):
-    def test_reference_uses_zero_timestep_while_text_and_target_use_active_timestep(self):
+class Krea2EditForwardTests(unittest.TestCase):
+    def test_reference_text_and_target_use_upstream_active_timestep(self):
         model = FakeDiffusionModel()
         target = torch.tensor([[[[30.0]]]])
         source = torch.tensor([[[[20.0]]]])
@@ -185,12 +197,14 @@ class CleanReferenceForwardTests(unittest.TestCase):
             target_batch=1, transformer_options={},
         )
 
-        expected = torch.tensor([[[32.0], [20.0], [92.0]]])
+        expected = torch.tensor([[[32.0], [62.0], [92.0]]])
         self.assertTrue(torch.equal(model.block.attention_input, expected))
         self.assertTrue(torch.equal(model.block.mlp_input, expected))
-        self.assertEqual([tuple(value.shape) for value in model.block.mod_inputs], [(1, 1, 6), (1, 1, 6)])
+        self.assertEqual(
+            [tuple(value.shape) for value in model.block.mod_inputs],
+            [(1, 1, 6)],
+        )
         self.assertEqual(model.block.mod_inputs[0].flatten().tolist(), [2.0] * 6)
-        self.assertEqual(model.block.mod_inputs[1].flatten().tolist(), [0.0] * 6)
         self.assertEqual(tuple(output.shape), (1, 1, 1, 1))
         self.assertEqual(float(output.item()), 30.0)
         self.assertEqual(float(model.last_t.item()), 2.0)
@@ -211,7 +225,7 @@ class CleanReferenceForwardTests(unittest.TestCase):
         self.assertEqual(model.first_batches, [2, 1])
         self.assertEqual(
             model.block.attention_input[:, 1, 0].tolist(),
-            [20.0, 20.0],
+            [62.0, 83.0],
         )
 
     def test_odd_target_resizes_source_before_matching_patch_padding(self):

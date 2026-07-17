@@ -3,7 +3,7 @@
 The appearance-token forward is adapted from ComfyUI-Krea2Edit revision
 17af88332728c97ab5c7d26296b2cae59c935976 under Apache-2.0 and modified by
 Donut for authoritative target latents, strict batching, composable wrappers,
-and zero-timestep clean-reference modulation. See THIRD_PARTY_NOTICES.md.
+and training-matched source modulation. See THIRD_PARTY_NOTICES.md.
 """
 
 import math
@@ -184,61 +184,9 @@ def _match_source_batch(source, runtime_batch, target_batch):
     return source.expand(runtime_batch, *source.shape[1:])
 
 
-def _modulated_segments(value, active_scale, active_shift, clean_scale, clean_shift,
-                        text_length, source_length):
-    source_slice = slice(text_length, text_length + source_length)
-    output = (1 + active_scale) * value + active_shift
-    output[:, source_slice] = (
-        (1 + clean_scale) * value[:, source_slice] + clean_shift
-    )
-    return output
-
-
-def _gated_segments(value, active_gate, clean_gate, text_length, source_length):
-    source_slice = slice(text_length, text_length + source_length)
-    output = active_gate * value
-    output[:, source_slice] = clean_gate * value[:, source_slice]
-    return output
-
-
-def _run_clean_reference_block(block, value, active_vec, clean_vec, freqs,
-                               text_length, source_length, transformer_options):
-    active = block.mod(active_vec)
-    clean = block.mod(clean_vec)
-    active_pre_scale, active_pre_shift, active_pre_gate = active[:3]
-    clean_pre_scale, clean_pre_shift, clean_pre_gate = clean[:3]
-    normalized = block.prenorm(value)
-    attention_input = _modulated_segments(
-        normalized,
-        active_pre_scale, active_pre_shift,
-        clean_pre_scale, clean_pre_shift,
-        text_length, source_length,
-    )
-    attention = block.attn(
-        attention_input, freqs, None, transformer_options=transformer_options,
-    )
-    value = value + _gated_segments(
-        attention, active_pre_gate, clean_pre_gate, text_length, source_length,
-    )
-
-    active_post_scale, active_post_shift, active_post_gate = active[3:]
-    clean_post_scale, clean_post_shift, clean_post_gate = clean[3:]
-    normalized = block.postnorm(value)
-    mlp_input = _modulated_segments(
-        normalized,
-        active_post_scale, active_post_shift,
-        clean_post_scale, clean_post_shift,
-        text_length, source_length,
-    )
-    mlp = block.mlp(mlp_input)
-    return value + _gated_segments(
-        mlp, active_post_gate, clean_post_gate, text_length, source_length,
-    )
-
-
 def krea2_edit_forward(model, x, timesteps, context, source_latent,
                        target_batch, transformer_options=None):
-    """Krea2 edit forward with zero-timestep modulation for clean references."""
+    """Krea2 edit forward with upstream training-matched source modulation."""
     transformer_options = transformer_options or {}
     patch = model.patch
     temporal = x.ndim == 5
@@ -270,12 +218,7 @@ def krea2_edit_forward(model, x, timesteps, context, source_latent,
     active_t = model.tmlp(
         timestep_embedding(timesteps, model.tdim).unsqueeze(1).to(target_image.dtype)
     )
-    clean_t_single = model.tmlp(
-        timestep_embedding(torch.zeros_like(timesteps[:1]), model.tdim)
-        .unsqueeze(1).to(target_image.dtype)
-    )
     active_vec = model.tproj(active_t)
-    clean_vec = model.tproj(clean_t_single).expand(batch, -1, -1)
 
     context = model.txtfusion(context, mask=None, transformer_options=transformer_options)
     context = model.txtmlp(context)
@@ -293,9 +236,9 @@ def krea2_edit_forward(model, x, timesteps, context, source_latent,
     freqs = model.pe_embedder(positions)
 
     for block in model.blocks:
-        combined = _run_clean_reference_block(
-            block, combined, active_vec, clean_vec, freqs,
-            text_length, source_length, transformer_options,
+        combined = block(
+            combined, active_vec, freqs, None,
+            transformer_options=transformer_options,
         )
 
     target_start = text_length + source_length
