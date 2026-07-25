@@ -692,7 +692,3 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutPromptReceiver": "Donut Prompt Receiver (HTTP)",
     "DonutImageReporter": "Donut Image Reporter (HTTP)",
 }
-
-# Start server on module load
-PromptReceiverServer.get_instance().start(8001)
-print("[DonutPromptReceiver] Server ready on port 8001")
