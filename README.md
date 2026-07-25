@@ -22,7 +22,11 @@ Search for "DonutNodes" in ComfyUI Manager and install.
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/DonutsDelivery/ComfyUI-DonutNodes.git donutnodes
+cd donutnodes
+python -m pip install -r requirements.txt
 ```
+
+Run the install command with the same Python interpreter that launches ComfyUI.
 
 ## Nodes
 
