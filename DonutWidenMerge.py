@@ -191,6 +191,40 @@ except ImportError:
 
 # Progress bar and logging functions imported from logging_config module
 
+
+def _clone_with_merged_parameter_diffs(base_patcher, base_module, merged_params):
+    """Return a ComfyUI patcher containing the WIDEN result as lazy diff patches.
+
+    ModelPatcher instances may contain invalid/offloaded tensor storages and must
+    not be deep-copied. A regular ``clone()`` preserves patcher metadata; the
+    explicit diffs supply independent merged weights without mutating the input.
+    """
+    merged_patcher = base_patcher.clone()
+    base_params = dict(base_module.named_parameters())
+    patches = {}
+    applied_count = 0
+    shape_mismatch_count = 0
+
+    for param_name, param_value in merged_params.items():
+        param = base_params.get(param_name)
+        if param is None:
+            continue
+        if param_value.ndim == param.ndim + 1 and param_value.size(0) == 1:
+            param_value = param_value.squeeze(0)
+        if param_value.shape != param.shape:
+            print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
+            shape_mismatch_count += 1
+            continue
+
+        base_value = param.detach().to(device="cpu", dtype=param_value.dtype)
+        patches[param_name] = ("diff", (param_value.detach().to(device="cpu") - base_value,))
+        applied_count += 1
+
+    if patches:
+        merged_patcher.add_patches(patches, strength_patch=1.0)
+    return merged_patcher, applied_count, shape_mismatch_count
+
+
 # MergingMethod class - required by the ComfyUI node classes
 class MergingMethod:
     def __init__(self, merging_method_name: str):
@@ -592,7 +626,6 @@ class DonutWidenMergeUNet:
             pass
 
         with memory_cleanup_context("DonutWidenMergeUNet"):
-            import copy
             import gc
 
             # Process LoRA stack if provided
@@ -635,29 +668,10 @@ class DonutWidenMergeUNet:
                     else:  # Regular model
                         other_model_objs.append(model.model)
 
-                # CONTAMINATION FIX: Memory-efficient independent model copy
-                # ComfyUI's clone() shares parameter tensors. We need isolation but minimize memory usage.
-                print("[CONTAMINATION-FIX] Creating memory-efficient independent model copy")
-                import copy
-                import gc
-                
-                # Step 1: Force ComfyUI to offload the base model from GPU to free VRAM
-                try:
-                    import comfy.model_management
-                    comfy.model_management.unload_model_clones(model_base)
-                    comfy.model_management.soft_empty_cache(force=True)
-                except:
-                    pass
-                
-                # Step 2: Create deep copy with immediate cleanup
-                model_merged = copy.deepcopy(model_base)
-                
-                # Step 3: Aggressive memory cleanup after copy
-                gc.collect()  # Force garbage collection
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()  # Clear GPU cache
-                
-                print("[CONTAMINATION-FIX] Model copied with memory optimization")
+                # Compute against the base module, then materialize the result
+                # as lazy diffs on a ModelPatcher clone. deepcopy() is unsafe for
+                # ComfyUI's offloaded tensor storages.
+                model_merged = model_base
 
                 # Apply dynamic scaling if requested  
                 original_min, original_max = min_strength, max_strength
@@ -675,7 +689,7 @@ class DonutWidenMergeUNet:
                     # Use WIDEN with dynamic strength based on compatibility
                     merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
                         merger=merger,
-                        merged_model=model_merged.model,
+                        merged_model=base_model_obj,
                         models_to_merge=other_model_objs,
                         exclude_param_names_regex=[],
                         importance_threshold=importance_threshold,
@@ -701,30 +715,16 @@ class DonutWidenMergeUNet:
                         print("[DonutWidenMergeUNet] Applying dynamic scaling to merge results...")
                         # DISABLED: Post-merge scaling corrupts model - bounds are already correct
                         # merged_params = self._apply_post_merge_scaling(merged_params, widen_diagnostics, original_min, original_max)
-                    
-                    # Apply merged parameters with shape validation
-                    applied_count = 0
-                    shape_mismatch_count = 0
-                    for param_name, param_value in merged_params.items():
-                        for name, param in model_merged.model.named_parameters():
-                            if name == param_name:
-                                # Detect and remove an accidental leading batch-of-1 dim
-                                if param_value.ndim == param.ndim + 1 and param_value.size(0) == 1:
-                                    param_value = param_value.squeeze(0)
-                                
-                                if param_value.shape == param.shape:
-                                    param.data.copy_(param_value)
-                                    applied_count += 1
-                                else:
-                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
-                                    shape_mismatch_count += 1
-                                break
+
+                    model_merged, applied_count, shape_mismatch_count = _clone_with_merged_parameter_diffs(
+                        model_base, base_model_obj, merged_params,
+                    )
                     
                     print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
                     
                     # Compute and display merge sanity metrics
                     try:
-                        sanity_metrics = compute_merge_sanity_metrics(base_model, merged_model)
+                        sanity_metrics = compute_merge_sanity_metrics(base_model_obj, merged_params)
                         print_merge_diagnostics(sanity_metrics)
                     except Exception as e:
                         diagnostic_logger.warning(f"Failed to compute sanity metrics: {e}")
@@ -834,7 +834,7 @@ class DonutWidenMergeUNet:
                     # Use enhanced WIDEN without dynamic strength (fallback mode)
                     merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
                         merger=merger,
-                        merged_model=model_merged.model,
+                        merged_model=base_model_obj,
                         models_to_merge=other_model_objs,
                         exclude_param_names_regex=[],
                         importance_threshold=importance_threshold,
@@ -860,30 +860,16 @@ class DonutWidenMergeUNet:
                         print("[DonutWidenMergeUNet] Applying dynamic scaling to merge results (static mode)...")
                         # DISABLED: Post-merge scaling corrupts model - bounds are already correct
                         # merged_params = self._apply_post_merge_scaling(merged_params, widen_diagnostics, original_min, original_max)
-                    
-                    # Apply merged parameters with shape validation
-                    applied_count = 0
-                    shape_mismatch_count = 0
-                    for param_name, param_value in merged_params.items():
-                        for name, param in model_merged.model.named_parameters():
-                            if name == param_name:
-                                # Detect and remove an accidental leading batch-of-1 dim
-                                if param_value.ndim == param.ndim + 1 and param_value.size(0) == 1:
-                                    param_value = param_value.squeeze(0)
-                                
-                                if param_value.shape == param.shape:
-                                    param.data.copy_(param_value)
-                                    applied_count += 1
-                                else:
-                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
-                                    shape_mismatch_count += 1
-                                break
+
+                    model_merged, applied_count, shape_mismatch_count = _clone_with_merged_parameter_diffs(
+                        model_base, base_model_obj, merged_params,
+                    )
                     
                     print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
                     
                     # Compute and display merge sanity metrics
                     try:
-                        sanity_metrics = compute_merge_sanity_metrics(base_model, merged_model)
+                        sanity_metrics = compute_merge_sanity_metrics(base_model_obj, merged_params)
                         print_merge_diagnostics(sanity_metrics)
                     except Exception as e:
                         diagnostic_logger.warning(f"Failed to compute sanity metrics: {e}")
@@ -1345,7 +1331,6 @@ class DonutWidenMergeCLIP:
             pass
 
         with memory_cleanup_context("DonutWidenMergeCLIP"):
-            import copy
             import gc
 
             # Get base encoder first for LoRA processing
@@ -1394,33 +1379,9 @@ class DonutWidenMergeCLIP:
                         if enc:
                             other_encs.append(enc)
 
-                # CONTAMINATION FIX: Memory-efficient independent CLIP copy
-                # ComfyUI's clone() shares parameter tensors. We need isolation but minimize memory usage.
-                print("[CONTAMINATION-FIX] Creating memory-efficient independent CLIP copy")
-                import copy
-                import gc
-                
-                # Step 1: Force ComfyUI to offload the base CLIP from GPU to free VRAM
-                try:
-                    import comfy.model_management
-                    comfy.model_management.unload_model_clones(clip_base)
-                    comfy.model_management.soft_empty_cache(force=True)
-                except:
-                    pass
-                
-                # Step 2: Create deep copy with immediate cleanup
-                clip_merged = copy.deepcopy(clip_base)
-                
-                # Step 3: Aggressive memory cleanup after copy
-                gc.collect()  # Force garbage collection
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()  # Clear GPU cache
-                
-                print("[CONTAMINATION-FIX] CLIP copied with memory optimization")
-                
-                # Get the encoder from the cloned CLIP for merging
-                enc_merged = getattr(clip_merged, "model", getattr(clip_merged, "clip",
-                           getattr(clip_merged, "cond_stage_model", None)))
+                # See the UNet path above: ComfyUI patcher wrappers are not
+                # deepcopy-safe, so the final result is represented as diffs.
+                clip_merged = clip_base
 
                 # Apply dynamic scaling if requested
                 original_min, original_max = min_strength, max_strength
@@ -1438,7 +1399,7 @@ class DonutWidenMergeCLIP:
                     # Use WIDEN with dynamic strength based on compatibility
                     merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
                         merger=merger,
-                        merged_model=enc_merged,
+                        merged_model=base_enc,
                         models_to_merge=other_encs,
                         exclude_param_names_regex=[],
                         importance_threshold=importance_threshold,
@@ -1464,30 +1425,16 @@ class DonutWidenMergeCLIP:
                         print("[DonutWidenMergeCLIP] Applying dynamic scaling to merge results...")
                         # DISABLED: Post-merge scaling corrupts model - bounds are already correct
                         # merged_params = self._apply_post_merge_scaling(merged_params, widen_diagnostics, original_min, original_max)
-                    
-                    # Apply merged parameters with shape validation
-                    applied_count = 0
-                    shape_mismatch_count = 0
-                    for param_name, param_value in merged_params.items():
-                        for name, param in enc_merged.named_parameters():
-                            if name == param_name:
-                                # Detect and remove an accidental leading batch-of-1 dim
-                                if param_value.ndim == param.ndim + 1 and param_value.size(0) == 1:
-                                    param_value = param_value.squeeze(0)
-                                
-                                if param_value.shape == param.shape:
-                                    param.data.copy_(param_value)
-                                    applied_count += 1
-                                else:
-                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
-                                    shape_mismatch_count += 1
-                                break
+
+                    clip_merged, applied_count, shape_mismatch_count = _clone_with_merged_parameter_diffs(
+                        clip_base, base_enc, merged_params,
+                    )
                     
                     print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
                     
                     # Compute and display merge sanity metrics
                     try:
-                        sanity_metrics = compute_merge_sanity_metrics(base_model, merged_model)
+                        sanity_metrics = compute_merge_sanity_metrics(base_enc, merged_params)
                         print_merge_diagnostics(sanity_metrics)
                     except Exception as e:
                         diagnostic_logger.warning(f"Failed to compute sanity metrics: {e}")
@@ -1597,7 +1544,7 @@ class DonutWidenMergeCLIP:
                     # Use enhanced WIDEN without dynamic strength (fallback mode)
                     merged_params, widen_diagnostics = enhanced_widen_merging_with_dynamic_strength(
                         merger=merger,
-                        merged_model=enc_merged,
+                        merged_model=base_enc,
                         models_to_merge=other_encs,
                         exclude_param_names_regex=[],
                         importance_threshold=importance_threshold,
@@ -1623,30 +1570,16 @@ class DonutWidenMergeCLIP:
                         print("[DonutWidenMergeCLIP] Applying dynamic scaling to merge results (static mode)...")
                         # DISABLED: Post-merge scaling corrupts model - bounds are already correct
                         # merged_params = self._apply_post_merge_scaling(merged_params, widen_diagnostics, original_min, original_max)
-                    
-                    # Apply merged parameters with shape validation
-                    applied_count = 0
-                    shape_mismatch_count = 0
-                    for param_name, param_value in merged_params.items():
-                        for name, param in enc_merged.named_parameters():
-                            if name == param_name:
-                                # Detect and remove an accidental leading batch-of-1 dim
-                                if param_value.ndim == param.ndim + 1 and param_value.size(0) == 1:
-                                    param_value = param_value.squeeze(0)
-                                
-                                if param_value.shape == param.shape:
-                                    param.data.copy_(param_value)
-                                    applied_count += 1
-                                else:
-                                    print(f"[WARNING] Shape mismatch for {param_name}: expected {param.shape}, got {param_value.shape}")
-                                    shape_mismatch_count += 1
-                                break
+
+                    clip_merged, applied_count, shape_mismatch_count = _clone_with_merged_parameter_diffs(
+                        clip_base, base_enc, merged_params,
+                    )
                     
                     print(f"[ENHANCED WIDEN] Applied {applied_count} parameters, {shape_mismatch_count} shape mismatches")
                     
                     # Compute and display merge sanity metrics
                     try:
-                        sanity_metrics = compute_merge_sanity_metrics(base_model, merged_model)
+                        sanity_metrics = compute_merge_sanity_metrics(base_enc, merged_params)
                         print_merge_diagnostics(sanity_metrics)
                     except Exception as e:
                         diagnostic_logger.warning(f"Failed to compute sanity metrics: {e}")
@@ -1745,7 +1678,7 @@ class DonutWidenMergeCLIP:
 ╚═══════════════════════════════════════════════════╝"""
 
                 # FIXED: Aggressive cleanup before returning
-                del base_enc, other_encs, clips_to_merge, enc_merged
+                del base_enc, other_encs, clips_to_merge
                 if rank_sensitivity <= 0.0:
                     del merger
                 force_cleanup()
