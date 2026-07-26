@@ -20,6 +20,7 @@ weight handling and memory management.
 
 import torch
 import gc
+import re
 from collections import defaultdict
 
 # Import shared modules
@@ -31,10 +32,48 @@ except ImportError:
     from memory_management import MemoryEfficientContext
 
 
+def _named_parameter_module(value):
+    """Resolve a ComfyUI wrapper to the module that owns its parameters."""
+    pending = [value]
+    seen = set()
+    while pending:
+        candidate = pending.pop(0)
+        if candidate is None or id(candidate) in seen:
+            continue
+        seen.add(id(candidate))
+        if callable(getattr(candidate, "named_parameters", None)):
+            return candidate
+        for attribute in ("model", "cond_stage_model", "clip"):
+            nested = getattr(candidate, attribute, None)
+            if nested is not None:
+                pending.append(nested)
+    raise TypeError(f"{type(value).__name__} does not expose a parameter module")
+
+
+def _default_block_vector(lora):
+    """Choose an all-enabled vector that matches the LoRA's DiT layout."""
+    layer_numbers = set()
+    block_numbers = set()
+    for key in lora:
+        if "layers." in key:
+            match = re.search(r"layers\.(\d+)", key)
+            if match:
+                layer_numbers.add(int(match.group(1)))
+        elif "blocks." in key:
+            match = re.search(r"(?<![a-z_])blocks\.(\d+)", key)
+            if match:
+                block_numbers.add(int(match.group(1)))
+
+    numbers = block_numbers or layer_numbers
+    if numbers:
+        return ",".join(["1"] * (max(numbers) + 2))  # non-block bucket + blocks
+    return ",".join(["1"] * 13)  # non-block bucket + SDXL's 12 blocks
+
+
 class LoRADelta:
     """Memory-efficient LoRA delta storage for WIDEN merging"""
     def __init__(self, base_model, lora_model, lora_name="unknown"):
-        self.base_model = base_model  # Reference to base model (no copy)
+        self.base_model = _named_parameter_module(base_model)  # Reference to base parameters (no copy)
         self.lora_name = lora_name
         self.deltas = {}  # Only store the differences
         self.param_metadata = {}
@@ -46,7 +85,7 @@ class LoRADelta:
         """Compute only the parameter differences between base and LoRA-enhanced model"""
         try:
             base_params = dict(self.base_model.named_parameters())
-            lora_params = dict(lora_model.named_parameters())
+            lora_params = dict(_named_parameter_module(lora_model).named_parameters())
             
             delta_count = 0
             total_delta_size = 0
@@ -180,7 +219,7 @@ class LoRAStackProcessor:
                 
                 # Apply UNet LoRA using block weights (DonutApplyLoRAStack Step 1)
                 loader = LoraLoaderBlockWeight()
-                vector = block_vector if block_vector else ",".join(["1"] * 12)
+                vector = block_vector if block_vector else _default_block_vector(lora)
                 
                 # Step 1: block-weighted UNet merge (clip_strength=0)
                 enhanced_model, _, _ = loader.load_lora_for_models(
