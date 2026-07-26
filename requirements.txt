@@ -1,0 +1,9 @@
+# Runtime dependencies not supplied by ComfyUI itself.
+# ComfyUI Manager installs this file automatically; manual installs must use
+# the same Python interpreter that launches ComfyUI.
+opencv-python-headless
+scipy
+matplotlib
+psutil
+tqdm
+requests

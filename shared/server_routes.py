@@ -8,9 +8,10 @@ that can be called from the JavaScript frontend.
 import json
 import os
 import hashlib
-import urllib.request
 from aiohttp import web
 from pathlib import Path
+
+from .civitai_transport import civitai_request
 
 try:
     from server import PromptServer
@@ -28,7 +29,7 @@ from .config import load_config, save_config, get_config
 
 # Import CivitAI cache for LoRA browser
 try:
-    from .civitai_api import CivitAICache, get_civitai_cache_dir, search_models, get_model_by_id, civitai_urlopen
+    from .civitai_api import CivitAICache, get_civitai_cache_dir, search_models, get_model_by_id
     HAS_CIVITAI = True
 except ImportError:
     HAS_CIVITAI = False
@@ -758,10 +759,10 @@ def register_routes():
             headers = {
                 "User-Agent": "ComfyUI-DonutNodes/1.0"
             }
-            req = urllib.request.Request(image_url, headers=headers)
-            with civitai_urlopen(req, timeout=10) as response:
+            with civitai_request("GET", image_url, headers=headers, timeout=10) as response:
+                response.raise_for_status()
                 content_type = response.headers.get('Content-Type', 'image/jpeg')
-                data = response.read()
+                data = response.content
                 return web.Response(body=data, content_type=content_type)
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)

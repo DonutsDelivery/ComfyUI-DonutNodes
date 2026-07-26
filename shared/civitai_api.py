@@ -7,15 +7,15 @@ Endpoints used:
 
 import json
 import os
-import ssl
-import urllib.request
-import urllib.error
 import urllib.parse
+import requests
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 import time
+
+from .civitai_transport import civitai_request
 
 # Import config
 try:
@@ -42,33 +42,6 @@ CIVITAI_HASH_ENDPOINT = f"{CIVITAI_API_BASE}/model-versions/by-hash"
 # 0.2s is reasonable - allows 5 requests/second which is within limits
 MIN_REQUEST_INTERVAL = 0.2  # seconds between requests
 _last_request_time = 0.0
-_ssl_context = None
-
-
-def get_civitai_ssl_context():
-    """Create a verified SSL context, preferring certifi's current CA bundle."""
-    global _ssl_context
-    if _ssl_context is not None:
-        return _ssl_context
-
-    try:
-        import certifi
-        _ssl_context = ssl.create_default_context(cafile=certifi.where())
-    except Exception:
-        _ssl_context = ssl.create_default_context()
-
-    return _ssl_context
-
-
-def civitai_urlopen(request, timeout: int = 30):
-    """Open CivitAI URLs with the shared verified SSL context."""
-    return urllib.request.urlopen(
-        request,
-        timeout=timeout,
-        context=get_civitai_ssl_context()
-    )
-
-
 @dataclass
 class CivitAIImage:
     """Represents an image from CivitAI."""
@@ -301,20 +274,12 @@ def fetch_model_by_hash(file_hash: str, api_key: Optional[str] = None,
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        request = urllib.request.Request(url, headers=headers)
-        with civitai_urlopen(request, timeout=timeout) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode("utf-8"))
+        with civitai_request("GET", url, headers=headers, timeout=timeout) as response:
+            if response.status_code == 200:
+                data = response.json()
                 return CivitAIModelInfo.from_api_response(data, local_hash=file_hash)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print(f"[CivitAI] Model not found for hash: {file_hash[:16]}...")
-        elif e.code == 429:
-            print(f"[CivitAI] Rate limited - try again later")
-        else:
-            print(f"[CivitAI] HTTP error {e.code}: {e.reason}")
-    except urllib.error.URLError as e:
-        print(f"[CivitAI] Connection error: {e.reason}")
+    except requests.RequestException as e:
+        print(f"[CivitAI] Request error: {e}")
     except json.JSONDecodeError:
         print(f"[CivitAI] Invalid JSON response")
     except Exception as e:
@@ -427,20 +392,14 @@ def search_models(
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        request = urllib.request.Request(url, headers=headers)
-        with civitai_urlopen(request, timeout=timeout) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode("utf-8"))
+        with civitai_request("GET", url, headers=headers, timeout=timeout) as response:
+            if response.status_code == 200:
+                data = response.json()
                 metadata = data.get("metadata", {})
                 print(f"[CivitAI] Found {len(data.get('items', []))} items, page {metadata.get('currentPage')}, hasNextPage: {metadata.get('nextPage') is not None}")
                 return data
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            print(f"[CivitAI] Rate limited - try again later")
-        else:
-            print(f"[CivitAI] HTTP error {e.code}: {e.reason}")
-    except urllib.error.URLError as e:
-        print(f"[CivitAI] Connection error: {e.reason}")
+    except requests.RequestException as e:
+        print(f"[CivitAI] Request error: {e}")
     except json.JSONDecodeError:
         print(f"[CivitAI] Invalid JSON response")
     except Exception as e:
@@ -477,17 +436,11 @@ def get_model_by_id(model_id: int, api_key: Optional[str] = None, timeout: int =
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
-        request = urllib.request.Request(url, headers=headers)
-        with civitai_urlopen(request, timeout=timeout) as response:
-            if response.status == 200:
-                return json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print(f"[CivitAI] Model {model_id} not found")
-        elif e.code == 429:
-            print(f"[CivitAI] Rate limited - try again later")
-        else:
-            print(f"[CivitAI] HTTP error {e.code}: {e.reason}")
+        with civitai_request("GET", url, headers=headers, timeout=timeout) as response:
+            if response.status_code == 200:
+                return response.json()
+    except requests.RequestException as e:
+        print(f"[CivitAI] Request error: {e}")
     except Exception as e:
         print(f"[CivitAI] Error fetching model {model_id}: {e}")
 
@@ -509,13 +462,13 @@ def download_preview_image(image_url: str, save_path: str, timeout: int = 30) ->
         headers = {
             "User-Agent": "ComfyUI-DonutNodes/1.0"
         }
-        request = urllib.request.Request(image_url, headers=headers)
-        with civitai_urlopen(request, timeout=timeout) as response:
+        with civitai_request("GET", image_url, headers=headers, timeout=timeout) as response:
+            response.raise_for_status()
             # Create parent directory if needed
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
             with open(save_path, "wb") as f:
-                f.write(response.read())
+                f.write(response.content)
             return True
     except Exception as e:
         print(f"[CivitAI] Error downloading image: {e}")

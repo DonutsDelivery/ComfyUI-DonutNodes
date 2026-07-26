@@ -6,17 +6,16 @@ and auto-organization by base model type.
 """
 
 import os
-import urllib.request
-import urllib.error
 import time
 import uuid
 import threading
+import requests
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from .civitai_api import civitai_urlopen
+from .civitai_transport import civitai_request
 
 # Try to import folder_paths for proper ComfyUI model directories
 try:
@@ -304,8 +303,6 @@ class CivitAIDownloader:
                 "User-Agent": "ComfyUI-DonutNodes/1.0"
             }
 
-            request = urllib.request.Request(download_url, headers=headers)
-
             with self._lock:
                 status.status = "downloading"
 
@@ -313,7 +310,8 @@ class CivitAIDownloader:
             Path(save_path).parent.mkdir(parents=True, exist_ok=True)
 
             # Open connection
-            with civitai_urlopen(request, timeout=30) as response:
+            with civitai_request("GET", download_url, headers=headers, timeout=30, stream=True) as response:
+                response.raise_for_status()
                 total_size = int(response.headers.get('Content-Length', 0))
 
                 with self._lock:
@@ -325,15 +323,14 @@ class CivitAIDownloader:
                 start_time = time.time()
 
                 with open(save_path, 'wb') as f:
-                    while True:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
                         # Check for cancellation
                         with self._lock:
                             if status.status == "cancelled":
                                 break
 
-                        chunk = response.read(chunk_size)
                         if not chunk:
-                            break
+                            continue
 
                         f.write(chunk)
                         downloaded += len(chunk)
@@ -367,25 +364,26 @@ class CivitAIDownloader:
                         folder_name = MODEL_TYPE_TO_FOLDER.get(model_type, "loras")
                         invalidate_folder_cache(folder_name)
 
-        except urllib.error.HTTPError as e:
-            error_msg = f"HTTP {e.code}: {e.reason}"
-            if e.code == 401:
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else 0
+            error_msg = f"HTTP {status_code}: {e}"
+            if status_code == 401:
                 error_msg = "Unauthorized - Check your CivitAI API key in settings"
-            elif e.code == 403:
+            elif status_code == 403:
                 error_msg = "Forbidden - You may need a CivitAI API key or this model requires login"
-            elif e.code == 404:
+            elif status_code == 404:
                 error_msg = "Not found - The download link may have expired"
             with self._lock:
                 status.status = "error"
                 status.error = error_msg
-            print(f"[CivitAI Download] HTTP Error: {e.code} {e.reason}")
+            print(f"[CivitAI Download] HTTP Error: {error_msg}")
 
-        except urllib.error.URLError as e:
-            error_msg = f"Network error: {e.reason}"
+        except requests.RequestException as e:
+            error_msg = f"Network error: {e}"
             with self._lock:
                 status.status = "error"
                 status.error = error_msg
-            print(f"[CivitAI Download] URL Error: {e.reason}")
+            print(f"[CivitAI Download] Network error: {e}")
 
         except Exception as e:
             with self._lock:
