@@ -6,3 +6,4 @@ scipy
 matplotlib
 psutil
 tqdm
+requests

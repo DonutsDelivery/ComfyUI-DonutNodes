@@ -1202,7 +1202,7 @@ class DonutCivitaiBrowser {
                 node.setDirtyCanvas(true, true);
                 console.log(`[CivitAI Browser] Loaded ${loraFilename} into slot ${slot}`);
             } else {
-                console.error(`[CivitAI Browser] Could not find widget ${widgetName}. Available widgets:`, node.widgets?.map(w => w.name));
+                console.error("[CivitAI Browser] Could not find widget. Available widgets:", widgetName, node.widgets?.map(w => w.name));
             }
         } catch (error) {
             console.error("[CivitAI Browser] Error loading to slot:", error);
@@ -1472,7 +1472,7 @@ class DonutCivitaiBrowser {
                         return "error";
                     }
                 } catch (e) {
-                    console.error(`[CivitAI Browser] Error fetching info for ${lora.name}:`, e);
+                    console.error("[CivitAI Browser] Error fetching info:", lora.name, e);
                     return "error";
                 }
             }));

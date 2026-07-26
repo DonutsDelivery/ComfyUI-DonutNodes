@@ -1397,22 +1397,6 @@ def _merge_param_magnitude_direction_with_dynamic_strength(
     
     # COMPREHENSIVE MEMORY CLEANUP - Essential for large models
     # Clean up all intermediate data structures
-    cleanup_items = [
-        'models_to_merge_param_magnitude_direction_diff_tuples',
-        'models_to_merge_task_vectors', 
-        'magnitude_rankings',
-        'direction_rankings',
-        'models_to_merge_param_magnitude_diff_tuple',
-        'models_to_merge_param_direction_diff_tuple',
-        'param_names_merged_by_magnitude_direction'
-    ]
-    
-    for item_name in cleanup_items:
-        try:
-            if item_name in locals():
-                del locals()[item_name]
-        except: pass
-    
     # Clear TaskVector parameters explicitly
     try:
         if 'models_to_merge_task_vectors' in locals():

@@ -1348,7 +1348,7 @@ class DonutLoraGridBrowser {
                         return "error";
                     }
                 } catch (e) {
-                    console.error(`[DonutNodes] Error fetching info for ${lora.name}:`, e);
+                    console.error("[DonutNodes] Error fetching info:", lora.name, e);
                     return "error";
                 }
             }));
