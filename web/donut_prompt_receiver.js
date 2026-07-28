@@ -57,6 +57,14 @@ app.registerExtension({
                     return;
                 }
 
+                const normalizedHost = outHost.trim().toLowerCase();
+                const loopbackHost = normalizedHost === "localhost" || normalizedHost === "127.0.0.1" || normalizedHost === "::1";
+                if (!loopbackHost) {
+                    console.error("[DonutPromptReceiver] Outgoing host must be local:", outHost);
+                    return;
+                }
+                const outgoingHost = normalizedHost === "::1" ? `[${normalizedHost}]` : normalizedHost;
+
                 const apiInfo = `
 ComfyUI Prompt API (port ${port}):
 - POST http://localhost:${port}/prompt with JSON body
@@ -89,13 +97,13 @@ Generate ${numPrompts} unique variation(s) and queue them using the API above.`;
                     })
                 }).catch(err => console.warn("[DonutPromptReceiver] Failed to notify loop config:", err));
 
-                const outgoingUrl = `${outProtocol}://${outHost}:${outPort}/prompt`;
+                const outgoingUrl = `${outProtocol}://${outgoingHost}:${outPort}/prompt`;
                 fetch(outgoingUrl, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ prompt: fullPrompt })
-                }).then(() => console.log(`[DonutPromptReceiver] Sent to ${outgoingUrl}`))
-                  .catch(err => console.error(`[DonutPromptReceiver] Failed to send to ${outgoingUrl}:`, err));
+                }).then(() => console.log("[DonutPromptReceiver] Sent to:", outgoingUrl))
+                  .catch(err => console.error("[DonutPromptReceiver] Failed to send to:", outgoingUrl, err));
             });
         }
 

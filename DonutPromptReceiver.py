@@ -7,10 +7,45 @@ import json
 import threading
 import random
 import os
+import ipaddress
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-import urllib.request
-import urllib.error
+import requests
+
+
+COMFYUI_API_URL = "http://127.0.0.1:8188"
+
+
+def _comfyui_request(method, path, *, timeout, json_body=None):
+    """Call ComfyUI's local API; this endpoint is never user-configurable."""
+    return requests.request(
+        method,
+        f"{COMFYUI_API_URL}{path}",
+        timeout=timeout,
+        json=json_body,
+    )
+
+
+def _local_outgoing_url(protocol, host, port):
+    """Build a loopback-only URL for the optional local Claude bridge."""
+    if protocol not in ("http", "https"):
+        raise ValueError("Outgoing protocol must be http or https")
+
+    normalized_host = str(host).strip().lower()
+    if normalized_host != "localhost":
+        try:
+            if not ipaddress.ip_address(normalized_host).is_loopback:
+                raise ValueError("Outgoing host must be localhost or a loopback IP address")
+        except ValueError as error:
+            if str(error) == "Outgoing host must be localhost or a loopback IP address":
+                raise
+            raise ValueError("Outgoing host must be localhost or a loopback IP address") from error
+
+    if not isinstance(port, int) or not 1 <= port <= 65535:
+        raise ValueError("Outgoing port must be between 1 and 65535")
+
+    url_host = f"[{normalized_host}]" if ":" in normalized_host else normalized_host
+    return f"{protocol}://{url_host}:{port}/prompt"
 
 
 class PromptReceiverServer:
@@ -121,10 +156,10 @@ class PromptReceiverServer:
                     continue
 
                 try:
-                    # Check ComfyUI queue status
-                    req = urllib.request.Request("http://127.0.0.1:8188/queue")
-                    with urllib.request.urlopen(req, timeout=2) as response:
-                        queue_data = json.loads(response.read().decode('utf-8'))
+                    # Check ComfyUI queue status.
+                    with _comfyui_request("GET", "/queue", timeout=2) as response:
+                        response.raise_for_status()
+                        queue_data = response.json()
                         running = queue_data.get("queue_running", [])
                         pending = queue_data.get("queue_pending", [])
                         queue_empty = len(running) == 0 and len(pending) == 0
@@ -157,7 +192,6 @@ class PromptReceiverServer:
             return
 
         config = self._last_send_config
-        outgoing_url = f"{config['protocol']}://{config['host']}:{config['port']}/prompt"
 
         if self._last_action == "send_to_claude":
             # Re-send the same user_prompt + meta_prompt to Claude
@@ -183,16 +217,12 @@ Generate {config['num_prompts']} unique variation(s) and queue them using the AP
             print(f"[DonutPromptReceiver] Loop: Asking Claude to redo (received_from_api)")
 
         try:
-            data = json.dumps({"prompt": full_prompt}).encode('utf-8')
-            req = urllib.request.Request(
-                outgoing_url,
-                data=data,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
+            outgoing_url = _local_outgoing_url(config["protocol"], config["host"], config["port"])
+            with requests.post(outgoing_url, json={"prompt": full_prompt}, timeout=10) as response:
+                response.raise_for_status()
                 print(f"[DonutPromptReceiver] Loop: Sent to {outgoing_url}")
         except Exception as e:
-            print(f"[DonutPromptReceiver] Loop: Failed to send to {outgoing_url}: {e}")
+            print(f"[DonutPromptReceiver] Loop: Failed to send to local Claude bridge: {e}")
 
     def start(self, port=8001):
         if self._server is not None:
@@ -241,34 +271,25 @@ Generate {config['num_prompts']} unique variation(s) and queue them using the AP
                     self._send_json(200, {"status": "reset"})
                 elif self.path == "/cancel" or self.path == "/cancel_all":
                     try:
-                        # Interrupt current
-                        req = urllib.request.Request("http://127.0.0.1:8188/interrupt", method="POST")
-                        urllib.request.urlopen(req)
-                        # Clear queue
-                        req = urllib.request.Request(
-                            "http://127.0.0.1:8188/queue",
-                            data=json.dumps({"clear": True}).encode('utf-8'),
-                            headers={"Content-Type": "application/json"}
-                        )
-                        urllib.request.urlopen(req)
+                        # Interrupt current and clear the local ComfyUI queue.
+                        with _comfyui_request("POST", "/interrupt", timeout=10) as response:
+                            response.raise_for_status()
+                        with _comfyui_request("POST", "/queue", timeout=10, json_body={"clear": True}) as response:
+                            response.raise_for_status()
                         self._send_json(200, {"status": "cancelled all"})
                     except Exception as e:
                         self._send_json(500, {"error": str(e)})
                 elif self.path == "/interrupt" or self.path == "/skip":
                     try:
-                        req = urllib.request.Request("http://127.0.0.1:8188/interrupt", method="POST")
-                        urllib.request.urlopen(req)
+                        with _comfyui_request("POST", "/interrupt", timeout=10) as response:
+                            response.raise_for_status()
                         self._send_json(200, {"status": "interrupted"})
                     except Exception as e:
                         self._send_json(500, {"error": str(e)})
                 elif self.path == "/clear":
                     try:
-                        req = urllib.request.Request(
-                            "http://127.0.0.1:8188/queue",
-                            data=json.dumps({"clear": True}).encode('utf-8'),
-                            headers={"Content-Type": "application/json"}
-                        )
-                        urllib.request.urlopen(req)
+                        with _comfyui_request("POST", "/queue", timeout=10, json_body={"clear": True}) as response:
+                            response.raise_for_status()
                         self._send_json(200, {"status": "queue cleared"})
                     except Exception as e:
                         self._send_json(500, {"error": str(e)})
@@ -406,7 +427,7 @@ Generate {config['num_prompts']} unique variation(s) and queue them using the AP
                     self._send_json(404, {"error": "Not found"})
 
         try:
-            self._server = HTTPServer(('0.0.0.0', port), RequestHandler)
+            self._server = HTTPServer(('127.0.0.1', port), RequestHandler)
             self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
             self._thread.start()
             print(f"[DonutPromptReceiver] Server started on port {port}")
@@ -461,18 +482,13 @@ Generate {config['num_prompts']} unique variation(s) and queue them using the AP
                 "prompt_id": prompt_id
             }
 
-            req = urllib.request.Request(
-                "http://127.0.0.1:8188/prompt",
-                data=json.dumps(payload).encode('utf-8'),
-                headers={"Content-Type": "application/json"}
-            )
-
-            with urllib.request.urlopen(req) as response:
-                result = json.loads(response.read().decode('utf-8'))
+            with _comfyui_request("POST", "/prompt", timeout=30, json_body=payload) as response:
+                response.raise_for_status()
+                result = response.json()
                 return {"prompt_id": result.get("prompt_id", prompt_id), "status": "queued"}
 
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8')
+        except requests.HTTPError as e:
+            error_body = e.response.text if e.response is not None else str(e)
             try:
                 return json.loads(error_body)
             except:
@@ -485,10 +501,11 @@ Generate {config['num_prompts']} unique variation(s) and queue them using the AP
 
 class DonutPromptReceiver:
     """
-    HTTP API endpoint for receiving prompts.
+    Loopback-only HTTP API endpoint for receiving prompts.
 
     Connect the prompt output to your text input node (e.g., Wildcard Processor).
-    Run the workflow once to register it, then POST prompts to the server.
+    Run the workflow once to register it and start the local-only server, then
+    POST prompts from the same machine.
 
     POST http://localhost:8001/prompt {"prompt": "your text here"}
     """

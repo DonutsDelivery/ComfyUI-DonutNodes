@@ -43,6 +43,16 @@ class PromptReceiverStartupTests(unittest.TestCase):
 
         start.assert_called_once_with(9123)
 
+    def test_server_binds_to_ipv4_loopback(self):
+        module = load_prompt_receiver_module()
+        receiver = module.PromptReceiverServer()
+
+        with mock.patch.object(module, "HTTPServer") as http_server:
+            http_server.return_value.serve_forever = mock.Mock()
+            receiver.start(9124)
+
+        http_server.assert_called_once_with(("127.0.0.1", 9124), mock.ANY)
+
 
 if __name__ == "__main__":
     unittest.main()
