@@ -108,7 +108,8 @@ class FakeExecutor:
     def __init__(self, diffusion_model):
         self.class_obj = diffusion_model
 
-    def __call__(self, x, timesteps, context, attention_mask, transformer_options, **kwargs):
+    def __call__(self, x, timesteps, context, attention_mask, ref_latents,
+                 transformer_options, **kwargs):
         return self.class_obj.txtfusion.projector(context)
 
 
@@ -242,6 +243,7 @@ class ProjectorControlTests(unittest.TestCase):
             None,
             None,
             projector_input,
+            None,
             None,
             patched_model.model_options["transformer_options"],
         )

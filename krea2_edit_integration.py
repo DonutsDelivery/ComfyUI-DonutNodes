@@ -278,11 +278,11 @@ class _Krea2EditWrapper:
         return type(self)(self.source_samples.to(device_or_dtype), self.target_batch)
 
     def __call__(self, executor, x, timesteps, context, attention_mask=None,
-                 transformer_options=None, **kwargs):
+                 ref_latents=None, transformer_options=None, **kwargs):
         diffusion_model = executor.class_obj
 
         def local_forward(x, timesteps, context, attention_mask=None,
-                          transformer_options=None, **kwargs):
+                          ref_latents=None, transformer_options=None, **kwargs):
             return krea2_edit_forward(
                 diffusion_model, x, timesteps, context,
                 self.source_samples, self.target_batch, transformer_options,
@@ -297,7 +297,7 @@ class _Krea2EditWrapper:
             idx=executor.idx + 1,
         )
         return remaining.execute(
-            x, timesteps, context, attention_mask,
+            x, timesteps, context, attention_mask, ref_latents,
             transformer_options or {}, **kwargs,
         )
 
