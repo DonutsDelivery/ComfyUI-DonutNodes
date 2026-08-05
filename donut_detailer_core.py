@@ -10,6 +10,16 @@ selectable via parameters rather than picking one.
 
 import math
 
+try:
+    from .model_lifecycle import offload_models
+except ImportError:
+    from model_lifecycle import offload_models
+
+
+def offload_model_for_auxiliary_stage(model, model_management):
+    """Offload one model family without evicting unrelated ComfyUI models."""
+    offload_models(model_management, model)
+
 
 def filter_segs_by_area(segs, max_count):
     """

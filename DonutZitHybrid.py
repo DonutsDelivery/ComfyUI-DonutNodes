@@ -37,6 +37,7 @@ import comfy.utils
 from comfy.cli_args import args as comfy_args
 
 from .DonutModelSave import _materialize_and_cast
+from .model_lifecycle import offload_models
 
 
 DELTA_PREFIX = "zit_hybrid_delta."
@@ -76,9 +77,7 @@ def _bake_model_state_dict(model):
     comfy.model_management.load_models_gpu([model])
     sd = model.state_dict_for_saving(None, None, None)
     sd = _materialize_and_cast(sd, "original")
-    comfy.model_management.unload_all_models()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    offload_models(comfy.model_management, model)
     gc.collect()
     return sd
 
@@ -378,15 +377,9 @@ class DonutZitHybridSave:
         # 1. Bake both models
         print("[DonutZitHybridSave] baking model_early...")
         sd_early = _bake_model_state_dict(model_early)
-        comfy.model_management.unload_all_models()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
         print("[DonutZitHybridSave] baking model_late...")
         sd_late = _bake_model_state_dict(model_late)
-        comfy.model_management.unload_all_models()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
 
         # 2. Compute delta LoRA via SVD
         print(f"[DonutZitHybridSave] computing delta LoRA (rank {rank})...")

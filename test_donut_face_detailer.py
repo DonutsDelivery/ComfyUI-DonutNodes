@@ -6,6 +6,10 @@ import unittest
 
 import numpy as np
 import torch
+import donut_detailer_core as lifecycle_core
+
+
+lifecycle_calls = []
 
 
 class FakeModel:
@@ -64,6 +68,9 @@ fake_nodes.MAX_RESOLUTION = 16384
 fake_detailer_core = types.ModuleType("donut_detailer_core")
 fake_detailer_core.scale_to_megapixels = lambda w, h, resolution, maximum: (w, h)
 fake_detailer_core.sample_and_decode = lambda *args, **kwargs: args[0]
+fake_detailer_core.offload_model_for_auxiliary_stage = (
+    lambda model, model_management: lifecycle_calls.append(model)
+)
 
 fake_krea = types.ModuleType("krea2_edit_integration")
 fake_krea.crop_image_padding = lambda image, padding: image
@@ -148,6 +155,7 @@ finally:
 
 class DonutFaceDetailerTests(unittest.TestCase):
     def setUp(self):
+        lifecycle_calls.clear()
         self.original_prepare = module.prepare_krea2_edit
         self.original_sample = module.sample_and_decode
         self.original_dd = module.nodes_differential_diffusion.DifferentialDiffusion
@@ -299,6 +307,38 @@ class DonutFaceDetailerTests(unittest.TestCase):
 
         self.assertEqual(sampled, [40])
         self.assertTrue(np.any(large.cropped_mask))
+
+    def test_detection_offloads_only_the_active_model_family(self):
+        detector = FakeDetector([])
+        model = FakeModel("base")
+
+        module.DonutFaceDetailer.enhance_face(**self.face_kwargs(
+            detector, model=model,
+        ))
+
+        self.assertEqual(lifecycle_calls, [model])
+
+    def test_targeted_offload_uses_current_comfy_api(self):
+        calls = []
+        manager = types.SimpleNamespace(
+            unload_model_and_clones=lambda model: calls.append(("targeted", model)),
+            unload_all_models=lambda: calls.append(("global", None)),
+        )
+        model = object()
+
+        lifecycle_core.offload_model_for_auxiliary_stage(model, manager)
+
+        self.assertEqual(calls, [("targeted", model)])
+
+    def test_targeted_offload_has_legacy_fallback(self):
+        calls = []
+        manager = types.SimpleNamespace(
+            unload_all_models=lambda: calls.append("global"),
+        )
+
+        lifecycle_core.offload_model_for_auxiliary_stage(object(), manager)
+
+        self.assertEqual(calls, ["global"])
 
     def test_segmentation_override_is_sorted_limited_and_detects_reference(self):
         reference_large = FakeSegment("reference-large", (0, 0, 45, 45))

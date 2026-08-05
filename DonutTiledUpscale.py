@@ -22,42 +22,56 @@ except ImportError:
 
 def upscale_with_model(upscale_model, image):
     """Upscale image using a model (adapted from ComfyUI's ImageUpscaleWithModel)"""
-    device = model_management.get_torch_device()
+    patcher = getattr(upscale_model, "patcher", None)
+    device = patcher.load_device if patcher is not None else model_management.get_torch_device()
 
-    memory_required = model_management.module_size(upscale_model.model)
+    memory_required = 0
+    if patcher is None:
+        memory_required = model_management.module_size(upscale_model.model)
     memory_required += (512 * 512 * 3) * image.element_size() * max(upscale_model.scale, 1.0) * 384.0
     memory_required += image.nelement() * image.element_size()
-    model_management.free_memory(memory_required, device)
+    if patcher is not None:
+        model_management.load_models_gpu([patcher], memory_required=memory_required)
+    else:
+        # Compatibility with upscale models created before ComfyUI added patchers.
+        model_management.free_memory(memory_required, device)
+        upscale_model.to(device)
 
-    upscale_model.to(device)
     in_img = image.movedim(-1, -3).to(device)
 
     tile = 512
     overlap = 32
+    output_device = model_management.intermediate_device()
 
     oom = True
-    while oom:
-        try:
-            steps = in_img.shape[0] * comfy.utils.get_tiled_scale_steps(
-                in_img.shape[3], in_img.shape[2], tile_x=tile, tile_y=tile, overlap=overlap
-            )
-            pbar = comfy.utils.ProgressBar(steps)
-            s = comfy.utils.tiled_scale(
-                in_img,
-                lambda a: upscale_model(a),
-                tile_x=tile, tile_y=tile,
-                overlap=overlap,
-                upscale_amount=upscale_model.scale,
-                pbar=pbar
-            )
-            oom = False
-        except model_management.OOM_EXCEPTION as e:
-            tile //= 2
-            if tile < 128:
-                raise e
+    try:
+        while oom:
+            try:
+                steps = in_img.shape[0] * comfy.utils.get_tiled_scale_steps(
+                    in_img.shape[3], in_img.shape[2], tile_x=tile, tile_y=tile, overlap=overlap
+                )
+                pbar = comfy.utils.ProgressBar(steps)
+                s = comfy.utils.tiled_scale(
+                    in_img,
+                    lambda a: upscale_model(a.float()),
+                    tile_x=tile, tile_y=tile,
+                    overlap=overlap,
+                    upscale_amount=upscale_model.scale,
+                    output_device=output_device,
+                    pbar=pbar,
+                )
+                oom = False
+            except Exception as e:
+                model_management.raise_non_oom(e)
+                tile //= 2
+                if tile < 128:
+                    raise e
+    finally:
+        if patcher is None:
+            upscale_model.to("cpu")
 
-    upscale_model.to("cpu")
     s = torch.clamp(s.movedim(-3, -1), min=0, max=1.0)
+    s = s.to(model_management.intermediate_dtype())
     return s
 
 
@@ -556,13 +570,11 @@ class DonutTiledUpscale:
             # Create weight map for blending
             weight_map = Image.new('L', (output_width, output_height), 0)
 
-            tile_idx = 0
             pbar = comfy.utils.ProgressBar(total_tiles)
+            tile_records = []
 
             for ty in range(num_tiles_y):
                 for tx in range(num_tiles_x):
-                    tile_idx += 1
-
                     # Calculate tile coordinates
                     x1 = tx * step_x
                     y1 = ty * step_y
@@ -575,64 +587,88 @@ class DonutTiledUpscale:
                     # Convert to tensor for VAE encoding
                     tile_tensor = pil_to_tensor(tile)
 
-                    sampling_model = model
-                    sampling_positive = positive
-                    sampling_negative = negative
-                    if edit_mode:
-                        assert edit_source_image is not None
-                        reference_index = min(b, len(edit_source_image) - 1)
-                        reference_tile = edit_source_image[reference_index].unsqueeze(0)
-                        sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
-                            edit_model if edit_model is not None else model,
-                            clip, vae, reference_tile, edit_prompt,
-                            edit_negative_prompt, grounding_px,
-                            tile_width, tile_height,
-                        )
-                        latent = vae_encoder.encode(vae, tile_tensor)[0]
-                    else:
-                        # Encode to latent for regular img2img sampling.
-                        latent = vae_encoder.encode(vae, tile_tensor)[0]
+                    tile_records.append({
+                        "tile_idx": len(tile_records) + 1,
+                        "tx": tx,
+                        "ty": ty,
+                        "x1": x1,
+                        "y1": y1,
+                        "tile_tensor": tile_tensor,
+                    })
 
-                    # Sample using the same approach as core KSampler
-                    latent_image = latent["samples"]
-                    latent_image = comfy.sample.fix_empty_latent_channels(sampling_model, latent_image)
-
-                    # Prepare noise
-                    noise = comfy.sample.prepare_noise(latent_image, seed + tile_idx)
-
-                    # Sample
-                    callback = latent_preview.prepare_callback(sampling_model, steps)
-                    samples = comfy.sample.sample(
-                        sampling_model, noise, steps, cfg, sampler_name, scheduler,
-                        sampling_positive, sampling_negative, latent_image,
-                        denoise=denoise,
-                        disable_noise=False,
-                        start_step=None,
-                        last_step=None,
-                        force_full_denoise=False,
-                        noise_mask=None,
-                        callback=callback,
-                        disable_pbar=True,
-                        seed=seed + tile_idx
+            # Encode all tiles before sampling so the VAE remains resident.
+            for record in tile_records:
+                sampling_model = model
+                sampling_positive = positive
+                sampling_negative = negative
+                if edit_mode:
+                    assert edit_source_image is not None
+                    reference_index = min(b, len(edit_source_image) - 1)
+                    reference_tile = edit_source_image[reference_index].unsqueeze(0)
+                    sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
+                        edit_model if edit_model is not None else model,
+                        clip, vae, reference_tile, edit_prompt,
+                        edit_negative_prompt, grounding_px,
+                        tile_width, tile_height,
                     )
+                latent = vae_encoder.encode(vae, record.pop("tile_tensor"))[0]
+                record["model"] = sampling_model
+                record["positive"] = sampling_positive
+                record["negative"] = sampling_negative
+                record["latent"] = latent
 
-                    # Decode
-                    sampled_latent = {"samples": samples}
-                    if tiled_vae and not edit_mode:
-                        decoded = vae_decoder.decode(vae, sampled_latent, 512)[0]
-                    else:
-                        decoded = vae_decoder.decode(vae, sampled_latent)[0]
+            # Sample all tiles before decoding so the diffusion model remains resident.
+            for record in tile_records:
+                sampling_model = record.pop("model")
+                latent = record.pop("latent")
+                # Sample using the same approach as core KSampler
+                latent_image = latent["samples"]
+                latent_image = comfy.sample.fix_empty_latent_channels(sampling_model, latent_image)
 
-                    # Convert back to PIL
-                    sampled_tile = tensor_to_pil(decoded, 0)
+                # Prepare noise
+                tile_seed = seed + record["tile_idx"]
+                noise = comfy.sample.prepare_noise(latent_image, tile_seed)
 
-                    # Blend tile into result with feathered edges
-                    tile_mask = self._create_blend_mask(tile_width, tile_height, overlap_x, overlap_y,
-                                                        tx == 0, ty == 0,
-                                                        tx == num_tiles_x - 1, ty == num_tiles_y - 1)
-                    result_image = self._blend_tile(result_image, sampled_tile, x1, y1, tile_mask, weight_map)
+                # Sample
+                callback = latent_preview.prepare_callback(sampling_model, steps)
+                samples = comfy.sample.sample(
+                    sampling_model, noise, steps, cfg, sampler_name, scheduler,
+                    record.pop("positive"), record.pop("negative"), latent_image,
+                    denoise=denoise,
+                    disable_noise=False,
+                    start_step=None,
+                    last_step=None,
+                    force_full_denoise=False,
+                    noise_mask=None,
+                    callback=callback,
+                    disable_pbar=True,
+                    seed=tile_seed
+                )
+                record["samples"] = samples
 
-                    pbar.update(1)
+            # Decode and blend after sampling so the VAE is loaded only once more.
+            for record in tile_records:
+                # Decode
+                sampled_latent = {"samples": record.pop("samples")}
+                if tiled_vae and not edit_mode:
+                    decoded = vae_decoder.decode(vae, sampled_latent, 512)[0]
+                else:
+                    decoded = vae_decoder.decode(vae, sampled_latent)[0]
+
+                # Convert back to PIL
+                sampled_tile = tensor_to_pil(decoded, 0)
+
+                # Blend tile into result with feathered edges
+                tile_mask = self._create_blend_mask(tile_width, tile_height, overlap_x, overlap_y,
+                                                    record["tx"] == 0, record["ty"] == 0,
+                                                    record["tx"] == num_tiles_x - 1,
+                                                    record["ty"] == num_tiles_y - 1)
+                result_image = self._blend_tile(
+                    result_image, sampled_tile,
+                    record["x1"], record["y1"], tile_mask, weight_map,
+                )
+
+                pbar.update(1)
 
             # Convert result back to tensor
             result_tensor = pil_to_tensor(result_image)
