@@ -308,18 +308,25 @@ def krea2_fusion_control_wrapper(
     timesteps,
     context,
     attention_mask,
-    transformer_options,
+    ref_latents=None,
+    transformer_options=None,
     **kwargs,
 ):
     transformer_options = transformer_options or {}
     config = transformer_options.get(CONFIG_KEY)
     if not config or config.get("_active"):
-        return executor(x, timesteps, context, attention_mask, transformer_options, **kwargs)
+        return executor(
+            x, timesteps, context, attention_mask, ref_latents,
+            transformer_options, **kwargs,
+        )
 
     diffusion_model = executor.class_obj
     if not _is_krea2_diffusion_model(diffusion_model):
         if "projector_gains" not in config:
-            return executor(x, timesteps, context, attention_mask, transformer_options, **kwargs)
+            return executor(
+                x, timesteps, context, attention_mask, ref_latents,
+                transformer_options, **kwargs,
+            )
         raise RuntimeError("Donut Krea2 Fusion Control requires a Krea 2 diffusion model")
 
     txtfusion = diffusion_model.txtfusion
@@ -364,7 +371,10 @@ def krea2_fusion_control_wrapper(
 
     config["_active"] = True
     try:
-        return executor(x, timesteps, context, attention_mask, transformer_options, **kwargs)
+        return executor(
+            x, timesteps, context, attention_mask, ref_latents,
+            transformer_options, **kwargs,
+        )
     finally:
         projector.forward = original_projector_forward
         if original_txtfusion_forward is not None:

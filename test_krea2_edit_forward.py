@@ -287,13 +287,15 @@ class Krea2EditForwardTests(unittest.TestCase):
 
         def sentinel(name):
             def wrapped(executor, x, timesteps, context,
-                        attention_mask=None, transformer_options=None, **kwargs):
+                        attention_mask=None, ref_latents=None,
+                        transformer_options=None, **kwargs):
                 events.append(f"{name}:in")
                 result = executor(
                     x=x,
                     timesteps=timesteps,
                     context=context,
                     attention_mask=attention_mask,
+                    ref_latents=ref_latents,
                     transformer_options=transformer_options,
                     **kwargs,
                 )
@@ -336,6 +338,7 @@ class Krea2EditForwardTests(unittest.TestCase):
             torch.tensor([2.0]),
             torch.tensor([[[10.0]]]),
             None,
+            None,
             repatched.model_options["transformer_options"],
         )
 
@@ -347,6 +350,45 @@ class Krea2EditForwardTests(unittest.TestCase):
             ],
         )
         self.assertEqual(float(output.item()), 30.0)
+
+    def test_wrapper_forwards_ref_latents_in_current_comfyui_signature(self):
+        received = {}
+
+        def downstream(executor, x, timesteps, context, attention_mask=None,
+                       ref_latents=None, transformer_options=None, **kwargs):
+            received.update(
+                attention_mask=attention_mask,
+                ref_latents=ref_latents,
+                transformer_options=transformer_options,
+                kwargs=kwargs,
+            )
+            return "downstream-result"
+
+        wrapper = module._Krea2EditWrapper(
+            torch.ones(1, 1, 1, 1), target_batch=1,
+        )
+        executor = FakeWrapperExecutor.new_class_executor(
+            lambda *args, **kwargs: self.fail("native forward should be replaced"),
+            FakeDiffusionModel(),
+            [wrapper, downstream],
+        )
+        ref_latents = {"samples": torch.ones(1, 1, 1, 1)}
+
+        result = executor.execute(
+            torch.ones(1, 1, 1, 1),
+            torch.tensor([2.0]),
+            torch.ones(1, 1, 1),
+            "attention-mask",
+            ref_latents,
+            {"current": True},
+            extra=True,
+        )
+
+        self.assertEqual(result, "downstream-result")
+        self.assertIs(received["ref_latents"], ref_latents)
+        self.assertEqual(received["attention_mask"], "attention-mask")
+        self.assertEqual(received["transformer_options"], {"current": True})
+        self.assertEqual(received["kwargs"], {"extra": True})
 
 
 if __name__ == "__main__":
