@@ -17,9 +17,17 @@ from nodes import MAX_RESOLUTION
 
 # Shared detailer helpers (extracted to remove duplication; behavior-identical)
 try:
-    from .donut_detailer_core import scale_to_megapixels, sample_and_decode
+    from .donut_detailer_core import (
+        offload_model_for_auxiliary_stage,
+        sample_and_decode,
+        scale_to_megapixels,
+    )
 except ImportError:
-    from donut_detailer_core import scale_to_megapixels, sample_and_decode
+    from donut_detailer_core import (
+        offload_model_for_auxiliary_stage,
+        sample_and_decode,
+        scale_to_megapixels,
+    )
 
 try:
     from .krea2_edit_integration import (
@@ -307,10 +315,8 @@ if IMPACT_AVAILABLE:
                          edit_negative_prompt="", grounding_px=768, edit_model=None,
                          face_reference=None, vary_seed_per_face=False):
 
-            # Unload diffusion model before detection to free VRAM for SAM/detector
-            comfy.model_management.unload_all_models()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # Free the diffusion model for detection without evicting unrelated models.
+            offload_model_for_auxiliary_stage(model, comfy.model_management)
 
             if edit_mode and face_reference is None:
                 raise ValueError("DonutFaceDetailer edit_mode requires face_reference.")
@@ -380,11 +386,6 @@ if IMPACT_AVAILABLE:
                     raise ValueError(
                         "DonutFaceDetailer found no face in face_reference."
                     )
-
-            # Unload detection models before inpainting to free VRAM
-            comfy.model_management.unload_all_models()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
             # Process each segment with megapixel-based sizing
             if len(segs[1]) > 0:

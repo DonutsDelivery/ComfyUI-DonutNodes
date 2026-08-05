@@ -17,9 +17,17 @@ from nodes import MAX_RESOLUTION
 
 # Shared detailer helpers (extracted to remove duplication; behavior-identical)
 try:
-    from .donut_detailer_core import filter_segs_by_area, sample_and_decode
+    from .donut_detailer_core import (
+        filter_segs_by_area,
+        offload_model_for_auxiliary_stage,
+        sample_and_decode,
+    )
 except ImportError:
-    from donut_detailer_core import filter_segs_by_area, sample_and_decode
+    from donut_detailer_core import (
+        filter_segs_by_area,
+        offload_model_for_auxiliary_stage,
+        sample_and_decode,
+    )
 
 # Import from Impact Pack
 try:
@@ -430,10 +438,8 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
             original_h, original_w = image.shape[1], image.shape[2]
             target_pixels = resolution * resolution
 
-            # 1. Unload diffusion model before detection
-            comfy.model_management.unload_all_models()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # 1. Free the diffusion model without evicting unrelated models.
+            offload_model_for_auxiliary_stage(model, comfy.model_management)
 
             # 2. Run Florence-2 detection on original image
             image_pil = tensor_to_pil(image)
@@ -466,11 +472,6 @@ if IMPACT_AVAILABLE and FLORENCE2_AVAILABLE:
                     0.93, 0, 0.7, "False"
                 )
                 segs = core.segs_bitwise_and_mask(segs, sam_mask)
-
-            # 7. Unload detection model before sampling
-            comfy.model_management.unload_all_models()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
 
             # 8. Pre-scale optimization
             if upscale_full_image:

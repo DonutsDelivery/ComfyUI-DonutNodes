@@ -23,6 +23,11 @@ import comfy.sd
 import comfy.utils
 from comfy.cli_args import args
 
+try:
+    from .model_lifecycle import offload_models
+except ImportError:
+    from model_lifecycle import offload_models
+
 
 DTYPE_OPTIONS = ["original", "fp8_e4m3fn", "fp8_e5m2", "fp16", "bf16", "fp32"]
 
@@ -105,9 +110,6 @@ def _materialize_and_cast(sd, dtype):
         # Drop the original entry so we release the wrapper promptly.
         sd[k] = None
 
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
     return out
 
 
@@ -149,10 +151,8 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
     # Materialize lazy wrappers, optionally cast dtype, ensure contiguous.
     sd = _materialize_and_cast(sd, dtype)
 
-    # Free GPU once we have CPU copies of everything.
-    comfy.model_management.unload_all_models()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    # Free only the model families materialized by this save operation.
+    offload_models(comfy.model_management, *load_models)
 
     comfy.utils.save_torch_file(sd, output_path, metadata=metadata)
 
