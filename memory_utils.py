@@ -11,6 +11,32 @@ from typing import Dict, Optional
 import threading
 import warnings
 
+# Rate limiting for CUDA cache flushes (hot-path safety).
+# Calling empty_cache() in hot paths forces the caching allocator to release
+# blocks to the driver, causing churn and driver-level GEM/mmap pressure.
+_EMPTY_CACHE_MIN_INTERVAL = 2.0  # seconds between allowed flushes
+_EMPTY_CACHE_MIN_FREE_GB = 2.0   # skip flush when at least this much VRAM is free
+_last_empty_cache_time = 0.0
+
+
+def _soft_empty_cache(force=False):
+    """Rate-limited torch.cuda.empty_cache() for hot paths."""
+    if not torch.cuda.is_available():
+        return
+    global _last_empty_cache_time
+    now = time.monotonic()
+    if not force and (now - _last_empty_cache_time) < _EMPTY_CACHE_MIN_INTERVAL:
+        return
+    try:
+        free_gb = torch.cuda.mem_get_info()[0] / (1024 ** 3)
+        if not force and free_gb > _EMPTY_CACHE_MIN_FREE_GB:
+            return
+    except Exception:
+        pass
+    _last_empty_cache_time = now
+    torch.cuda.empty_cache()
+
+
 class MemoryProfiler:
     """Lightweight memory profiler for WIDEN merge operations"""
     
@@ -61,6 +87,9 @@ class MemoryProfiler:
             'vram_delta': vram_delta
         }
         
+        # Bound the event history so long merges cannot grow it without limit.
+        if len(self.events) >= 1000:
+            self.events.pop(0)
         self.events.append(event)
         # Verbose memory logging disabled for cleaner output
         # print(f"[{self.name}] {event_name}: RAM {current_ram:.2f}GB ({ram_delta:+.2f}), VRAM {current_vram:.2f}GB ({vram_delta:+.2f})")
@@ -116,17 +145,15 @@ def optimize_tensor_operations(func):
     def wrapper(*args, **kwargs):
         # Force garbage collection before operation
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        _soft_empty_cache()
             
         # Run operation with memory optimization
         with torch.no_grad():
             result = func(*args, **kwargs)
             
-        # Cleanup after operation
+        # Cleanup after operation (rate-limited to avoid allocator churn)
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        _soft_empty_cache()
             
         return result
     return wrapper
@@ -171,8 +198,7 @@ def batch_process_parameters(param_dict: Dict[str, torch.Tensor],
         # Cleanup between batches
         del batch_dict
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        _soft_empty_cache()
             
         if i % (batch_size * 5) == 0:  # Progress every 5 batches
             pass  # Progress tracking disabled for cleaner output

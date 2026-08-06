@@ -722,32 +722,40 @@ class DonutTiledUpscale:
         return Image.fromarray(mask_array.astype(np.uint8))
 
     def _blend_tile(self, result, tile, x, y, tile_mask, weight_map):
-        """Blend a tile into the result image using weighted averaging"""
+        """Blend a tile into the result image using weighted averaging.
+
+        Same float32 math as before, computed with torch tensors to avoid
+        repeated full-tile numpy temporaries per blend operation.
+        """
         # Get the region from result
         region = result.crop((x, y, x + tile.width, y + tile.height))
         existing_weight = weight_map.crop((x, y, x + tile.width, y + tile.height))
 
-        # Convert to numpy for blending
-        region_arr = np.array(region, dtype=np.float32)
-        tile_arr = np.array(tile, dtype=np.float32)
-        mask_arr = np.array(tile_mask, dtype=np.float32) / 255.0
-        existing_arr = np.array(existing_weight, dtype=np.float32)
+        # Convert to float32 tensors (uint8 -> float32 copy, as before)
+        region_t = torch.from_numpy(np.asarray(region, dtype=np.float32))
+        tile_t = torch.from_numpy(np.asarray(tile, dtype=np.float32))
+        mask_t = torch.from_numpy(np.asarray(tile_mask, dtype=np.float32)) / 255.0
+        existing_t = torch.from_numpy(np.asarray(existing_weight, dtype=np.float32))
 
         # Weighted blend
-        new_weight = existing_arr + mask_arr * 255.0
+        new_weight = existing_t + mask_t * 255.0
 
-        # Avoid division by zero
-        blend_factor = np.where(new_weight > 0,
-                                (mask_arr * 255.0) / np.maximum(new_weight, 1.0),
-                                1.0)
+        # Avoid division by zero: torch.where matches numpy.where semantics
+        # (1.0 where new_weight <= 0).
+        blend_factor = torch.where(
+            new_weight > 0,
+            (mask_t * 255.0) / torch.clamp(new_weight, min=1.0),
+            torch.ones_like(new_weight),
+        )
 
-        # Blend
-        blended = region_arr * (1 - blend_factor[:, :, np.newaxis]) + tile_arr * blend_factor[:, :, np.newaxis]
-        blended = np.clip(blended, 0, 255).astype(np.uint8)
+        # Blend (same truncating uint8 cast as numpy .astype(np.uint8))
+        blended = region_t * (1.0 - blend_factor.unsqueeze(-1)) + tile_t * blend_factor.unsqueeze(-1)
+        blended = torch.clamp(blended, 0, 255).to(torch.uint8)
+        new_weight_u8 = torch.clamp(new_weight, 0, 255).to(torch.uint8)
 
         # Update result and weight map
-        result.paste(Image.fromarray(blended), (x, y))
-        weight_map.paste(Image.fromarray(np.clip(new_weight, 0, 255).astype(np.uint8)), (x, y))
+        result.paste(Image.fromarray(blended.numpy()), (x, y))
+        weight_map.paste(Image.fromarray(new_weight_u8.numpy()), (x, y))
 
         return result
 

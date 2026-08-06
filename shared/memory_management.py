@@ -22,7 +22,40 @@ except ImportError:
 _TENSOR_BUFFER_CACHE = {}
 _MERGE_CACHE = {}
 _CACHE_MAX_SIZE = 3  # Reduced from 10 to prevent memory bloat
+_TENSOR_BUFFER_CACHE_MAX_SIZE = 8  # Cap for the reusable-buffer cache
 _WIDEN_MEMORY_PROFILER = None
+_EMPTY_CACHE_MAX_EVENTS = 1000  # Cap profiler event history
+
+# Rate limiting for CUDA cache flushes (hot-path safety).
+_EMPTY_CACHE_MIN_INTERVAL = 2.0  # seconds between allowed flushes
+_EMPTY_CACHE_MIN_FREE_GB = 2.0   # skip flush when at least this much VRAM is free
+_last_empty_cache_time = 0.0
+
+
+def soft_empty_cache(force=False):
+    """Rate-limited torch.cuda.empty_cache().
+
+    Calling empty_cache() in hot paths forces the CUDA caching allocator to
+    release blocks back to the driver, causing churn, fragmentation, and
+    driver-level GEM/mmap pressure (NVKMS "Failed to allocate GEM object",
+    NVRM "invalid mmap context"). This helper only flushes when it is likely
+    to matter: at most once every _EMPTY_CACHE_MIN_INTERVAL seconds and only
+    when free VRAM is below _EMPTY_CACHE_MIN_FREE_GB (or force=True).
+    """
+    if not torch.cuda.is_available():
+        return
+    global _last_empty_cache_time
+    now = time.monotonic()
+    if not force and (now - _last_empty_cache_time) < _EMPTY_CACHE_MIN_INTERVAL:
+        return
+    try:
+        free_gb = torch.cuda.mem_get_info()[0] / (1024 ** 3)
+        if not force and free_gb > _EMPTY_CACHE_MIN_FREE_GB:
+            return
+    except Exception:
+        pass
+    _last_empty_cache_time = now
+    torch.cuda.empty_cache()
 
 
 class MemoryExhaustionError(Exception):
@@ -35,27 +68,28 @@ class MemoryEfficientContext:
     def __init__(self, operation_name="tensor_operation"):
         self.operation_name = operation_name
         self.initial_memory = None
-        
+
     def __enter__(self):
         # Pre-emptive cleanup before large operations
         import gc
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        soft_empty_cache()
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # Cleanup after operations
+        # Cleanup after operations (rate-limited to avoid allocator churn)
         import gc
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        soft_empty_cache()
 
 
 def get_reusable_tensor_buffer(shape, dtype=torch.float32, device='cpu'):
     """Get a reusable tensor buffer to avoid repeated allocations"""
     key = (tuple(shape), dtype, device)
     if key not in _TENSOR_BUFFER_CACHE:
+        # Bound the cache so it cannot grow without limit.
+        if len(_TENSOR_BUFFER_CACHE) >= _TENSOR_BUFFER_CACHE_MAX_SIZE:
+            _TENSOR_BUFFER_CACHE.pop(next(iter(_TENSOR_BUFFER_CACHE)))
         _TENSOR_BUFFER_CACHE[key] = torch.empty(shape, dtype=dtype, device=device)
     else:
         # Reuse existing buffer, just zero it out if needed
@@ -70,8 +104,7 @@ def clear_tensor_buffer_cache():
     """Clear the tensor buffer cache to free memory"""
     global _TENSOR_BUFFER_CACHE
     _TENSOR_BUFFER_CACHE.clear()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    soft_empty_cache(force=True)
 
 
 def clear_session_cache():
@@ -82,8 +115,7 @@ def clear_session_cache():
         _MERGE_CACHE.clear()
         # Light cleanup after cache clear
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        soft_empty_cache(force=True)
 
 
 def monitor_memory(label=""):
@@ -128,9 +160,8 @@ def check_memory_safety():
 def force_cleanup():
     """Conservative memory cleanup to prevent CUDA allocator conflicts"""
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        # Removed torch.cuda.synchronize() to prevent allocator conflicts
+    soft_empty_cache()
+    # Removed torch.cuda.synchronize() to prevent allocator conflicts
 
 
 def gentle_cleanup():
@@ -155,8 +186,8 @@ def aggressive_memory_cleanup():
     gc.collect()
     
     # Clear CUDA cache if available
+    soft_empty_cache(force=True)
     if torch.cuda.is_available():
-        torch.cuda.empty_cache()
         torch.cuda.synchronize()  # Ensure all operations complete
 
 
@@ -241,6 +272,9 @@ class MemoryProfiler:
             'vram_delta': vram_delta
         }
         
+        # Bound the event history so long merges cannot grow it without limit.
+        if len(self.events) >= _EMPTY_CACHE_MAX_EVENTS:
+            self.events.pop(0)
         self.events.append(event)
         # Verbose memory logging disabled for cleaner output
         # print(f"[{self.name}] {event_name}: RAM {current_ram:.2f}GB ({ram_delta:+.2f}), VRAM {current_vram:.2f}GB ({vram_delta:+.2f})")
@@ -321,7 +355,8 @@ def ultra_memory_efficient_widen_merge(
     # Process each parameter individually to minimize memory usage
     for param_idx, param_name in enumerate(param_names_to_merge):
         try:
-            # Get base parameter
+            # Get base parameter (float32 copy on the storage device, as in
+            # the original implementation, to preserve merge numerics).
             base_param = None
             for name, param in merged_model.named_parameters():
                 if name == param_name:
@@ -333,7 +368,9 @@ def ultra_memory_efficient_widen_merge(
             if base_param is None:
                 continue
             
-            # Create deltas one at a time
+            # Create deltas one at a time on the storage device; accumulate
+            # the weighted sum on the compute device incrementally instead of
+            # stacking every delta in GPU memory.
             delta_tensors = []
             for model_to_merge in models_to_merge:
                 other_param = None
@@ -346,7 +383,7 @@ def ultra_memory_efficient_widen_merge(
                 
                 if other_param is not None:
                     delta = other_param - base_param
-                    delta_tensors.append(delta.to(computation_device))
+                    delta_tensors.append(delta)
                     del other_param
             
             if not delta_tensors:
@@ -356,30 +393,46 @@ def ultra_memory_efficient_widen_merge(
             
             # Simple weighted merge (simplified WIDEN)
             with torch.no_grad():
-                deltas_tensor = torch.stack(delta_tensors, dim=0)
-                
-                # Simplified importance scoring
-                if deltas_tensor.dim() > 1:
-                    magnitudes = torch.norm(deltas_tensor, p=2, dim=tuple(range(1, deltas_tensor.dim())))
+                # The original code stacked the deltas and branched on the
+                # stacked tensor's dim: stacked dim > 1 (i.e. per-delta
+                # dim > 0) takes the magnitude/importance path; only scalar
+                # deltas (0-dim) take the mean path.
+                if delta_tensors[0].dim() > 0:
+                    magnitudes = torch.zeros(len(delta_tensors), device=storage_device, dtype=torch.float32)
+                    for i, delta in enumerate(delta_tensors):
+                        magnitudes[i] = torch.norm(delta, p=2)
                     importance_scores = magnitudes / (magnitudes.max() + 1e-8)
-                    
+
                     # Apply importance boost to top features
                     top_k = max(1, int(len(importance_scores) * importance_threshold / 100.0))
                     top_indices = torch.argsort(importance_scores, descending=True)[:top_k]
-                    
+
                     weights = torch.ones_like(importance_scores) * 0.1
                     weights[top_indices] = importance_boost
-                    
+
                     # Weighted merge
-                    weighted_deltas = deltas_tensor * weights.view(-1, *([1] * (deltas_tensor.dim() - 1)))
-                    merged_delta = weighted_deltas.sum(dim=0)
+                    merged_delta = None
+                    for i, delta in enumerate(delta_tensors):
+                        w = weights[i]
+                        delta_c = delta.to(computation_device) * w
+                        merged_delta = delta_c if merged_delta is None else merged_delta + delta_c
+                        del delta_c
                 else:
-                    merged_delta = deltas_tensor.mean(dim=0)
-                
+                    merged_delta = None
+                    for delta in delta_tensors:
+                        delta_c = delta.to(computation_device)
+                        merged_delta = delta_c if merged_delta is None else merged_delta + delta_c
+                        del delta_c
+                    # Original code stacked the deltas and took mean over the
+                    # model axis (dim 0); accumulating then dividing by the
+                    # model count is the same operation without the stack.
+                    if merged_delta is not None:
+                        merged_delta = merged_delta / len(delta_tensors)
+
                 merged_param = base_param.to(computation_device) + merged_delta * base_merge_strength
                 merged_params[param_name] = merged_param.to(target_device)
-                
-                del deltas_tensor, delta_tensors, merged_delta, merged_param
+
+                del delta_tensors, merged_delta, merged_param
             
             processed_count += 1
             
@@ -388,8 +441,7 @@ def ultra_memory_efficient_widen_merge(
                 current_memory = psutil.virtual_memory().used / (1024**3)
                 peak_memory = max(peak_memory, current_memory)
                 gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                soft_empty_cache()
                 print(f"[ULTRA MEMORY] Progress: {param_idx}/{len(param_names_to_merge)}, RAM: {current_memory:.2f}GB")
             
         except Exception as e:

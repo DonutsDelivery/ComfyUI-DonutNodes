@@ -30,7 +30,7 @@ try:
     from .merge_strength import _compatibility_to_merge_strength, get_adaptive_skip_threshold
     from .memory_management import (
         MemoryEfficientContext, gentle_cleanup, force_cleanup,
-        monitor_memory_usage, get_widen_memory_profiler
+        monitor_memory_usage, get_widen_memory_profiler, soft_empty_cache
     )
     from .utility_functions import (
         _analyze_compatibility_patterns_and_recommend_threshold,
@@ -60,7 +60,7 @@ except ImportError:
     from shared.merge_strength import _compatibility_to_merge_strength, get_adaptive_skip_threshold
     from shared.memory_management import (
         MemoryEfficientContext, gentle_cleanup, force_cleanup,
-        monitor_memory_usage, get_widen_memory_profiler
+        monitor_memory_usage, get_widen_memory_profiler, soft_empty_cache
     )
     from shared.utility_functions import (
         _analyze_compatibility_patterns_and_recommend_threshold,
@@ -358,8 +358,7 @@ def enhanced_widen_merging_with_dynamic_strength(
     monitor_memory_usage("POST-TASKVECTOR")
     import gc
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    soft_empty_cache()
     monitor_memory_usage("POST-TASKVECTOR-CLEANUP")
     
     # MEMORY OPTIMIZATION: Don't create full parameter copy - access original model directly
@@ -1264,8 +1263,7 @@ def _merge_param_magnitude_direction_with_dynamic_strength(
                 # Force aggressive cleanup but don't stop
                 import gc
                 gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+                soft_empty_cache(force=True)
             return ram_available_gb
         except:
             return 4.0  # Assume sufficient if can't check

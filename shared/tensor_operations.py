@@ -566,18 +566,15 @@ def _compute_importance_scores_core(input_significance_tensor: torch.Tensor,
     # Uniform scores fallback (always computed, selected by mask)
     uniform_scores = torch.full_like(input_significance_tensor, 1.0 / input_significance_tensor.numel())
     
-    # Non-uniform scores path - compute softmax scores
-    # Handle dimension cases using tensor operations instead of if/else
-    dim_0_softmax = torch.softmax(input_significance_tensor, dim=0)  # Multi-model case
-    dim_1_softmax = torch.softmax(input_significance_tensor, dim=1)  # Single model case
-    
-    # Select appropriate softmax based on tensor dimensions (pure tensor operation)
+    # Compute only the softmax axis actually needed: single-model tensors
+    # (2D with batch 1) softmax over the feature axis, multi-model tensors
+    # softmax over the model axis. The branch depends only on shape, so it is
+    # safe under vmap and avoids allocating the unused softmax entirely.
     is_single_model = (input_significance_tensor.dim() == 2) and (input_significance_tensor.size(0) == 1)
-    importance_scores = torch.where(
-        torch.tensor(is_single_model, device=input_significance_tensor.device),
-        dim_1_softmax,
-        dim_0_softmax
-    )
+    if is_single_model:
+        importance_scores = torch.softmax(input_significance_tensor, dim=1)
+    else:
+        importance_scores = torch.softmax(input_significance_tensor, dim=0)
     
     # Apply above-average boost (pure tensor operations)
     if above_average_value_ratio != 1.0 and above_average_value_ratio > 0.0:
