@@ -28,6 +28,14 @@ python -m pip install -r requirements.txt
 
 Run the install command with the same Python interpreter that launches ComfyUI.
 
+## Optional companion packages
+
+- [ComfyUI-DonutLocalAutomation](https://github.com/DonutsDelivery/ComfyUI-DonutLocalAutomation) provides the local-only Prompt Receiver and Image Reporter nodes.
+- [ComfyUI-DonutCivitaiLocal](https://github.com/DonutsDelivery/ComfyUI-DonutCivitaiLocal) provides optional local CivitAI library and workflow-recovery tools.
+
+Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the original
+`DonutPromptReceiver` and `DonutImageReporter` node IDs in existing workflows.
+
 ## Nodes
 
 | Node | Description |

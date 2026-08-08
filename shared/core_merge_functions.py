@@ -410,11 +410,7 @@ def enhanced_widen_merging_with_dynamic_strength(
             performance_logger.info("Mixed precision enabled - using FP16 for magnitude/direction computations")
         
         # Enhanced profiling for performance analysis
-        # Enable profiling based on environment variable or logger level
-        use_profiler = (
-            performance_logger.isEnabledFor(logging.DEBUG) or 
-            os.environ.get('WIDEN_ENABLE_PROFILER', '').lower() in ('1', 'true', 'yes')
-        )
+        use_profiler = performance_logger.isEnabledFor(logging.DEBUG)
         
         if use_profiler:
             performance_logger.info("Profiler enabled - this will slow down execution but provide detailed performance analysis")

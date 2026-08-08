@@ -3722,7 +3722,7 @@ class DonutCivitaiBrowser {
         // Initial search (don't save node-specific filters)
         if (targetNode) {
             // Temporarily disable saving for this search
-            const origSave = this.saveFilters.bind(this);
+            const origSave = this.saveFilters;
             this.saveFilters = () => {};
             await this.search();
             this.saveFilters = origSave;
