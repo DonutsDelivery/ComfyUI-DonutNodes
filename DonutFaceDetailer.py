@@ -42,6 +42,11 @@ except ImportError:
         prepare_krea2_edit,
     )
 
+try:
+    from .turbo_sampling import resolve_turbo_sampling
+except ImportError:
+    from turbo_sampling import resolve_turbo_sampling
+
 # Import from Impact Pack
 try:
     import impact.core as core
@@ -144,6 +149,10 @@ if IMPACT_AVAILABLE:
                         "label_on": "per-face",
                         "label_off": "shared",
                         "tooltip": "Use a unique seed offset for each detected face. Off preserves the same seed across faces.",
+                    }),
+                    "turbo_mode": ("BOOLEAN", {
+                        "default": False,
+                        "tooltip": "Treat steps as the model's supported Turbo steps and snap denoise to the nearest valid scheduler point.",
                     }),
                 }}
 
@@ -313,7 +322,15 @@ if IMPACT_AVAILABLE:
                          cycle=1, inpaint_model=False, noise_mask_feather=0, scheduler_func_opt=None,
                          edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
                          edit_negative_prompt="", grounding_px=768, edit_model=None,
-                         face_reference=None, vary_seed_per_face=False):
+                         face_reference=None, vary_seed_per_face=False, turbo_mode=False):
+
+            if turbo_mode:
+                supported_steps = steps
+                steps, denoise, matched_denoise = resolve_turbo_sampling(steps, denoise, scheduler)
+                logging.info(
+                    "[DonutFaceDetailer] Turbo: %d supported steps -> %d steps at scheduler denoise=%.3f (ComfyUI denoise=%.3f)",
+                    supported_steps, steps, matched_denoise, denoise,
+                )
 
             # Free the diffusion model for detection without evicting unrelated models.
             offload_model_for_auxiliary_stage(model, comfy.model_management)
@@ -495,7 +512,7 @@ if IMPACT_AVAILABLE:
                  noise_mask_feather=0, scheduler_func_opt=None, edit_mode=False,
                  edit_prompt="Enhance facial details while preserving identity.",
                  edit_negative_prompt="", grounding_px=768, edit_model=None,
-                 face_reference=None, vary_seed_per_face=False):
+                 face_reference=None, vary_seed_per_face=False, turbo_mode=False):
 
             # Convert resolution from square side length to total pixels
             resolution = resolution * resolution
@@ -527,7 +544,8 @@ if IMPACT_AVAILABLE:
                         edit_prompt=edit_prompt, edit_negative_prompt=edit_negative_prompt,
                         grounding_px=grounding_px, edit_model=edit_model,
                         face_reference=single_face_reference,
-                        vary_seed_per_face=vary_seed_per_face)
+                        vary_seed_per_face=vary_seed_per_face,
+                        turbo_mode=turbo_mode)
 
                 result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
                 result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask

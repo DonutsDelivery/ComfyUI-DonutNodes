@@ -69,7 +69,7 @@ fake_sample.prepare_noise = lambda latent, seed: torch.zeros_like(latent)
 
 def fake_sample_call(model, noise, steps, cfg, sampler_name, scheduler,
                      positive, negative, latent_image, **kwargs):
-    events.append(("sample", kwargs["seed"]))
+    events.append(("sample", kwargs["seed"], steps, kwargs["denoise"]))
     return latent_image.clone()
 
 
@@ -233,6 +233,72 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
         self.assertEqual(
             [event[1] for event in events if event[0] == "sample"],
             [101, 102, 103],
+        )
+
+    def test_turbo_mode_passes_resolved_steps_and_denoise_to_every_tile(self):
+        original_upscale = module.upscale_with_model
+        original_find = module.find_best_tiling
+        original_debug = module.create_debug_image
+        setattr(module, "upscale_with_model", lambda upscale_model, image: image)
+        setattr(module, "find_best_tiling", lambda *args, **kwargs: {
+            "nx": 1, "ny": 1, "tile_width": 4, "tile_height": 4,
+            "overlap_x": 0, "overlap_y": 0, "output_width": 4,
+            "output_height": 4, "scale": 1.0, "step_x": 4, "step_y": 4,
+        })
+        setattr(module, "create_debug_image", lambda *args, **kwargs: Image.new("RGB", (4, 4)))
+        try:
+            module.DonutTiledUpscale().upscale(
+                image=torch.zeros(1, 4, 4, 3),
+                upscale_model=types.SimpleNamespace(scale=1.0), model=object(),
+                positive=object(), negative=object(), vae=object(), seed=100,
+                steps=8, cfg=1.0, sampler_name="euler", scheduler="simple",
+                denoise=0.20, rescale_factor=1.0, resampling_method="nearest",
+                feather=0.0, tiled_vae=False, turbo_mode=True,
+            )
+        finally:
+            setattr(module, "upscale_with_model", original_upscale)
+            setattr(module, "find_best_tiling", original_find)
+            setattr(module, "create_debug_image", original_debug)
+
+        sample_events = [event for event in events if event[0] == "sample"]
+        self.assertEqual(sample_events, [("sample", 101, 2, 0.25)])
+
+    def test_disabled_diffusion_tiling_runs_one_full_resolution_pass(self):
+        original_upscale = module.upscale_with_model
+        original_find = module.find_best_tiling
+        original_debug = module.create_debug_image
+        original_blend = module.DonutTiledUpscale._blend_tile
+        setattr(module, "upscale_with_model", lambda upscale_model, image: image)
+        setattr(
+            module,
+            "find_best_tiling",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("single-pass mode must not invoke the tile solver")
+            ),
+        )
+        setattr(module, "create_debug_image", lambda *args, **kwargs: Image.new("RGB", (64, 64)))
+        module.DonutTiledUpscale._blend_tile = lambda self, result, *args: (_ for _ in ()).throw(
+            AssertionError("single-pass mode must not blend tiles")
+        )
+        try:
+            module.DonutTiledUpscale().upscale(
+                image=torch.zeros(1, 32, 32, 3),
+                upscale_model=types.SimpleNamespace(scale=1.0), model=object(),
+                positive=object(), negative=object(), vae=object(), seed=100,
+                steps=4, cfg=1.0, sampler_name="euler", scheduler="simple",
+                denoise=0.5, rescale_factor=2.0, resampling_method="nearest",
+                feather=15.0, tiled_vae=False, tiled_diffusion=False,
+            )
+        finally:
+            setattr(module, "upscale_with_model", original_upscale)
+            setattr(module, "find_best_tiling", original_find)
+            setattr(module, "create_debug_image", original_debug)
+            module.DonutTiledUpscale._blend_tile = original_blend
+
+        self.assertIn(("encode", (1, 64, 64, 3)), events)
+        self.assertEqual(
+            len([event for event in events if event[0] == "sample"]),
+            1,
         )
 
 

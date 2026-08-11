@@ -413,6 +413,23 @@ class DonutFaceDetailerTests(unittest.TestCase):
             names.index("grounding_px"),
         )
 
+    def test_turbo_mode_resolves_sampling_for_every_face(self):
+        detector = FakeDetector([FakeSegment("face", (0, 0, 32, 32))])
+        resolved = []
+
+        def enhance(image, model, clip, vae, resolution, max_resolution,
+                    guide_size_for_bbox, bbox, seed, steps, cfg, sampler_name,
+                    scheduler, positive, negative, denoise, *args, **kwargs):
+            resolved.append((steps, denoise))
+            return image, None
+
+        module.DonutFaceDetailer.enhance_detail_megapixel = staticmethod(enhance)
+        module.DonutFaceDetailer.enhance_face(**self.face_kwargs(
+            detector, steps=8, denoise=0.20, turbo_mode=True,
+        ))
+
+        self.assertEqual(resolved, [(2, 0.25)])
+
 
 if __name__ == "__main__":
     unittest.main()

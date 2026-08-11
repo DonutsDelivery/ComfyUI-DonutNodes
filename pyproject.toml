@@ -1,7 +1,7 @@
 [project]
 name = "donutnodes"
 description = "Block-weighted LoRA stacking with CivitAI metadata, hash resolution, and browser integration; Donut Detailer for per-block model tuning; TeaCache acceleration; tiled upscaling; CFG sampling with 18 curve types; and reference-based spectral sharpening."
-version = "1.0.98"
+version = "1.0.99"
 license = {file = "LICENSE"}
 
 [project.urls]

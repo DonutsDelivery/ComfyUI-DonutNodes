@@ -39,6 +39,11 @@ except ImportError:
         validate_krea2_edit_target,
     )
 
+try:
+    from .turbo_sampling import resolve_turbo_sampling
+except ImportError:
+    from turbo_sampling import resolve_turbo_sampling
+
 
 class _DonutSamplerEngine:
     """
@@ -1040,6 +1045,10 @@ class DonutSampler(_DonutSamplerEngine):
                 "edit_prompt": ("STRING", {"forceInput": True}),
                 "edit_negative_prompt": ("STRING", {"forceInput": True}),
                 "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
+                "turbo_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Treat steps as the model's supported Turbo steps and snap denoise to the nearest valid scheduler point.",
+                }),
             }
         }
 
@@ -1055,10 +1064,20 @@ class DonutSampler(_DonutSamplerEngine):
                randomize_seed_per_model="enable", switch_at_step_1=10, switch_at_step_2=15,
                model_2=None, model_3=None, edit_mode=False, source_image=None,
                vae=None, clip=None, edit_prompt="", edit_negative_prompt="", grounding_px=768,
-               edit_model=None):
+               edit_model=None, turbo_mode=False):
         # Reset per-call state before dispatching to the selected mode.
         self.cfg_history = []
         self.model_phases = []
+
+        turbo_info = None
+        if turbo_mode:
+            supported_steps = steps
+            steps, denoise, matched_denoise = resolve_turbo_sampling(steps, denoise, scheduler)
+            turbo_info = (
+                f"Turbo: {supported_steps} supported steps -> "
+                f"{steps} steps at scheduler denoise={matched_denoise:.3f} "
+                f"(ComfyUI denoise={denoise:.3f})"
+            )
 
         if edit_mode:
             target_samples, target_width, target_height = validate_krea2_edit_target(
@@ -1083,20 +1102,24 @@ class DonutSampler(_DonutSamplerEngine):
                     )
 
         if mode == "advanced":
-            return self.run_advanced(
+            result = self.run_advanced(
                 model, add_noise, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                 scheduler, positive, negative, latent_image, start_at_step, end_at_step,
                 return_with_leftover_noise, cfg_curve=cfg_curve, denoise=denoise)
         elif mode == "multi_model":
-            return self.run_multi_model(
+            result = self.run_multi_model(
                 model, add_noise, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                 scheduler, positive, negative, latent_image, seed, start_at_step, end_at_step,
                 return_with_leftover_noise, randomize_seed_per_model, denoise, cfg_curve=cfg_curve,
                 model_2=model_2, model_3=model_3, switch_at_step_1=switch_at_step_1, switch_at_step_2=switch_at_step_2)
         else:
-            return self.run_simple(
+            result = self.run_simple(
                 model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                 scheduler, positive, negative, latent_image, denoise)
+
+        if turbo_info is not None:
+            return result[0], f"{turbo_info}\n{result[1]}"
+        return result
 
 
 class DonutKSamplerAdvanced(_DonutSamplerEngine):

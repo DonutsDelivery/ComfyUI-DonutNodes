@@ -19,6 +19,11 @@ try:
 except ImportError:
     from krea2_edit_integration import prepare_krea2_edit
 
+try:
+    from .turbo_sampling import resolve_turbo_sampling
+except ImportError:
+    from turbo_sampling import resolve_turbo_sampling
+
 
 def upscale_with_model(upscale_model, image):
     """Upscale image using a model (adapted from ComfyUI's ImageUpscaleWithModel)"""
@@ -467,6 +472,16 @@ class DonutTiledUpscale:
                 "edit_prompt": ("STRING", {"forceInput": True}),
                 "edit_negative_prompt": ("STRING", {"forceInput": True}),
                 "grounding_px": ("INT", {"default": 768, "min": 0, "max": 4096, "step": 64}),
+                "turbo_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Treat steps as the model's supported Turbo steps and snap denoise to the nearest valid scheduler point.",
+                }),
+                "tiled_diffusion": ("BOOLEAN", {
+                    "default": True,
+                    "label_on": "tiled",
+                    "label_off": "single pass",
+                    "tooltip": "Process the upscaled canvas in overlapping diffusion tiles. Disable for one full-resolution diffusion pass; this requires substantially more VRAM.",
+                }),
             }
         }
 
@@ -479,7 +494,17 @@ class DonutTiledUpscale:
                 steps, cfg, sampler_name, scheduler, denoise,
                 rescale_factor, resampling_method, feather, tiled_vae,
                 edit_mode=False, clip=None, edit_prompt="Enhance fine details while preserving the source image.",
-                edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None):
+                edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None,
+                turbo_mode=False, tiled_diffusion=True):
+
+        if turbo_mode:
+            supported_steps = steps
+            steps, denoise, matched_denoise = resolve_turbo_sampling(steps, denoise, scheduler)
+            print(
+                f"[DonutTiledUpscale] Turbo: {supported_steps} supported steps -> "
+                f"{steps} steps at scheduler denoise={matched_denoise:.3f} "
+                f"(ComfyUI denoise={denoise:.3f})"
+            )
 
         # Resampling filter mapping
         resample_filters = {
@@ -495,10 +520,11 @@ class DonutTiledUpscale:
         if edit_mode and edit_source_image is None:
             raise ValueError("DonutTiledUpscale edit_mode requires edit_source_image.")
 
-        if edit_mode:
+        if edit_mode or not tiled_diffusion:
             # Identity edits may move subjects across the frame. Process the full
             # generated canvas against the full reference so identity remains
-            # available regardless of its original coordinates.
+            # available regardless of its original coordinates. Regular mode can
+            # explicitly select the same one-pass full-resolution geometry.
             output_width, output_height = snap_scaled_dimensions(
                 img_width, img_height, rescale_factor,
             )
@@ -658,15 +684,20 @@ class DonutTiledUpscale:
                 # Convert back to PIL
                 sampled_tile = tensor_to_pil(decoded, 0)
 
-                # Blend tile into result with feathered edges
-                tile_mask = self._create_blend_mask(tile_width, tile_height, overlap_x, overlap_y,
-                                                    record["tx"] == 0, record["ty"] == 0,
-                                                    record["tx"] == num_tiles_x - 1,
-                                                    record["ty"] == num_tiles_y - 1)
-                result_image = self._blend_tile(
-                    result_image, sampled_tile,
-                    record["x1"], record["y1"], tile_mask, weight_map,
-                )
+                if not tiled_diffusion and not edit_mode:
+                    # This is a true single full-frame pass: no tile mask,
+                    # overlap calculation, or blending/compositing stage.
+                    result_image = sampled_tile
+                else:
+                    # Blend tile into result with feathered edges
+                    tile_mask = self._create_blend_mask(tile_width, tile_height, overlap_x, overlap_y,
+                                                        record["tx"] == 0, record["ty"] == 0,
+                                                        record["tx"] == num_tiles_x - 1,
+                                                        record["ty"] == num_tiles_y - 1)
+                    result_image = self._blend_tile(
+                        result_image, sampled_tile,
+                        record["x1"], record["y1"], tile_mask, weight_map,
+                    )
 
                 pbar.update(1)
 
