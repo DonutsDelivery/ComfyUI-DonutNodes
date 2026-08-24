@@ -26,32 +26,52 @@ _KREA_VECTOR_SIZE = _KREA_BLOCK_COUNT + 1  # non-block bucket + 28 blocks
 _SAFE_ENERGY_BUDGET = 1.0
 
 
-def _is_krea2_lora(lora):
-    """Return True when a LoRA contains Krea2-style single-stream blocks."""
+def _krea2_block_indices(lora):
+    """Return the Krea2 single-stream block indices referenced by a LoRA."""
     block_nums = set()
     for key in lora.keys():
         match = _KREA_BLOCK_RE.search(key)
         if match:
             block_nums.add(int(match.group(1)))
+    return block_nums
+
+
+def _is_krea2_lora(lora):
+    """Return True when a LoRA contains Krea2-style single-stream blocks."""
+    block_nums = _krea2_block_indices(lora)
     return bool(block_nums) and max(block_nums) < _KREA_BLOCK_COUNT
 
 
-def _parse_numeric_vector(vector):
-    """Parse a Krea2 block vector, returning None for symbolic/random vectors."""
+def _parse_numeric_vector(vector, required_size=1):
+    """Parse a numeric Krea2 vector into a full safety-analysis vector.
+
+    Donut's normal auto-vector path intentionally sizes a Krea2 vector only up
+    to the highest block actually present in that LoRA. A LoRA that only has
+    blocks 0..15 therefore has a valid 17-value vector (base + 16 blocks), not
+    a 29-value vector. Safe Stack must accept that rather than requiring all 28
+    architectural blocks.
+
+    Returns ``(padded_values, original_size)``. Missing higher Krea2 blocks are
+    zero-filled for the energy calculation because the LoRA has no weights for
+    them. The caller later trims back to ``original_size`` before handing the
+    vector to the normal Donut block loader, preserving its original shape.
+    """
     if not vector:
-        return [1.0] * _KREA_VECTOR_SIZE
+        values = [1.0] * max(1, min(required_size, _KREA_VECTOR_SIZE))
+        return values + [0.0] * (_KREA_VECTOR_SIZE - len(values)), len(values)
 
     parts = [part.strip() for part in vector.split(",")]
-    if len(parts) != _KREA_VECTOR_SIZE:
+    if len(parts) < required_size or len(parts) > _KREA_VECTOR_SIZE:
         return None
 
-    values = []
     try:
-        for part in parts:
-            values.append(float(part))
+        values = [float(part) for part in parts]
     except (TypeError, ValueError):
         return None
-    return values
+
+    original_size = len(values)
+    values.extend([0.0] * (_KREA_VECTOR_SIZE - original_size))
+    return values, original_size
 
 
 def _format_vector(values):
@@ -71,25 +91,37 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
     Each effective contribution is model_weight * block_weight. If the root
     sum of squares of all Krea2 contributions in a block exceeds ``budget``,
     every LoRA touching that block is attenuated by the same factor. Blocks
-    below budget are left byte-for-byte equivalent apart from vector formatting.
+    below budget are left equivalent apart from numeric vector formatting.
     """
     vectors = []
+    original_sizes = []
     eligible = []
 
     for entry in entries:
         if not entry["is_krea"]:
             vectors.append(None)
+            original_sizes.append(0)
             eligible.append(False)
             continue
 
-        parsed = _parse_numeric_vector(entry["vector"])
-        vectors.append(parsed)
-        eligible.append(parsed is not None)
+        block_indices = entry["krea_blocks"]
+        required_size = (max(block_indices) + 2) if block_indices else 1
+        parsed = _parse_numeric_vector(entry["vector"], required_size=required_size)
         if parsed is None:
+            vectors.append(None)
+            original_sizes.append(0)
+            eligible.append(False)
             print(
                 f"[DonutApplyLoRAStack] Safe Stack: '{entry['name']}' uses a "
-                "non-numeric or non-Krea2-sized block vector; leaving it unchanged"
+                "non-numeric vector or one too short for its populated Krea2 "
+                "blocks; leaving it unchanged"
             )
+            continue
+
+        values, original_size = parsed
+        vectors.append(values)
+        original_sizes.append(original_size)
+        eligible.append(True)
 
     scales = [[1.0] * _KREA_VECTOR_SIZE for _ in entries]
     limited_blocks = []
@@ -118,12 +150,12 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
         if not eligible[idx]:
             adjusted.append(entry["vector"])
             continue
-        adjusted.append(
-            _format_vector([
-                value * scales[idx][block_idx]
-                for block_idx, value in enumerate(vectors[idx])
-            ])
-        )
+
+        adjusted_full = [
+            value * scales[idx][block_idx]
+            for block_idx, value in enumerate(vectors[idx])
+        ]
+        adjusted.append(_format_vector(adjusted_full[:original_sizes[idx]]))
 
     return adjusted, limited_blocks
 
@@ -203,6 +235,7 @@ class DonutApplyLoRAStackSafe:
 
             path = folder_paths.get_full_path("loras", name)
             lora = comfy.utils.load_torch_file(path, safe_load=True)
+            krea_blocks = _krea2_block_indices(lora)
 
             # Match the original apply node's automatic vector behaviour.
             vector = bv
@@ -235,7 +268,8 @@ class DonutApplyLoRAStackSafe:
                 "lora_main": lora_main,
                 "lora_text": lora_text,
                 "fused_text": fused_text,
-                "is_krea": _is_krea2_lora(lora),
+                "is_krea": bool(krea_blocks) and max(krea_blocks) < _KREA_BLOCK_COUNT,
+                "krea_blocks": krea_blocks,
             })
 
         if safe_stack == "On":
