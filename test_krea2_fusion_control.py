@@ -265,6 +265,16 @@ class ProjectorControlTests(unittest.TestCase):
         after = scaled.square().mean(dim=(1, 2, 3)).sqrt()
         self.assertTrue(torch.allclose(before, after, atol=1e-6, rtol=1e-6))
 
+    def test_resolved_projector_gains_are_published_for_safe_lora_budgeting(self):
+        _, result = self._apply_node(projector_profile="deep_2", projector_normalization="none")
+        patched_model = result[0]
+        metadata = patched_model.model_options["transformer_options"][module.FUSION_BUDGET_KEY]
+
+        self.assertEqual(metadata["version"], 1)
+        self.assertEqual(metadata["projector_gains"], module._PROFILE_DEEP_2)
+        self.assertEqual(metadata["projector_normalization"], "none")
+        self.assertEqual(metadata["tap_gains"], module._PROFILE_OFF)
+
     def test_fully_off_node_does_not_clone_or_validate_conditioning(self):
         model = FakeModel()
         conditioning = [[torch.randn(1, 2, 17), {}]]
@@ -290,6 +300,7 @@ class ProjectorControlTests(unittest.TestCase):
         self.assertIsNone(output_3)
         self.assertIsNone(output_4)
         self.assertEqual(model.clone_count, 0)
+        self.assertNotIn(module.FUSION_BUDGET_KEY, model.model_options.get("transformer_options", {}))
         self.assertIn("; off;", diagnostics)
 
     def test_numbered_conditioning_inputs_route_to_matching_outputs(self):

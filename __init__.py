@@ -15,6 +15,11 @@ from .DonutWidenMerge       import NODE_CLASS_MAPPINGS as m7
 from .donut_lora_nodes      import NODE_CLASS_MAPPINGS        as m_lora
 from .donut_lora_nodes      import NODE_DISPLAY_NAME_MAPPINGS as d_lora
 
+# Safe Krea2 LoRA application overrides only DonutApplyLoRAStack while keeping
+# the existing node id/display name so saved workflows remain compatible.
+from .DonutSafeApplyLoRAStack import NODE_CLASS_MAPPINGS        as m_safe_lora
+from .DonutSafeApplyLoRAStack import NODE_DISPLAY_NAME_MAPPINGS as d_safe_lora
+
 # hot reload functionality
 from .hot_reload            import NODE_CLASS_MAPPINGS        as m_reload
 from .hot_reload            import NODE_DISPLAY_NAME_MAPPINGS as d_reload
@@ -129,6 +134,7 @@ NODE_CLASS_MAPPINGS = {
     **m1, **m2, **m3, **m4, **m5,
     **m6, **m7,
     **m_lora,
+    **m_safe_lora,
     **m_reload,
     # **m_optuna,  # disabled - file not in repo
     **m_teacache,
@@ -161,6 +167,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     **d_lora,
+    **d_safe_lora,
     **d_reload,
     # **d_optuna,  # disabled - file not in repo
     **d_teacache,

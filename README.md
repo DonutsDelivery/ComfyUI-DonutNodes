@@ -53,6 +53,29 @@ Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the origin
 | ModelMergeZIT | ZIT model merging |
 | DonutModelSave | Save merged models |
 
+### Fusion-aware Krea2 LoRA safety
+
+The feature branch version of `DonutApplyLoRAStack` can budget Krea2 projector
+LoRAs against the 12 resolved projector-input gains from
+`DonutKrea2FusionControl`.
+
+Connect the model path in this order:
+
+`Checkpoint -> Donut Krea2 Fusion Control -> Donut Apply LoRA Stack -> Sampler`
+
+Then set `safe_stack` to `On` and choose a `fusion_aware` mode:
+
+- `Attenuate only` reduces LoRA projector columns amplified by Fusion Control.
+- `Use headroom` may also boost quieter columns, capped by `max_fusion_boost`.
+- `tensor_rms` projector normalization is prompt-dependent, so it never
+  receives automatic headroom boosts.
+
+The 12 fusion channels are not mapped onto Krea2's 28 DiT blocks. Existing
+per-block Safe Stack behavior remains independent and unchanged. Fusion-aware
+column scaling supports standard LoRA/PEFT projector adapters and direct
+projector `.diff` patches; other adapter formats use a conservative scalar
+fallback.
+
 ## License
 
 See [LICENSE](LICENSE) file.
