@@ -526,7 +526,12 @@ class DonutKrea2FusionControl:
         projector_method=PROJECTOR_METHOD_DONUT,
         fusion_method=FUSION_METHOD_STANDARD,
         fusion_strength=1.0,
+        detail_clip=None,
     ):
+        # Older saved workflows/subgraphs may still submit this removed input.
+        # It never participates in the current fusion path, but accepting it
+        # keeps those workflows executable after updating the node pack.
+        del detail_clip
         if compatibility_preset not in COMPATIBILITY_PRESETS:
             raise ValueError(f"Unknown compatibility preset label: {compatibility_preset}")
         conditioning_inputs = (
