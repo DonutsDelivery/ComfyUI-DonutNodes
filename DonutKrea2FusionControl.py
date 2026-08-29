@@ -20,6 +20,7 @@ import comfy.patcher_extension
 
 WRAPPER_KEY = "donut_krea2_fusion_control"
 CONFIG_KEY = "donut_krea2_fusion_control"
+FUSION_BUDGET_KEY = "donut_krea2_fusion_budget"
 
 KREA2_TAP_COUNT = 12
 KREA2_TAP_DIM = 2560
@@ -410,6 +411,20 @@ def _attach_runtime_wrapper(model, config):
     return patched
 
 
+def _attach_fusion_budget(model, original_model, metadata):
+    """Publish resolved fusion gains for downstream fusion-aware LoRA safety.
+
+    The metadata is deliberately separate from the runtime-wrapper config.  Tap
+    gains may be active even when no model wrapper is required, and downstream
+    nodes must not have to infer safety information from wrapper internals.
+    """
+    if model is original_model:
+        model = model.clone()
+    transformer_options = model.model_options.setdefault("transformer_options", {})
+    transformer_options[FUSION_BUDGET_KEY] = metadata
+    return model
+
+
 def _apply_projector_diff(model, values, strength):
     if float(strength) == 0.0:
         return model
@@ -522,6 +537,7 @@ class DonutKrea2FusionControl:
         )
         output_model = model
         runtime_config = {}
+        tap_gains = _PROFILE_OFF
 
         if tap_method == TAP_METHOD_DONUT:
             tap_gains = _resolve_gains(
@@ -545,9 +561,11 @@ class DonutKrea2FusionControl:
             if not math.isfinite(multiplier):
                 raise ValueError("Tap strength must be finite")
             if tap_profile == "off":
+                tap_gains = _PROFILE_OFF
                 output_conditionings = conditioning_inputs
                 tap_details = f"tap[{tap_method}; off]"
             else:
+                tap_gains = tuple(multiplier * value for value in tap_profile_values)
                 output_conditionings = tuple(
                     None if conditioning is None else _nova452_rebalance_structure(
                         conditioning,
@@ -563,6 +581,7 @@ class DonutKrea2FusionControl:
         else:
             raise ValueError(f"Unknown tap method: {tap_method}")
 
+        projector_gains = _PROFILE_OFF
         if projector_method == PROJECTOR_METHOD_DONUT:
             projector_gains = _resolve_gains(
                 projector_profile,
@@ -604,6 +623,32 @@ class DonutKrea2FusionControl:
 
         if runtime_config:
             output_model = _attach_runtime_wrapper(output_model, runtime_config)
+
+        fusion_budget_active = (
+            not _is_neutral(tap_gains)
+            or not _is_neutral(projector_gains)
+            or (
+                projector_method in (PROJECTOR_METHOD_BYPASS_2, PROJECTOR_METHOD_BYPASS_3)
+                and float(projector_strength) != 0.0
+            )
+            or (fusion_method == FUSION_METHOD_ENHANCER and fusion_strength != 0.0)
+        )
+        if fusion_budget_active:
+            output_model = _attach_fusion_budget(
+                output_model,
+                model,
+                {
+                    "version": 1,
+                    "tap_method": tap_method,
+                    "tap_gains": tuple(float(value) for value in tap_gains),
+                    "tap_normalization": tap_normalization,
+                    "projector_method": projector_method,
+                    "projector_gains": tuple(float(value) for value in projector_gains),
+                    "projector_normalization": projector_normalization,
+                    "fusion_method": fusion_method,
+                    "fusion_strength": float(fusion_strength),
+                },
+            )
 
         diagnostics = (
             f"preset_label={compatibility_preset}; preset_is_ui_only=true\n"
