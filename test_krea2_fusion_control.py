@@ -203,7 +203,7 @@ class ConditioningControlTests(unittest.TestCase):
 
 
 class ProjectorControlTests(unittest.TestCase):
-    def _apply_node(self, projector_profile="deep_2", projector_normalization="none"):
+    def _apply_node(self, projector_profile="deep_2", projector_normalization="none", **legacy_inputs):
         model = FakeModel()
         conditioning = [[torch.randn(1, 2, module.KREA2_CONDITIONING_DIM), {}]]
         node = module.DonutKrea2FusionControl()
@@ -220,7 +220,19 @@ class ProjectorControlTests(unittest.TestCase):
             projector_normalization=projector_normalization,
             per_layer_weights=",".join(["1"] * 12),
             projector_layer_weights=module._format_profile_string(module._PROFILE_DEEP_2),
+            **legacy_inputs,
         )
+
+    def test_legacy_detail_clip_keyword_is_accepted_but_not_exposed(self):
+        original_model, result = self._apply_node(
+            projector_profile="off",
+            detail_clip=object(),
+        )
+
+        self.assertIs(result[0], original_model)
+        schema = module.DonutKrea2FusionControl.INPUT_TYPES()
+        self.assertNotIn("detail_clip", schema["required"])
+        self.assertNotIn("detail_clip", schema["optional"])
 
     def test_deep_two_wrapper_exactly_doubles_two_live_projector_inputs(self):
         original_model, result = self._apply_node()
