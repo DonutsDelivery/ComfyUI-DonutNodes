@@ -6,7 +6,7 @@ Custom nodes for ComfyUI focused on LoRA management, model merging, and image en
 
 ## Features
 
-- **Block-weighted LoRA stacking** with per-block strength control and CivitAI integration
+- **Block-weighted LoRA stacking** with per-block strength control, CivitAI integration, and an experimental quantized-model bypass mode
 - **Donut Detailers** for per-block model tuning and face/object enhancement
 - **TeaCache acceleration** for faster SDXL inference
 - **Tiled upscaling** with seamless blending
@@ -53,9 +53,23 @@ Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the origin
 | ModelMergeZIT | ZIT model merging |
 | DonutModelSave | Save merged models |
 
+### Experimental quantized LoRA bypass
+
+`DonutApplyLoRAStack` has an optional `execution_mode` named
+`Experimental bypass`. It computes the quantized base layer and low-rank LoRA
+path separately instead of repeatedly rebuilding patched quantized weights.
+This can substantially reduce warm inference time for Krea2 and similar models
+under Dynamic VRAM while preserving the LoRA's model strength, block vector,
+Safe Stack attenuation, and fusion-aware processing.
+
+The mode currently supports one active diffusion-model LoRA. Unsupported direct
+patches retain ComfyUI's regular patch path, and LoRAs without supported forward
+adapters produce an explicit error. Existing workflows default to
+`Comfy patches` and retain their previous behavior.
+
 ### Fusion-aware Krea2 LoRA safety
 
-The feature branch version of `DonutApplyLoRAStack` can budget Krea2 projector
+`DonutApplyLoRAStack` can budget Krea2 projector
 LoRAs against the 12 resolved projector-input gains from
 `DonutKrea2FusionControl`.
 

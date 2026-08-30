@@ -14,6 +14,11 @@ import comfy.utils
 import folder_paths
 import torch
 
+try:
+    import comfy.weight_adapter as comfy_weight_adapter
+except ImportError:  # Older ComfyUI releases retain the standard patch path.
+    comfy_weight_adapter = None
+
 from .donut_lora_nodes import (
     _TEXT_MERGE_VECTOR,
     _lora_has_real_text_encoder,
@@ -28,6 +33,7 @@ _KREA_VECTOR_SIZE = _KREA_BLOCK_COUNT + 1  # non-block bucket + 28 blocks
 _SAFE_ENERGY_BUDGET = 1.0
 _FUSION_BUDGET_KEY = "donut_krea2_fusion_budget"
 _FUSION_AWARE_MODES = ("Off", "Attenuate only", "Use headroom")
+_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
 _KREA_TEXT_RE = re.compile(r"txt(?:fusion|mlp)|text_(?:fusion|mlp)")
 _PROJECTOR_RE = re.compile(r"(?:txtfusion|text_fusion).*projector")
 _PROJECTOR_COLUMN_COUNT = 12
@@ -182,17 +188,17 @@ def _parse_numeric_vector(vector, required_size=1):
     a 29-value vector. Safe Stack must accept that rather than requiring all 28
     architectural blocks.
 
-    Returns ``(padded_values, original_size)``. Missing higher Krea2 blocks are
+    Returns ``(padded_values, original_size, tail)``. Missing higher Krea2 blocks are
     zero-filled for the energy calculation because the LoRA has no weights for
     them. The caller later trims back to ``original_size`` before handing the
     vector to the normal Donut block loader, preserving its original shape.
     """
     if not vector:
         values = [1.0] * max(1, min(required_size, _KREA_VECTOR_SIZE))
-        return values + [0.0] * (_KREA_VECTOR_SIZE - len(values)), len(values)
+        return values + [0.0] * (_KREA_VECTOR_SIZE - len(values)), len(values), []
 
     parts = [part.strip() for part in vector.split(",")]
-    if len(parts) < required_size or len(parts) > _KREA_VECTOR_SIZE:
+    if len(parts) < required_size:
         return None
 
     try:
@@ -201,8 +207,10 @@ def _parse_numeric_vector(vector, required_size=1):
         return None
 
     original_size = len(values)
-    values.extend([0.0] * (_KREA_VECTOR_SIZE - original_size))
-    return values, original_size
+    tail = values[_KREA_VECTOR_SIZE:]
+    values = values[:_KREA_VECTOR_SIZE]
+    values.extend([0.0] * (_KREA_VECTOR_SIZE - len(values)))
+    return values, original_size, tail
 
 
 def _format_vector(values):
@@ -226,12 +234,14 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
     """
     vectors = []
     original_sizes = []
+    vector_tails = []
     eligible = []
 
     for entry in entries:
         if not entry["is_krea"]:
             vectors.append(None)
             original_sizes.append(0)
+            vector_tails.append([])
             eligible.append(False)
             continue
 
@@ -241,6 +251,7 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
         if parsed is None:
             vectors.append(None)
             original_sizes.append(0)
+            vector_tails.append([])
             eligible.append(False)
             print(
                 f"[DonutApplyLoRAStack] Safe Stack: '{entry['name']}' uses a "
@@ -249,9 +260,10 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
             )
             continue
 
-        values, original_size = parsed
+        values, original_size, tail = parsed
         vectors.append(values)
         original_sizes.append(original_size)
+        vector_tails.append(tail)
         eligible.append(True)
 
     scales = [[1.0] * _KREA_VECTOR_SIZE for _ in entries]
@@ -286,7 +298,8 @@ def _normalise_krea_vectors(entries, budget=_SAFE_ENERGY_BUDGET):
             value * scales[idx][block_idx]
             for block_idx, value in enumerate(vectors[idx])
         ]
-        adjusted.append(_format_vector(adjusted_full[:original_sizes[idx]]))
+        kept = adjusted_full[:min(original_sizes[idx], _KREA_VECTOR_SIZE)]
+        adjusted.append(_format_vector(kept + vector_tails[idx]))
 
     return adjusted, limited_blocks
 
@@ -313,6 +326,82 @@ def _normalise_fused_text_weights(entries, component=None, budget=_SAFE_ENERGY_B
             weights[idx] *= scale
         return weights, (energy, scale)
     return weights, None
+
+
+def _apply_bypass_applications(model, applications):
+    """Apply one LoRA's block-weighted components as forward adapters.
+
+    ``applications`` contains ``(lora, strength, block_vector)`` tuples.  Main
+    and fused-text components can therefore share one injection manager while
+    retaining the exact ratios produced by Donut's block-weight loader.
+
+    The upstream bypass manager stores one adapter per model key.  Reject a
+    collision rather than silently replacing an earlier component.  The node
+    currently applies this helper to one model-strength LoRA at a time for the
+    same reason.
+    """
+    if comfy_weight_adapter is None:
+        raise RuntimeError(
+            "Experimental bypass requires a newer ComfyUI with "
+            "comfy.weight_adapter support. Use Comfy patches or update ComfyUI."
+        )
+
+    new_model = model.clone()
+    manager = comfy_weight_adapter.BypassInjectionManager()
+    model_keys = set(new_model.model.state_dict().keys())
+    adapter_keys = set()
+    regular_count = 0
+
+    for lora, strength, block_vector in applications:
+        block_weights, _, _ = LoraLoaderBlockWeight.load_lbw(
+            model,
+            None,
+            lora,
+            inverse=False,
+            seed=0,
+            A=1.0,
+            B=1.0,
+            block_vector=block_vector,
+        )
+        for key, (patch_data, ratio) in block_weights.items():
+            final_strength = float(strength) * float(ratio)
+            if final_strength == 0.0:
+                continue
+            is_bypass_adapter = (
+                isinstance(key, str)
+                and isinstance(patch_data, comfy_weight_adapter.WeightAdapterBase)
+                and key in model_keys
+            )
+            if is_bypass_adapter:
+                if key in adapter_keys:
+                    raise RuntimeError(
+                        "Experimental bypass found overlapping adapter components for "
+                        f"'{key}'. Use Comfy patches for this LoRA."
+                    )
+                manager.add_adapter(key, patch_data, strength=final_strength)
+                adapter_keys.add(key)
+            else:
+                new_model.add_patches({key: patch_data}, final_strength)
+                regular_count += 1
+
+    injections = manager.create_injections(new_model.model)
+    if manager.get_hook_count() > 0:
+        new_model.set_injections("donut_bypass_lora", injections)
+    if not adapter_keys:
+        raise RuntimeError(
+            "Experimental bypass found no supported forward adapters. "
+            "Use Comfy patches for this LoRA format."
+        )
+    if regular_count:
+        print(
+            "[DonutApplyLoRAStack] Experimental bypass kept "
+            f"{regular_count} unsupported/direct patch(es) on the regular path"
+        )
+    print(
+        "[DonutApplyLoRAStack] Experimental bypass attached "
+        f"{len(adapter_keys)} forward adapter(s) with block-vector strengths"
+    )
+    return new_model
 
 
 class DonutApplyLoRAStackSafe:
@@ -352,6 +441,16 @@ class DonutApplyLoRAStackSafe:
                     "step": 0.05,
                     "tooltip": "Maximum per-column LoRA boost in Use headroom mode.",
                 }),
+            },
+            "optional": {
+                "execution_mode": (list(_EXECUTION_MODES), {
+                    "default": "Comfy patches",
+                    "tooltip": (
+                        "Experimental bypass computes base(x) + LoRA(x) without rebuilding "
+                        "quantized model weights. It currently supports one active "
+                        "diffusion-model LoRA; block vectors and dynamic strengths are kept."
+                    ),
+                }),
             }
         }
 
@@ -368,6 +467,7 @@ class DonutApplyLoRAStackSafe:
         safe_stack="Off",
         fusion_aware="Off",
         max_fusion_boost=2.0,
+        execution_mode="Comfy patches",
     ):
         help_url = (
             "https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes/"
@@ -378,6 +478,8 @@ class DonutApplyLoRAStackSafe:
             return (model, clip, help_url)
         if fusion_aware not in _FUSION_AWARE_MODES:
             raise ValueError(f"Unknown fusion-aware safety mode: {fusion_aware}")
+        if execution_mode not in _EXECUTION_MODES:
+            raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
         max_fusion_boost = float(max_fusion_boost)
         if not math.isfinite(max_fusion_boost) or max_fusion_boost < 1.0:
             raise ValueError("max_fusion_boost must be finite and at least 1.0")
@@ -546,6 +648,14 @@ class DonutApplyLoRAStackSafe:
 
         unet, text_enc = model, clip
         loader = LoraLoaderBlockWeight()
+        bypass_applications = []
+        if execution_mode == "Experimental bypass":
+            active_model_loras = sum(1 for entry in entries if entry["mw"] != 0.0)
+            if active_model_loras > 1:
+                raise RuntimeError(
+                    "Experimental bypass currently supports one active diffusion-model "
+                    "LoRA. Disable the others or use Comfy patches."
+                )
 
         for entry in entries:
             mw = entry["mw"]
@@ -558,18 +668,21 @@ class DonutApplyLoRAStackSafe:
             # 1) block-weighted diffusion-model merge.
             merge_main = lora_main if fused_text else lora
             if mw != 0.0 and merge_main:
-                unet, _, _ = loader.load_lora_for_models(
-                    unet,
-                    None,
-                    merge_main,
-                    strength_model=mw,
-                    strength_clip=0.0,
-                    inverse=False,
-                    seed=0,
-                    A=1.0,
-                    B=1.0,
-                    block_vector=vector,
-                )
+                if execution_mode == "Experimental bypass":
+                    bypass_applications.append((merge_main, mw, vector))
+                else:
+                    unet, _, _ = loader.load_lora_for_models(
+                        unet,
+                        None,
+                        merge_main,
+                        strength_model=mw,
+                        strength_clip=0.0,
+                        inverse=False,
+                        seed=0,
+                        A=1.0,
+                        B=1.0,
+                        block_vector=vector,
+                    )
 
             # 2) text handling, matching the original DonutApplyLoRAStack.
             if fused_text:
@@ -584,18 +697,23 @@ class DonutApplyLoRAStackSafe:
                 for text_lora, text_strength in text_applications:
                     if not text_lora or text_strength == 0.0:
                         continue
-                    unet, _, _ = loader.load_lora_for_models(
-                        unet,
-                        None,
-                        text_lora,
-                        strength_model=text_strength,
-                        strength_clip=0.0,
-                        inverse=False,
-                        seed=0,
-                        A=1.0,
-                        B=1.0,
-                        block_vector=_TEXT_MERGE_VECTOR,
-                    )
+                    if execution_mode == "Experimental bypass":
+                        bypass_applications.append(
+                            (text_lora, text_strength, _TEXT_MERGE_VECTOR)
+                        )
+                    else:
+                        unet, _, _ = loader.load_lora_for_models(
+                            unet,
+                            None,
+                            text_lora,
+                            strength_model=text_strength,
+                            strength_clip=0.0,
+                            inverse=False,
+                            seed=0,
+                            A=1.0,
+                            B=1.0,
+                            block_vector=_TEXT_MERGE_VECTOR,
+                        )
             elif entry["effective_cw"] != 0.0:
                 _, text_enc = comfy.sd.load_lora_for_models(
                     unet,
@@ -604,6 +722,9 @@ class DonutApplyLoRAStackSafe:
                     0.0,
                     entry["effective_cw"],
                 )
+
+        if execution_mode == "Experimental bypass" and bypass_applications:
+            unet = _apply_bypass_applications(model, bypass_applications)
 
         return (unet, text_enc, help_url)
 

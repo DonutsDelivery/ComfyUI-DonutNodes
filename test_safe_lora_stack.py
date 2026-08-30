@@ -56,8 +56,12 @@ def _load_module():
     comfy = types.ModuleType("comfy")
     comfy_sd = types.ModuleType("comfy.sd")
     comfy_utils = types.ModuleType("comfy.utils")
+    comfy_weight_adapter = types.ModuleType("comfy.weight_adapter")
+    comfy_weight_adapter.WeightAdapterBase = type("WeightAdapterBase", (), {})
+    comfy_weight_adapter.BypassInjectionManager = object
     comfy.sd = comfy_sd
     comfy.utils = comfy_utils
+    comfy.weight_adapter = comfy_weight_adapter
 
     folder_paths = types.ModuleType("folder_paths")
     donut_lora_nodes = types.ModuleType(f"{PACKAGE}.donut_lora_nodes")
@@ -73,6 +77,7 @@ def _load_module():
         "comfy": comfy,
         "comfy.sd": comfy_sd,
         "comfy.utils": comfy_utils,
+        "comfy.weight_adapter": comfy_weight_adapter,
         "folder_paths": folder_paths,
         "torch": fake_torch,
         f"{PACKAGE}.donut_lora_nodes": donut_lora_nodes,
@@ -213,6 +218,21 @@ class ProjectorTensorScalingTests(unittest.TestCase):
 
 
 class SafetyCompatibilityTests(unittest.TestCase):
+    def test_overlong_numeric_vector_keeps_ignored_tail(self):
+        vector = ",".join(str(index + 1) for index in range(30))
+        entries = [{
+            "name": "overlong.safetensors",
+            "mw": 0.0,
+            "vector": vector,
+            "is_krea": True,
+            "krea_blocks": set(range(28)),
+        }]
+
+        adjusted, limited = module._normalise_krea_vectors(entries)
+
+        self.assertEqual(adjusted[0], vector)
+        self.assertEqual(limited, [])
+
     def test_projector_only_krea_lora_participates_in_text_budget(self):
         weights, limited = module._normalise_fused_text_weights(
             [_projector_entry(), _projector_entry()]
@@ -223,9 +243,30 @@ class SafetyCompatibilityTests(unittest.TestCase):
         self.assertIsNotNone(limited)
 
     def test_new_controls_default_to_legacy_off(self):
-        required = module.DonutApplyLoRAStackSafe.INPUT_TYPES()["required"]
+        inputs = module.DonutApplyLoRAStackSafe.INPUT_TYPES()
+        required = inputs["required"]
         self.assertEqual(required["fusion_aware"][1]["default"], "Off")
         self.assertEqual(required["max_fusion_boost"][1]["default"], 2.0)
+        self.assertEqual(inputs["optional"]["execution_mode"][1]["default"], "Comfy patches")
+
+    def test_experimental_mode_rejects_multiple_active_model_loras(self):
+        module.folder_paths.get_full_path = lambda category, name: f"/{name}"
+        module.comfy.utils.load_torch_file = lambda path, safe_load=True: {
+            "diffusion_model.blocks.0.attn.lora_A.weight": fake_torch.ones(2, 2)
+        }
+        module._lora_has_real_text_encoder = lambda lora: False
+        module._split_fused_text = lambda lora: (dict(lora), {})
+
+        with self.assertRaisesRegex(RuntimeError, "one active diffusion-model LoRA"):
+            module.DonutApplyLoRAStackSafe().apply_stack(
+                object(),
+                object(),
+                [
+                    ("first.safetensors", 1.0, 0.0, "1,1"),
+                    ("second.safetensors", 1.0, 0.0, "1,1"),
+                ],
+                execution_mode="Experimental bypass",
+            )
 
     def test_apply_splits_and_column_scales_projector_lora(self):
         down_key = "diffusion_model.txtfusion.projector.lora_down.weight"
