@@ -62,10 +62,16 @@ This can substantially reduce warm inference time for Krea2 and similar models
 under Dynamic VRAM while preserving the LoRA's model strength, block vector,
 Safe Stack attenuation, and fusion-aware processing.
 
-The mode currently supports one active diffusion-model LoRA. Unsupported direct
-patches retain ComfyUI's regular patch path, and LoRAs without supported forward
-adapters produce an explicit error. Existing workflows default to
-`Comfy patches` and retain their previous behavior.
+Multiple plain linear LoRA and direct-factor linear LoKr adapters can be
+stacked. Overlapping compatible components are composed into one forward hook
+per model layer while retaining each LoRA's own strength and block vector. If
+any component on a target is unsupported—such as DoRA, reshaped or decomposed
+adapters, output transforms, convolutional targets, direct diffs, or unknown
+adapter classes—the complete ordered patch sequence for that target stays on
+ComfyUI's regular patch path. Models with pre-existing runtime injections and
+LoRAs without supported forward adapters use the regular compatibility path
+instead of failing. Existing workflows default to `Comfy patches` and retain
+their previous behavior.
 
 ### Fusion-aware Krea2 LoRA safety
 

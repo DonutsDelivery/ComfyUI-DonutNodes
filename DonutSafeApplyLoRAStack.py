@@ -328,29 +328,207 @@ def _normalise_fused_text_weights(entries, component=None, budget=_SAFE_ENERGY_B
     return weights, None
 
 
+_WEIGHT_ADAPTER_BASE = getattr(comfy_weight_adapter, "WeightAdapterBase", None)
+
+
+if _WEIGHT_ADAPTER_BASE is not None:
+    class _CompositeBypassAdapter(_WEIGHT_ADAPTER_BASE):
+        """Sum multiple additive bypass adapters for one model module."""
+
+        name = "donut_composite"
+
+        def __init__(self, components):
+            self.components = tuple(components)
+            self.loaded_keys = set().union(*(
+                getattr(adapter, "loaded_keys", set())
+                for adapter, _ in self.components
+            ))
+            self._weight_layout = []
+            for adapter, _ in self.components:
+                weights = adapter.weights
+                if isinstance(weights, tuple):
+                    self._weight_layout.append(("tuple", len(weights)))
+                elif isinstance(weights, list):
+                    self._weight_layout.append(("list", len(weights)))
+                else:
+                    self._weight_layout.append(("scalar", 1))
+
+        @property
+        def weights(self):
+            flattened = []
+            for adapter, _ in self.components:
+                weights = adapter.weights
+                if isinstance(weights, (tuple, list)):
+                    flattened.extend(weights)
+                else:
+                    flattened.append(weights)
+            return tuple(flattened)
+
+        @weights.setter
+        def weights(self, flattened):
+            offset = 0
+            for (adapter, _), (kind, size) in zip(self.components, self._weight_layout):
+                values = flattened[offset:offset + size]
+                offset += size
+                if kind == "tuple":
+                    adapter.weights = tuple(values)
+                elif kind == "list":
+                    adapter.weights = list(values)
+                else:
+                    adapter.weights = values[0]
+            if offset != len(flattened):
+                raise ValueError("Composite bypass adapter weight layout changed unexpectedly")
+
+        def h(self, x, base_out):
+            total = None
+            outer_multiplier = float(getattr(self, "multiplier", 1.0))
+            shared_attributes = (
+                "is_conv",
+                "conv_dim",
+                "kernel_size",
+                "in_channels",
+                "out_channels",
+                "kw_dict",
+            )
+            for adapter, strength in self.components:
+                adapter.multiplier = outer_multiplier * float(strength)
+                for attribute in shared_attributes:
+                    if hasattr(self, attribute):
+                        setattr(adapter, attribute, getattr(self, attribute))
+                contribution = adapter.h(x, base_out)
+                total = contribution if total is None else total + contribution
+            return total
+else:
+    class _CompositeBypassAdapter:  # pyright: ignore[reportRedeclaration]
+        def __init__(self, components):
+            raise RuntimeError(
+                "Experimental bypass requires comfy.weight_adapter support"
+            )
+
+
+def _module_for_weight_key(model_root, key):
+    """Resolve a state-dict weight key to its owning model module."""
+    if not isinstance(key, str) or not key.endswith(".weight"):
+        return None
+    module = model_root
+    try:
+        for part in key[:-7].split("."):
+            module = module[int(part)] if part.isdigit() else getattr(module, part)
+    except (AttributeError, IndexError, KeyError, TypeError):
+        return None
+    return module
+
+
+def _bypass_compatibility_error(adapter, module):
+    """Return why an adapter cannot use Donut's conservative bypass subset."""
+    if comfy_weight_adapter is None:
+        return "comfy.weight_adapter is unavailable"
+    module_type = type(module)
+    is_torch_linear = module is not None and isinstance(module, torch.nn.Linear)
+    is_comfy_linear = (
+        module is not None
+        and module_type.__module__ == "comfy.ops"
+        and module_type.__name__ == "Linear"
+        and callable(getattr(module, "_forward", None))
+    )
+    if not (is_torch_linear or is_comfy_linear):
+        return "target module is not a supported linear layer"
+    if getattr(module, "pre_quant_scale", None) is not None:
+        return "target applies an input pre-quantization scale"
+
+    adapter_type = type(adapter)
+    lora_type = getattr(comfy_weight_adapter, "LoRAAdapter", None)
+    lokr_type = getattr(comfy_weight_adapter, "LoKrAdapter", None)
+    weights = getattr(adapter, "weights", None)
+    if lora_type is not None and adapter_type is lora_type:
+        if not isinstance(weights, (tuple, list)) or len(weights) != 6:
+            return "unexpected LoRA weight layout"
+        _, _, _, mid, dora_scale, reshape = weights
+        if dora_scale is not None:
+            return "DoRA normalization is weight-dependent"
+        if reshape is not None:
+            return "reshape_weight is not activation-additive"
+        if mid is not None:
+            return "mid/Tucker LoRA bypass has not been parity-validated"
+        return None
+
+    if lokr_type is not None and adapter_type is lokr_type:
+        if not isinstance(weights, (tuple, list)) or len(weights) != 9:
+            return "unexpected LoKr weight layout"
+        w1, w2, _, w1_a, w1_b, w2_a, w2_b, t2, dora_scale = weights
+        if dora_scale is not None:
+            return "DoRA normalization is weight-dependent"
+        if w1 is None or w2 is None or any(
+            value is not None for value in (w1_a, w1_b, w2_a, w2_b, t2)
+        ):
+            return "decomposed/Tucker LoKr bypass has not been parity-validated"
+        return None
+
+    return f"unsupported adapter type {adapter_type.__name__}"
+
+
+def _partition_bypass_targets(model_root, model_keys, patches_by_key):
+    """Keep a target wholly bypassed or wholly on the ordered regular path."""
+    bypass_targets = {}
+    regular_targets = {}
+    fallback_reasons = {}
+    adapter_base = _WEIGHT_ADAPTER_BASE or ()
+
+    for key, components in patches_by_key.items():
+        module = _module_for_weight_key(model_root, key) if key in model_keys else None
+        reasons = []
+        for patch_data, _ in components:
+            if not isinstance(patch_data, adapter_base):
+                reasons.append(f"regular patch type {type(patch_data).__name__}")
+                continue
+            reason = _bypass_compatibility_error(patch_data, module)
+            if reason is not None:
+                reasons.append(reason)
+
+        if reasons:
+            regular_targets[key] = components
+            fallback_reasons[key] = tuple(dict.fromkeys(reasons))
+        else:
+            bypass_targets[key] = components
+
+    return bypass_targets, regular_targets, fallback_reasons
+
+
+def _register_bypass_adapters(manager, adapters_by_key):
+    """Register one adapter or one additive composite for each model key."""
+    for key, components in adapters_by_key.items():
+        if len(components) == 1:
+            adapter, strength = components[0]
+            manager.add_adapter(key, adapter, strength=strength)
+            continue
+
+        manager.add_adapter(key, _CompositeBypassAdapter(components), strength=1.0)
+
+
 def _apply_bypass_applications(model, applications):
-    """Apply one LoRA's block-weighted components as forward adapters.
+    """Apply block-weighted components as forward adapters.
 
     ``applications`` contains ``(lora, strength, block_vector)`` tuples.  Main
     and fused-text components can therefore share one injection manager while
     retaining the exact ratios produced by Donut's block-weight loader.
 
-    The upstream bypass manager stores one adapter per model key.  Reject a
-    collision rather than silently replacing an earlier component.  The node
-    currently applies this helper to one model-strength LoRA at a time for the
-    same reason.
+    The upstream bypass manager stores one adapter per model key. Overlapping
+    additive adapters are therefore wrapped in one composite that sums their
+    independently scaled h(x) contributions. Adapters with output transforms
+    or custom bypass-forward semantics remain guarded because their ordering
+    cannot be represented by a simple additive sum.
     """
-    if comfy_weight_adapter is None:
-        raise RuntimeError(
-            "Experimental bypass requires a newer ComfyUI with "
-            "comfy.weight_adapter support. Use Comfy patches or update ComfyUI."
-        )
+    manager_type = getattr(comfy_weight_adapter, "BypassInjectionManager", None)
+    existing_injections = getattr(model, "injections", {})
+    force_regular_reason = None
+    if _WEIGHT_ADAPTER_BASE is None or manager_type is None:
+        force_regular_reason = "comfy.weight_adapter bypass support is unavailable"
+    elif getattr(model, "is_injected", False) or any(existing_injections.values()):
+        force_regular_reason = "the input model already has runtime injections"
 
     new_model = model.clone()
-    manager = comfy_weight_adapter.BypassInjectionManager()
     model_keys = set(new_model.model.state_dict().keys())
-    adapter_keys = set()
-    regular_count = 0
+    patches_by_key = {}
 
     for lora, strength, block_vector in applications:
         block_weights, _, _ = LoraLoaderBlockWeight.load_lbw(
@@ -367,40 +545,57 @@ def _apply_bypass_applications(model, applications):
             final_strength = float(strength) * float(ratio)
             if final_strength == 0.0:
                 continue
-            is_bypass_adapter = (
-                isinstance(key, str)
-                and isinstance(patch_data, comfy_weight_adapter.WeightAdapterBase)
-                and key in model_keys
-            )
-            if is_bypass_adapter:
-                if key in adapter_keys:
-                    raise RuntimeError(
-                        "Experimental bypass found overlapping adapter components for "
-                        f"'{key}'. Use Comfy patches for this LoRA."
-                    )
-                manager.add_adapter(key, patch_data, strength=final_strength)
-                adapter_keys.add(key)
-            else:
-                new_model.add_patches({key: patch_data}, final_strength)
-                regular_count += 1
+            patches_by_key.setdefault(key, []).append((patch_data, final_strength))
 
-    injections = manager.create_injections(new_model.model)
-    if manager.get_hook_count() > 0:
-        new_model.set_injections("donut_bypass_lora", injections)
-    if not adapter_keys:
-        raise RuntimeError(
-            "Experimental bypass found no supported forward adapters. "
-            "Use Comfy patches for this LoRA format."
+    if force_regular_reason is None:
+        adapters_by_key, regular_targets, fallback_reasons = _partition_bypass_targets(
+            new_model.model,
+            model_keys,
+            patches_by_key,
         )
+    else:
+        adapters_by_key = {}
+        regular_targets = patches_by_key
+        fallback_reasons = {
+            key: (force_regular_reason,)
+            for key in patches_by_key
+        }
+    regular_count = 0
+    for key, components in regular_targets.items():
+        for patch_data, final_strength in components:
+            new_model.add_patches({key: patch_data}, final_strength)
+            regular_count += 1
+
+    if adapters_by_key:
+        assert manager_type is not None
+        manager = manager_type()
+        _register_bypass_adapters(manager, adapters_by_key)
+        injections = manager.create_injections(new_model.model)
+        if manager.get_hook_count() > 0:
+            new_model.set_injections("donut_bypass_lora", injections)
     if regular_count:
         print(
             "[DonutApplyLoRAStack] Experimental bypass kept "
-            f"{regular_count} unsupported/direct patch(es) on the regular path"
+            f"{regular_count} patch component(s) across {len(regular_targets)} "
+            "target(s) on the ordered regular path"
         )
-    print(
-        "[DonutApplyLoRAStack] Experimental bypass attached "
-        f"{len(adapter_keys)} forward adapter(s) with block-vector strengths"
-    )
+        for key, reasons in fallback_reasons.items():
+            print(
+                "[DonutApplyLoRAStack] Regular fallback for "
+                f"{key}: {'; '.join(reasons)}"
+            )
+    if adapters_by_key:
+        print(
+            "[DonutApplyLoRAStack] Experimental bypass attached "
+            f"{sum(len(components) for components in adapters_by_key.values())} adapter "
+            f"component(s) across {len(adapters_by_key)} forward hook(s) with "
+            "block-vector strengths"
+        )
+    else:
+        print(
+            "[DonutApplyLoRAStack] Experimental bypass used the compatibility "
+            "path for this stack; all model patches remain regular Comfy patches"
+        )
     return new_model
 
 
@@ -447,8 +642,9 @@ class DonutApplyLoRAStackSafe:
                     "default": "Comfy patches",
                     "tooltip": (
                         "Experimental bypass computes base(x) + LoRA(x) without rebuilding "
-                        "quantized model weights. It currently supports one active "
-                        "diffusion-model LoRA; block vectors and dynamic strengths are kept."
+                        "quantized model weights. Multiple plain linear LoRA and direct-factor "
+                        "LoKr adapters can be stacked; unsupported targets stay ordered on "
+                        "Comfy's regular path."
                     ),
                 }),
             }
@@ -649,13 +845,6 @@ class DonutApplyLoRAStackSafe:
         unet, text_enc = model, clip
         loader = LoraLoaderBlockWeight()
         bypass_applications = []
-        if execution_mode == "Experimental bypass":
-            active_model_loras = sum(1 for entry in entries if entry["mw"] != 0.0)
-            if active_model_loras > 1:
-                raise RuntimeError(
-                    "Experimental bypass currently supports one active diffusion-model "
-                    "LoRA. Disable the others or use Comfy patches."
-                )
 
         for entry in entries:
             mw = entry["mw"]

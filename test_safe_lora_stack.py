@@ -47,6 +47,7 @@ fake_torch.ones = lambda *shape: _FakeTensor(np.ones(shape, dtype=np.float32))
 fake_torch.is_tensor = lambda value: isinstance(value, _FakeTensor)
 fake_torch.equal = lambda left, right: np.array_equal(left.array, right.array)
 fake_torch.allclose = lambda left, right: np.allclose(left.array, right.array)
+setattr(fake_torch, "nn", types.SimpleNamespace(Linear=type("Linear", (), {})))
 
 
 def _load_module():
@@ -57,8 +58,31 @@ def _load_module():
     comfy_sd = types.ModuleType("comfy.sd")
     comfy_utils = types.ModuleType("comfy.utils")
     comfy_weight_adapter = types.ModuleType("comfy.weight_adapter")
-    comfy_weight_adapter.WeightAdapterBase = type("WeightAdapterBase", (), {})
-    comfy_weight_adapter.BypassInjectionManager = object
+    class WeightAdapterBase:
+        def h(self, x, base_out):
+            return 0
+
+        def g(self, value):
+            return value
+
+        def bypass_forward(self, org_forward, x, *args, **kwargs):
+            base_out = org_forward(x, *args, **kwargs)
+            return self.g(base_out + self.h(x, base_out))
+
+    class LoRAAdapter(WeightAdapterBase):
+        def __init__(self, weights):
+            self.loaded_keys = set()
+            self.weights = weights
+
+    class LoKrAdapter(WeightAdapterBase):
+        def __init__(self, weights):
+            self.loaded_keys = set()
+            self.weights = weights
+
+    setattr(comfy_weight_adapter, "WeightAdapterBase", WeightAdapterBase)
+    setattr(comfy_weight_adapter, "LoRAAdapter", LoRAAdapter)
+    setattr(comfy_weight_adapter, "LoKrAdapter", LoKrAdapter)
+    setattr(comfy_weight_adapter, "BypassInjectionManager", object)
     comfy.sd = comfy_sd
     comfy.utils = comfy_utils
     comfy.weight_adapter = comfy_weight_adapter
@@ -249,24 +273,120 @@ class SafetyCompatibilityTests(unittest.TestCase):
         self.assertEqual(required["max_fusion_boost"][1]["default"], 2.0)
         self.assertEqual(inputs["optional"]["execution_mode"][1]["default"], "Comfy patches")
 
-    def test_experimental_mode_rejects_multiple_active_model_loras(self):
-        module.folder_paths.get_full_path = lambda category, name: f"/{name}"
-        module.comfy.utils.load_torch_file = lambda path, safe_load=True: {
-            "diffusion_model.blocks.0.attn.lora_A.weight": fake_torch.ones(2, 2)
-        }
-        module._lora_has_real_text_encoder = lambda lora: False
-        module._split_fused_text = lambda lora: (dict(lora), {})
+    def test_composite_bypass_sums_overlapping_additive_adapters(self):
+        class Adapter(module.comfy_weight_adapter.WeightAdapterBase):
+            def __init__(self, value):
+                self.value = value
+                self.loaded_keys = set()
+                self.weights = ()
 
-        with self.assertRaisesRegex(RuntimeError, "one active diffusion-model LoRA"):
-            module.DonutApplyLoRAStackSafe().apply_stack(
-                object(),
-                object(),
-                [
-                    ("first.safetensors", 1.0, 0.0, "1,1"),
-                    ("second.safetensors", 1.0, 0.0, "1,1"),
-                ],
-                execution_mode="Experimental bypass",
-            )
+            def h(self, x, base_out):
+                return self.value * self.multiplier
+
+        composite = module._CompositeBypassAdapter([
+            (Adapter(2.0), 0.5),
+            (Adapter(3.0), 2.0),
+        ])
+        composite.multiplier = 1.0
+
+        self.assertEqual(composite.h(None, None), 7.0)
+
+    def test_composite_bypass_preserves_each_adapter_weight_layout(self):
+        class Adapter(module.comfy_weight_adapter.WeightAdapterBase):
+            def __init__(self, weights):
+                self.loaded_keys = set()
+                self.weights = weights
+
+        first = Adapter((1, 2))
+        second = Adapter([3, 4, 5])
+        composite = module._CompositeBypassAdapter([(first, 1.0), (second, 1.0)])
+
+        self.assertEqual(composite.weights, (1, 2, 3, 4, 5))
+        composite.weights = (10, 20, 30, 40, 50)
+        self.assertEqual(first.weights, (10, 20))
+        self.assertEqual(second.weights, [30, 40, 50])
+
+    def test_partition_keeps_mixed_target_wholly_on_regular_path(self):
+        linear = fake_torch.nn.Linear()
+        root = types.SimpleNamespace(layer=linear, other=fake_torch.nn.Linear())
+        lora = module.comfy_weight_adapter.LoRAAdapter((1, 2, 1.0, None, None, None))
+        lokr = module.comfy_weight_adapter.LoKrAdapter(
+            (1, 2, 1.0, None, None, None, None, None, None)
+        )
+        direct = ("diff", (3,))
+
+        bypass, regular, reasons = module._partition_bypass_targets(
+            root,
+            {"layer.weight", "other.weight"},
+            {
+                "layer.weight": [(lora, 0.5), (direct, 1.0)],
+                "other.weight": [(lokr, 2.0)],
+            },
+        )
+
+        self.assertEqual(bypass, {"other.weight": [(lokr, 2.0)]})
+        self.assertEqual(regular, {"layer.weight": [(lora, 0.5), (direct, 1.0)]})
+        self.assertIn("regular patch type tuple", reasons["layer.weight"])
+
+    def test_bypass_allowlist_rejects_dora_reshape_and_unknown_adapters(self):
+        linear = fake_torch.nn.Linear()
+        dora = module.comfy_weight_adapter.LoRAAdapter((1, 2, 1.0, None, 3, None))
+        reshape = module.comfy_weight_adapter.LoRAAdapter((1, 2, 1.0, None, None, (2, 2)))
+
+        class Unknown(module.comfy_weight_adapter.WeightAdapterBase):
+            weights = ()
+
+        self.assertIn("DoRA", module._bypass_compatibility_error(dora, linear))
+        self.assertIn("reshape_weight", module._bypass_compatibility_error(reshape, linear))
+        self.assertIn("unsupported adapter type", module._bypass_compatibility_error(Unknown(), linear))
+
+    def test_bypass_accepts_comfy_mixed_precision_linear_without_input_scale(self):
+        comfy_linear_type = type(
+            "Linear",
+            (),
+            {
+                "__module__": "comfy.ops",
+                "_forward": lambda self, input_value, weight, bias: input_value,
+            },
+        )
+        linear = comfy_linear_type()
+        lora = module.comfy_weight_adapter.LoRAAdapter((1, 2, 1.0, None, None, None))
+
+        self.assertIsNone(module._bypass_compatibility_error(lora, linear))
+        setattr(linear, "pre_quant_scale", object())
+        self.assertIn(
+            "pre-quantization scale",
+            module._bypass_compatibility_error(lora, linear),
+        )
+
+    def test_bypass_uses_regular_path_with_existing_runtime_injections(self):
+        cloned = types.SimpleNamespace(
+            model=types.SimpleNamespace(state_dict=lambda: {}),
+            added=[],
+        )
+        cloned.add_patches = lambda patches, strength: cloned.added.append((patches, strength))
+        model = types.SimpleNamespace(
+            injections={"existing": [object()]},
+            is_injected=False,
+            clone=lambda: cloned,
+        )
+        had_load_lbw = hasattr(module.LoraLoaderBlockWeight, "load_lbw")
+        original = getattr(module.LoraLoaderBlockWeight, "load_lbw", None)
+        setattr(module.LoraLoaderBlockWeight, "load_lbw", lambda *args, **kwargs: (
+            {"layer.weight": (("diff", (1,)), 0.5)},
+            None,
+            None,
+        ))
+        try:
+            result = module._apply_bypass_applications(model, [(object(), 2.0, "1")])
+        finally:
+            if had_load_lbw:
+                setattr(module.LoraLoaderBlockWeight, "load_lbw", original)
+            else:
+                delattr(module.LoraLoaderBlockWeight, "load_lbw")
+
+        self.assertIs(result, cloned)
+        self.assertEqual(cloned.added, [({"layer.weight": ("diff", (1,))}, 1.0)])
 
     def test_apply_splits_and_column_scales_projector_lora(self):
         down_key = "diffusion_model.txtfusion.projector.lora_down.weight"
