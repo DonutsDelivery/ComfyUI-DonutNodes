@@ -46,6 +46,22 @@ class DynamicCFGGuiderTests(unittest.TestCase):
         ):
             sampler_module._safe_print("diagnostic")
 
+    def test_simple_sampler_does_not_return_source_latent_after_failure(self):
+        engine = sampler_module._DonutSamplerEngine()
+        latent = {"samples": torch.zeros(1, 16, 8, 8)}
+        sampler_name = comfy.samplers.KSampler.SAMPLERS[0]
+
+        with patch.object(
+            sampler_module,
+            "_common_ksampler_with_dynamic_cfg",
+            side_effect=BrokenPipeError(32, "Broken pipe"),
+        ):
+            with self.assertRaises(BrokenPipeError):
+                engine.run_simple(
+                    object(), 1, 3, 1.0, 1.0, 1.0, 1, sampler_name,
+                    "normal", object(), object(), latent, 1.0,
+                )
+
     def test_cfg_schedule_advances_only_after_completed_sampler_steps(self):
         observed_cfg = []
 

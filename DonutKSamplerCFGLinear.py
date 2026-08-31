@@ -479,15 +479,15 @@ class _DonutSamplerEngine:
             return (result[0], cfg_info)
 
         except Exception as e:
-            # Handle interruption gracefully - let ComfyUI handle it properly
             if "InterruptProcessingException" in str(type(e)) or "InterruptProcessingException" in str(e):
                 print("Sampling interrupted by user")
-                raise e  # Re-raise to let ComfyUI handle interruption properly
             else:
-                import traceback
-                error_msg = f"Sampling failed: {str(e)}\n{traceback.format_exc()}"
-                print(error_msg)
-                return (latent_image, f"ERROR: {error_msg}")
+                print(f"Sampling failed: {e}")
+            # A source latent is not necessarily decoder-compatible (for example,
+            # Krea 2 prepares a 5D Wan latent during sampling from a 4D input).
+            # Returning it as if sampling succeeded only moves the failure into a
+            # downstream VAE node and hides the actual exception.
+            raise
 
     def format_simple_cfg_info(self, cfg_start, cfg_halfway, cfg_end, halfway_step, steps, sampler_name, scheduler):
         """Format the CFG progression information."""
@@ -663,14 +663,11 @@ class _DonutSamplerEngine:
             return (result[0], cfg_info)
 
         except Exception as e:
-            # Handle interruption gracefully - let ComfyUI handle it properly
             if "InterruptProcessingException" in str(type(e)) or "InterruptProcessingException" in str(e):
                 print("Advanced sampling interrupted by user")
-                raise e  # Re-raise to let ComfyUI handle interruption properly
             else:
-                import traceback
-                error_msg = f"Advanced sampling failed: {str(e)}\n{traceback.format_exc()}"
-                return (latent_image, f"ERROR: {error_msg}")
+                print(f"Advanced sampling failed: {e}")
+            raise
 
     def format_advanced_cfg_info(self, cfg_start, cfg_halfway, cfg_end, halfway_step, steps, sampler_name, scheduler,
                                 start_at_step, end_at_step, add_noise, return_with_leftover_noise, cfg_curve="linear"):
@@ -970,16 +967,11 @@ class _DonutSamplerEngine:
                         current_seed = (current_seed + 1) % 0xffffffffffffffff
 
                 except Exception as phase_error:
-                    # Handle interruption gracefully like standard samplers
                     if "InterruptProcessingException" in str(type(phase_error)) or "InterruptProcessingException" in str(phase_error):
                         print(f"  Phase {phase_idx + 1} interrupted by user")
-                        # Re-raise interruption to let ComfyUI handle it properly
-                        raise phase_error
                     else:
                         print(f"  Phase {phase_idx + 1} failed: {str(phase_error)}")
-                        import traceback
-                        traceback.print_exc()
-                        break
+                    raise
 
             # Create comprehensive info
             info = self.format_multi_model_info(phases, effective_steps, cfg_start, cfg_halfway, cfg_end,
@@ -990,15 +982,11 @@ class _DonutSamplerEngine:
             return (current_latent, info)
 
         except Exception as e:
-            # Handle interruption gracefully - let ComfyUI handle it properly
             if "InterruptProcessingException" in str(type(e)) or "InterruptProcessingException" in str(e):
                 print("Multi-model sampling interrupted by user")
-                raise e  # Re-raise to let ComfyUI handle interruption properly
             else:
-                import traceback
-                error_msg = f"Multi-model sampling failed: {str(e)}\n{traceback.format_exc()}"
-                print(error_msg)
-                return (latent_image, f"ERROR: {error_msg}")
+                print(f"Multi-model sampling failed: {e}")
+            raise
 
     def format_multi_model_info(self, phases, steps, cfg_start, cfg_halfway, cfg_end, halfway_step,
                                sampler_name, scheduler, cfg_curve, start_at_step=0, end_at_step=10000,
