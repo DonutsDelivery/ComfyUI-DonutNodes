@@ -636,6 +636,17 @@ class DonutApplyLoRAStackSafe:
                     "step": 0.05,
                     "tooltip": "Maximum per-column LoRA boost in Use headroom mode.",
                 }),
+                "safe_limit": ("FLOAT", {
+                    "default": _SAFE_ENERGY_BUDGET,
+                    "min": 0.0,
+                    "max": 10.0,
+                    "step": 0.05,
+                    "tooltip": (
+                        "Maximum combined RMS energy for overlapping Krea2 LoRAs. "
+                        "1.0 equals one full-strength LoRA; lower values are stricter. "
+                        "Set Safe Stack to Off to disable limiting completely."
+                    ),
+                }),
             },
             "optional": {
                 "execution_mode": (list(_EXECUTION_MODES), {
@@ -663,6 +674,7 @@ class DonutApplyLoRAStackSafe:
         safe_stack="Off",
         fusion_aware="Off",
         max_fusion_boost=2.0,
+        safe_limit=_SAFE_ENERGY_BUDGET,
         execution_mode="Comfy patches",
     ):
         help_url = (
@@ -679,6 +691,10 @@ class DonutApplyLoRAStackSafe:
         max_fusion_boost = float(max_fusion_boost)
         if not math.isfinite(max_fusion_boost) or max_fusion_boost < 1.0:
             raise ValueError("max_fusion_boost must be finite and at least 1.0")
+        if safe_stack == "On":
+            safe_limit = float(safe_limit)
+            if not math.isfinite(safe_limit) or safe_limit < 0.0:
+                raise ValueError("safe_limit must be finite and non-negative")
 
         # Preserve DonutApplyLoRAStack's duplicate semantics before doing any
         # safety calculation, otherwise duplicate entries would consume budget
@@ -752,7 +768,10 @@ class DonutApplyLoRAStackSafe:
             )
 
         if safe_stack == "On":
-            adjusted_vectors, limited_blocks = _normalise_krea_vectors(entries)
+            adjusted_vectors, limited_blocks = _normalise_krea_vectors(
+                entries,
+                budget=safe_limit,
+            )
             for idx, entry in enumerate(entries):
                 entry["vector"] = adjusted_vectors[idx]
 
@@ -767,6 +786,7 @@ class DonutApplyLoRAStackSafe:
                 other_weights, other_limit = _normalise_fused_text_weights(
                     entries,
                     component="has_other_text",
+                    budget=safe_limit,
                 )
                 projector_gains, dynamic = _nominal_projector_gains(fusion_metadata)
                 projector_scales, projector_report = _projector_column_scales(
@@ -775,6 +795,7 @@ class DonutApplyLoRAStackSafe:
                     fusion_aware,
                     max_fusion_boost,
                     dynamic=dynamic,
+                    budget=safe_limit,
                 )
 
                 unsupported = []
@@ -804,7 +825,7 @@ class DonutApplyLoRAStackSafe:
                     energy, scale = other_limit
                     print(
                         "[DonutApplyLoRAStack] Safe Stack: limited non-projector "
-                        f"Krea2 fused-text energy {energy:.3f}x -> {_SAFE_ENERGY_BUDGET:.3f}x "
+                        f"Krea2 fused-text energy {energy:.3f}x -> {safe_limit:.3f}x "
                         f"(scale {scale:.3f})"
                     )
                 if projector_report:
@@ -826,7 +847,10 @@ class DonutApplyLoRAStackSafe:
                         + ", ".join(unsupported)
                     )
             else:
-                adjusted_text_weights, text_limit = _normalise_fused_text_weights(entries)
+                adjusted_text_weights, text_limit = _normalise_fused_text_weights(
+                    entries,
+                    budget=safe_limit,
+                )
                 for idx, entry in enumerate(entries):
                     entry["fusion_split"] = False
                     entry["effective_cw"] = adjusted_text_weights[idx]
@@ -834,7 +858,7 @@ class DonutApplyLoRAStackSafe:
                     energy, scale = text_limit
                     print(
                         "[DonutApplyLoRAStack] Safe Stack: limited Krea2 fused-text "
-                        f"energy {energy:.3f}x -> {_SAFE_ENERGY_BUDGET:.3f}x "
+                        f"energy {energy:.3f}x -> {safe_limit:.3f}x "
                         f"(scale {scale:.3f})"
                     )
         else:

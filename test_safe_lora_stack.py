@@ -269,9 +269,47 @@ class SafetyCompatibilityTests(unittest.TestCase):
     def test_new_controls_default_to_legacy_off(self):
         inputs = module.DonutApplyLoRAStackSafe.INPUT_TYPES()
         required = inputs["required"]
+        self.assertEqual(required["safe_stack"][1]["default"], "Off")
         self.assertEqual(required["fusion_aware"][1]["default"], "Off")
         self.assertEqual(required["max_fusion_boost"][1]["default"], 2.0)
+        self.assertEqual(required["safe_limit"][1]["default"], 1.0)
+        self.assertEqual(
+            list(required)[-1],
+            "safe_limit",
+            "append the restored widget so released workflows keep their positions",
+        )
         self.assertEqual(inputs["optional"]["execution_mode"][1]["default"], "Comfy patches")
+
+    def test_adjustable_limit_controls_all_safety_budgets(self):
+        entries = [_projector_entry(), _projector_entry()]
+        vector = ",".join(["1"] * module._KREA_VECTOR_SIZE)
+        for entry in entries:
+            entry.update({
+                "mw": 1.0,
+                "vector": vector,
+                "is_krea": True,
+                "krea_blocks": set(range(module._KREA_BLOCK_COUNT)),
+            })
+
+        adjusted, limited = module._normalise_krea_vectors(entries, budget=0.5)
+        text_weights, text_limit = module._normalise_fused_text_weights(
+            entries,
+            budget=0.5,
+        )
+        projector_scales, _ = module._projector_column_scales(
+            entries,
+            (1.0,) * 12,
+            "Attenuate only",
+            2.0,
+            budget=0.5,
+        )
+        expected = 0.5 / math.sqrt(2.0)
+
+        self.assertTrue(limited)
+        self.assertIsNotNone(text_limit)
+        self.assertAlmostEqual(float(adjusted[0].split(",")[0]), expected, places=6)
+        self.assertAlmostEqual(text_weights[0], expected)
+        self.assertAlmostEqual(projector_scales[0], expected)
 
     def test_composite_bypass_sums_overlapping_additive_adapters(self):
         class Adapter(module.comfy_weight_adapter.WeightAdapterBase):

@@ -16,6 +16,8 @@ INPUT_TYPES) so saved graphs continue to deserialize, and they pin a mode and
 forward to the shared engine.
 """
 
+import builtins
+
 import torch
 import comfy.model_management
 import comfy.sample
@@ -43,6 +45,143 @@ try:
     from .turbo_sampling import resolve_turbo_sampling
 except ImportError:
     from turbo_sampling import resolve_turbo_sampling
+
+
+def _safe_print(*args, **kwargs):
+    """Keep redirected stdout failures from aborting sampler execution."""
+    try:
+        builtins.print(*args, **kwargs)
+    except BrokenPipeError:
+        pass
+
+
+# ComfyUI-Manager redirects stdout through a pipe. Diagnostic output from this
+# module must not become a sampling failure if that pipe closes unexpectedly.
+print = _safe_print
+
+
+def _aligned_cfg_values(cfg_values, active_steps):
+    """Trim a per-run CFG schedule to the number of executed sigma intervals."""
+    if not cfg_values:
+        raise ValueError("Dynamic CFG requires at least one CFG value")
+
+    count = max(1, int(active_steps))
+    active = list(cfg_values[:count])
+    if len(active) < count:
+        active.extend([active[-1]] * (count - len(active)))
+    return active
+
+
+class _DynamicCFGGuider(comfy.samplers.CFGGuider):
+    """Instance-local CFG guider advanced by completed sampler steps."""
+
+    def __init__(self, model_patcher, cfg_values, log_prefix="DonutSampler"):
+        super().__init__(model_patcher)
+        self.cfg_values = tuple(cfg_values)
+        if not self.cfg_values:
+            raise ValueError("Dynamic CFG requires at least one CFG value")
+        self.log_prefix = log_prefix
+        self._step_index = 0
+        self._last_logged_step = None
+
+    def set_completed_step(self, completed_step):
+        """Select the CFG value for the step after a sampler callback."""
+        next_step = max(0, int(completed_step) + 1)
+        next_step = min(next_step, len(self.cfg_values) - 1)
+        self._step_index = max(self._step_index, next_step)
+
+    def predict_noise(self, x, timestep, model_options=None, seed=None):
+        if model_options is None:
+            model_options = {}
+        step_index = self._step_index
+        current_cfg = self.cfg_values[step_index]
+        if step_index != self._last_logged_step:
+            print(f"{self.log_prefix}: Step {step_index}, CFG {current_cfg:.2f}")
+            self._last_logged_step = step_index
+
+        old_cfg = self.cfg
+        self.cfg = current_cfg
+        try:
+            return super().predict_noise(x, timestep, model_options, seed)
+        finally:
+            self.cfg = old_cfg
+
+
+def _common_ksampler_with_dynamic_cfg(
+    model, seed, steps, cfg_values, sampler_name, scheduler, positive, negative,
+    latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None,
+    force_full_denoise=False, log_prefix="DonutSampler",
+):
+    """Run ComfyUI's standard sampler lifecycle with a local dynamic guider."""
+    latent_image = latent["samples"]
+    latent_image = comfy.sample.fix_empty_latent_channels(
+        model,
+        latent_image,
+        latent.get("downscale_ratio_spacial", None),
+        latent.get("downscale_ratio_temporal", None),
+    )
+
+    if disable_noise:
+        noise = torch.zeros(
+            latent_image.size(), dtype=latent_image.dtype,
+            layout=latent_image.layout, device="cpu",
+        )
+    else:
+        batch_inds = latent.get("batch_index", None)
+        noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
+
+    noise_mask = latent.get("noise_mask", None)
+    preview_callback = latent_preview.prepare_callback(model, steps)
+    disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
+
+    ksampler = comfy.samplers.KSampler(
+        model, steps=steps, device=model.load_device, sampler=sampler_name,
+        scheduler=scheduler, denoise=denoise, model_options=model.model_options,
+    )
+    sigmas = ksampler.sigmas
+    if last_step is not None and last_step < (len(sigmas) - 1):
+        sigmas = sigmas[:last_step + 1]
+        if force_full_denoise:
+            sigmas[-1] = 0
+
+    if start_step is not None:
+        if start_step < (len(sigmas) - 1):
+            sigmas = sigmas[start_step:]
+        else:
+            samples = latent_image.to(
+                device=comfy.model_management.intermediate_device(),
+                dtype=comfy.model_management.intermediate_dtype(),
+            )
+            out = latent.copy()
+            out.pop("downscale_ratio_spacial", None)
+            out.pop("downscale_ratio_temporal", None)
+            out["samples"] = samples
+            return (out,)
+
+    active_cfg_values = _aligned_cfg_values(cfg_values, max(0, len(sigmas) - 1))
+    guider = _DynamicCFGGuider(model, active_cfg_values, log_prefix=log_prefix)
+    guider.set_conds(positive, negative)
+    guider.set_cfg(active_cfg_values[0])
+
+    def dynamic_cfg_callback(step, denoised, x, total_steps):
+        preview_callback(step, denoised, x, total_steps)
+        guider.set_completed_step(step)
+
+    sampler = comfy.samplers.sampler_object(ksampler.sampler)
+    samples = guider.sample(
+        noise, latent_image, sampler, sigmas, denoise_mask=noise_mask,
+        callback=dynamic_cfg_callback, disable_pbar=disable_pbar, seed=seed,
+    )
+    samples = samples.to(
+        device=comfy.model_management.intermediate_device(),
+        dtype=comfy.model_management.intermediate_dtype(),
+    )
+
+    out = latent.copy()
+    out.pop("downscale_ratio_spacial", None)
+    out.pop("downscale_ratio_temporal", None)
+    out["samples"] = samples
+    return (out,)
 
 
 class _DonutSamplerEngine:
@@ -294,7 +433,7 @@ class _DonutSamplerEngine:
     def run_simple(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                    scheduler, positive, negative, latent_image, denoise):
         """
-        Basic sampling using ComfyUI's common_ksampler with dynamic CFG injection.
+        Basic sampling using ComfyUI's standard lifecycle and a local CFG guider.
         """
         try:
             # Pre-calculate CFG values for each step
@@ -324,49 +463,15 @@ class _DonutSamplerEngine:
             else:
                 print(f"CFG values: {[f'{v:.2f}' for v in cfg_values]}")
 
-            # Create a custom CFGGuider that handles dynamic CFG
-            import comfy.samplers
+            available_samplers = comfy.samplers.KSampler.SAMPLERS
+            if sampler_name not in available_samplers:
+                raise ValueError(f"Sampler '{sampler_name}' not available. Available samplers: {available_samplers}")
 
-            class DynamicCFGGuider(comfy.samplers.CFGGuider):
-                def __init__(self, model_patcher, cfg_values):
-                    super().__init__(model_patcher)
-                    self.cfg_values = cfg_values
-                    self.step_count = 0
-
-                def predict_noise(self, x, timestep, model_options={}, seed=None):
-                    # Get dynamic CFG for current step
-                    current_cfg = self.cfg_values[min(self.step_count, len(self.cfg_values) - 1)]
-                    print(f"DonutSampler: Step {self.step_count}, CFG {current_cfg:.2f}")
-
-                    # Temporarily set CFG and call parent
-                    old_cfg = self.cfg
-                    self.cfg = current_cfg
-                    result = super().predict_noise(x, timestep, model_options, seed)
-                    self.cfg = old_cfg
-
-                    self.step_count += 1
-                    return result
-
-            # Monkey patch CFGGuider creation
-            original_cfg_guider_class = comfy.samplers.CFGGuider
-            comfy.samplers.CFGGuider = lambda model_patcher: DynamicCFGGuider(model_patcher, cfg_values)
-
-            try:
-                # Validate sampler exists to prevent fallback
-                import comfy.samplers
-                available_samplers = comfy.samplers.KSampler.SAMPLERS
-                if sampler_name not in available_samplers:
-                    raise ValueError(f"Sampler '{sampler_name}' not available. Available samplers: {available_samplers}")
-
-                print(f"Using validated sampler: {sampler_name}")
-
-                # Use ComfyUI's standard common_ksampler
-                from nodes import common_ksampler
-                result = common_ksampler(model, seed, steps, cfg_start, sampler_name, scheduler, positive, negative, latent_image, denoise=denoise)
-
-            finally:
-                # Restore original CFGGuider
-                comfy.samplers.CFGGuider = original_cfg_guider_class
+            print(f"Using validated sampler: {sampler_name}")
+            result = _common_ksampler_with_dynamic_cfg(
+                model, seed, steps, cfg_values, sampler_name, scheduler,
+                positive, negative, latent_image, denoise=denoise,
+            )
 
             # Create CFG progression info
             cfg_info = self.format_simple_cfg_info(cfg_start, cfg_halfway, cfg_end, halfway_step, steps, sampler_name, scheduler)
@@ -511,52 +616,18 @@ class _DonutSamplerEngine:
         else:
             print(f"CFG values: {[f'{v:.2f}' for v in cfg_values]}")
 
-        # Create a custom CFGGuider that handles dynamic CFG
-        import comfy.samplers
+        available_samplers = comfy.samplers.KSampler.SAMPLERS
+        if sampler_name not in available_samplers:
+            raise ValueError(f"Sampler '{sampler_name}' not available. Available samplers: {available_samplers}")
 
-        class DynamicCFGGuiderAdvanced(comfy.samplers.CFGGuider):
-            def __init__(self, model_patcher, cfg_values, curve_type):
-                super().__init__(model_patcher)
-                self.cfg_values = cfg_values
-                self.curve_type = curve_type
-                self.step_count = 0
-
-            def predict_noise(self, x, timestep, model_options={}, seed=None):
-                # Get dynamic CFG for current step
-                current_cfg = self.cfg_values[min(self.step_count, len(self.cfg_values) - 1)]
-                print(f"DonutSampler Advanced: Step {self.step_count}, CFG {current_cfg:.2f} ({self.curve_type})")
-
-                # Temporarily set CFG and call parent
-                old_cfg = self.cfg
-                self.cfg = current_cfg
-                result = super().predict_noise(x, timestep, model_options, seed)
-                self.cfg = old_cfg
-
-                self.step_count += 1
-                return result
-
-        # Monkey patch CFGGuider creation
-        original_cfg_guider_class = comfy.samplers.CFGGuider
-        comfy.samplers.CFGGuider = lambda model_patcher: DynamicCFGGuiderAdvanced(model_patcher, cfg_values, curve_type)
-
-        try:
-            # Validate sampler exists to prevent fallback
-            import comfy.samplers
-            available_samplers = comfy.samplers.KSampler.SAMPLERS
-            if sampler_name not in available_samplers:
-                raise ValueError(f"Sampler '{sampler_name}' not available. Available samplers: {available_samplers}")
-
-            print(f"Using validated sampler: {sampler_name}")
-
-            # Use ComfyUI's standard common_ksampler
-            from nodes import common_ksampler
-            result = common_ksampler(model, seed, steps, cfg_start, sampler_name, scheduler, positive, negative, latent,
-                                   denoise=denoise, disable_noise=disable_noise, start_step=start_step, last_step=last_step,
-                                   force_full_denoise=force_full_denoise)
-
-        finally:
-            # Restore original CFGGuider
-            comfy.samplers.CFGGuider = original_cfg_guider_class
+        print(f"Using validated sampler: {sampler_name}")
+        result = _common_ksampler_with_dynamic_cfg(
+            model, seed, steps, cfg_values, sampler_name, scheduler,
+            positive, negative, latent, denoise=denoise,
+            disable_noise=disable_noise, start_step=start_step,
+            last_step=last_step, force_full_denoise=force_full_denoise,
+            log_prefix=f"DonutSampler Advanced ({curve_type})",
+        )
 
         return result
 
