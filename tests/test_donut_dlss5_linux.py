@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import donut_dlss5_linux as dlss
@@ -89,3 +90,73 @@ def test_buffered_reader_preserves_pixels_read_with_header():
     finally:
         if write_fd >= 0:
             os.close(write_fd)
+
+
+def test_session_round_trip_and_feature_verification(tmp_path):
+    import os
+    import sys
+
+    root = _make_runtime(tmp_path / "portable")
+    layout = dlss.RuntimeLayout.discover(root)
+    worker_script = tmp_path / "fake_worker.py"
+    worker_script.write_text(
+        """
+import os
+import struct
+import sys
+from pathlib import Path
+
+VIDEO = struct.Struct('<14I4f')
+SETUP = struct.Struct('<12I')
+FRAME = struct.Struct('<4Iq')
+RESULT = struct.Struct('<5Iq')
+header = sys.stdin.buffer.read(VIDEO.size)
+fields = VIDEO.unpack(header)
+in_w, in_h, out_w, out_h = fields[1:5]
+model = fields[8]
+os.write(sys.stdout.fileno(), b'fake launcher\\n' + SETUP.pack(
+    0x34505553, 1, 1, in_w, in_h, out_w, out_h, 64, 64, 7680, 4320, model
+))
+frame = FRAME.unpack(sys.stdin.buffer.read(FRAME.size))
+sys.stdin.buffer.read(in_w * in_h * 4)
+sys.stdin.buffer.read(in_w * in_h * 2 * 2)
+pixels = bytes([64, 128, 192, 255]) * (out_w * out_h)
+os.write(sys.stdout.fileno(), RESULT.pack(0x3154554F, frame[1], 1, len(pixels), 1, frame[4]) + pixels)
+Path('ReShade.log').write_text(
+    'signed DLSSNR 310.8.0 D3D12 runtime initialized\\n'
+    'feature 18 created via the signed snippet\\n'
+    'inline feature 18 evaluation succeeded\\n'
+)
+""".strip()
+        + "\n"
+    )
+    launch = dlss.LaunchConfig(
+        backend="Test",
+        command_prefix=(sys.executable, str(worker_script)),
+        env=os.environ.copy(),
+        prefix=None,
+        worker_kind="test",
+    )
+    settings = dlss.build_native_settings(
+        "Default", "Default", "M", 1.0, 1.0, 1.5, 2.0, True
+    )
+    session = dlss.Dlss5Session(
+        layout,
+        launch,
+        input_width=64,
+        input_height=64,
+        output_width=64,
+        output_height=64,
+        frame_count=1,
+        warmup_frames=0,
+        perf_quality=5,
+        native_settings=settings,
+        setup_timeout=5,
+        frame_timeout=5,
+        close_timeout=5,
+    )
+    output = session.submit(0, np.zeros((64, 64, 4), dtype=np.uint8))
+    assert output.shape == (64, 64, 4)
+    assert output[0, 0].tolist() == [64, 128, 192, 255]
+    _combined, evidence = session.close()
+    assert len(evidence) == 3
