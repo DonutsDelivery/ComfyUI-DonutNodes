@@ -36,7 +36,13 @@ def test_output_sizes_are_even_and_bounded():
     width, height, factor, quality, name = dlss.resolve_output_size(
         513, 257, "2.0x (Performance)"
     )
-    assert (width, height, factor, quality, name) == (1026, 514, 2.0, 0, "Performance")
+    assert (width, height, factor, quality, name) == (
+        1026,
+        514,
+        2.0,
+        0,
+        "Performance",
+    )
 
 
 def test_feature_18_verification_is_version_tolerant():
@@ -59,3 +65,27 @@ def test_dll_overrides_preserve_existing_values():
     assert "dxgi=b" in value
     assert "nvapi64=n,b" in value
     assert value.count("dxgi=") == 1
+
+
+def test_buffered_reader_preserves_pixels_read_with_header():
+    import os
+
+    read_fd, write_fd = os.pipe()
+    payload = b"launcher chatter\n" + dlss.RESULT_HEADER.pack(
+        dlss.OUT_MAGIC, 7, 1, 6, 1, 7
+    ) + b"pixels"
+    try:
+        os.write(write_fd, payload)
+        os.close(write_fd)
+        write_fd = -1
+        with os.fdopen(read_fd, "rb", buffering=0) as stream:
+            reader = dlss._BufferedPipeReader(stream)
+            header = reader.read_struct_with_magic(
+                dlss.RESULT_HEADER, dlss.OUT_MAGIC, 1.0, "test header"
+            )
+            assert dlss.RESULT_HEADER.unpack(header)[1] == 7
+            assert reader.read_exact(6, 1.0, "test pixels") == b"pixels"
+            assert reader.discarded_text() == "launcher chatter"
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
