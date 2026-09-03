@@ -7,14 +7,14 @@ on:
     paths:
       - "DonutDLSS5Linux.py"
       - "donut_dlss5_linux.py"
-      - "hot_reload.py"
+      - "DonutWeightVectorScale.py"
       - "tests/test_donut_dlss5_linux.py"
       - ".github/workflows/dlss5-linux-static.yml"
   pull_request:
     paths:
       - "DonutDLSS5Linux.py"
       - "donut_dlss5_linux.py"
-      - "hot_reload.py"
+      - "DonutWeightVectorScale.py"
       - "tests/test_donut_dlss5_linux.py"
       - ".github/workflows/dlss5-linux-static.yml"
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
           .venv-dlss5/bin/python -m py_compile \
             donut_dlss5_linux.py \
             DonutDLSS5Linux.py \
-            hot_reload.py \
+            DonutWeightVectorScale.py \
             tests/test_donut_dlss5_linux.py
       - name: Run protocol tests
         run: .venv-dlss5/bin/python -m pytest -q tests/test_donut_dlss5_linux.py
