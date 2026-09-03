@@ -1,0 +1,28 @@
+name: DLSS 5 Linux bridge static checks
+
+on:
+  push:
+    branches: [feat/linux-dlss5-experimental]
+    paths:
+      - "DonutDLSS5Linux.py"
+      - "donut_dlss5_linux.py"
+      - "tests/test_donut_dlss5_linux.py"
+      - ".github/workflows/dlss5-linux-static.yml"
+  pull_request:
+    paths:
+      - "DonutDLSS5Linux.py"
+      - "donut_dlss5_linux.py"
+      - "tests/test_donut_dlss5_linux.py"
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install numpy pytest
+      - run: python -m py_compile donut_dlss5_linux.py DonutDLSS5Linux.py tests/test_donut_dlss5_linux.py
+      - run: pytest -q tests/test_donut_dlss5_linux.py
