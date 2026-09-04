@@ -36,6 +36,24 @@ _WEIGHT_ADAPTER_BASE = getattr(comfy_weight_adapter, "WeightAdapterBase", None)
 _BYPASS_MANAGER = getattr(comfy_weight_adapter, "BypassInjectionManager", None)
 
 
+class _ComposableInjectionList(list):
+    """Runtime injections that intentionally compose with Donut LoRA bypass.
+
+    ``DonutApplyLoRAStack`` conservatively treats any truthy pre-existing
+    injection list as incompatible with LoRA forward adapters. Krea2 hard-swap
+    hooks are an exception: they replace the base linear forward with model2,
+    and a later additive LoRA hook can safely wrap that swapped forward. The
+    list therefore stays iterable for ModelPatcher but is falsey for that
+    compatibility guard. ``copy`` preserves the behavior across patcher clones.
+    """
+
+    def __bool__(self):
+        return False
+
+    def copy(self):
+        return type(self)(self)
+
+
 def _module_for_path(model_root: Any, module_path: str):
     """Resolve a dotted module path, including numeric ModuleList indices."""
     module = model_root
@@ -133,7 +151,9 @@ def _has_runtime_injections(model) -> bool:
         return True
     injections = getattr(model, "injections", {})
     if isinstance(injections, dict):
-        return any(bool(value) for value in injections.values())
+        # Injection keys indicate active runtime behavior even when a compatible
+        # injection list intentionally reports false to DonutApplyLoRAStack.
+        return bool(injections)
     return bool(injections)
 
 
@@ -420,7 +440,7 @@ class DonutModelMergeKrea2:
         merged.set_additional_models(_SOURCE_MODELS_KEY, [source])
         merged.set_injections(
             _INJECTION_KEY,
-            [_make_dynamic_bypass_injection(plans)],
+            _ComposableInjectionList([_make_dynamic_bypass_injection(plans)]),
         )
         identity_key = f"{_CACHE_ATTACHMENT_PREFIX}{uuid.uuid4().hex}"
         merged.set_attachments(identity_key, tuple(plans))
