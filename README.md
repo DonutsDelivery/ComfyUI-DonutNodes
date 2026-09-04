@@ -7,6 +7,7 @@ Custom nodes for ComfyUI focused on LoRA management, model merging, and image en
 ## Features
 
 - **Block-weighted LoRA stacking** with per-block strength control, CivitAI integration, and an experimental quantized-model bypass mode
+- **Krea2 component model merging** with regular patches or an experimental quantized forward bypass
 - **Donut Detailers** for per-block model tuning and face/object enhancement
 - **TeaCache acceleration** for faster SDXL inference
 - **Tiled upscaling** with seamless blending
@@ -51,6 +52,7 @@ Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the origin
 | DonutKSamplerCFG | CFG sampling with curve control |
 | DonutSpectralNoiseSharpener | Reference-based spectral sharpening |
 | ModelMergeZIT | ZIT model merging |
+| DonutModelMergeKrea2 | Krea2 component merging with optional quantized forward bypass |
 | DonutModelSave | Save merged models |
 
 ### Experimental quantized LoRA bypass
@@ -72,6 +74,30 @@ ComfyUI's regular patch path. Models with pre-existing runtime injections and
 LoRAs without supported forward adapters use the regular compatibility path
 instead of failing. Existing workflows default to `Comfy patches` and retain
 their previous behavior.
+
+### Experimental Krea2 model-merge bypass
+
+`DonutModelMergeKrea2` mirrors the component controls and ratio direction of
+ComfyUI's built-in `ModelMergeKrea2`: `1.0` keeps `model1`, while `0.0` uses
+`model2`. Its optional `execution_mode` also defaults to `Comfy patches`.
+
+In `Experimental bypass`, eligible linear layers keep both models' quantized
+weights intact and evaluate:
+
+`ratio * model1_layer(x) + (1 - ratio) * model2_layer(x)`
+
+Direct state owned by those linear layers—including bias and quantization
+metadata—stays with its original model. Normalization, modulation, and other
+unsupported tensors still use ComfyUI's regular merge patches. A ratio of
+`0.0` runs only the `model2` layer, `1.0` runs only `model1`, and a partial
+ratio runs both linear layers, trading more inference compute and model memory
+for avoiding rebuilt merged quantized weights.
+
+The bypass is an inference-time result and is not materialized by checkpoint
+saving. Select `Comfy patches` before `DonutModelSave` or another checkpoint
+save node. Inputs that share the same underlying model, use different load
+devices, or already contain runtime injections automatically use the regular
+compatibility path instead of failing.
 
 ### Fusion-aware Krea2 LoRA safety
 
