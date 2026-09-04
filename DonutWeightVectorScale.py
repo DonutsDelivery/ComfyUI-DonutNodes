@@ -71,10 +71,19 @@ class DonutWeightVectorScale:
         return (out,)
 
 
+from .DonutDLSS5Linux import (  # noqa: E402
+    NODE_CLASS_MAPPINGS as _DLSS5_NODE_CLASS_MAPPINGS,
+)
+from .DonutDLSS5Linux import (  # noqa: E402
+    NODE_DISPLAY_NAME_MAPPINGS as _DLSS5_NODE_DISPLAY_NAME_MAPPINGS,
+)
+
 NODE_CLASS_MAPPINGS = {
     "DonutWeightVectorScale": DonutWeightVectorScale,
+    **_DLSS5_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutWeightVectorScale": "Donut Weight-Vector Scale",
+    **_DLSS5_NODE_DISPLAY_NAME_MAPPINGS,
 }
