@@ -230,6 +230,27 @@ else:
             raise RuntimeError("Experimental bypass requires comfy.weight_adapter")
 
 
+def _eject_abandoned_bypass_injections(inner_injections):
+    """Restore forwards when ComfyUI drops a loaded merge clone.
+
+    ComfyUI keeps loaded model patchers through weak references. If a merge
+    output is disconnected, the clone can be collected before the next model
+    load and ComfyUI then switches the loaded entry back to the clone's parent.
+    Bypass hooks live on the shared underlying modules, so without this
+    finalizer the parent model would continue using model2 forwards.
+    """
+    for inner in reversed(inner_injections):
+        try:
+            # BypassInjectionManager eject callbacks do not need a live patcher;
+            # they restore the original module forwards held by their hooks.
+            inner.eject(None)
+        except Exception as error:
+            print(
+                "[DonutModelMergeKrea2] Failed to eject an abandoned bypass "
+                f"injection: {error}"
+            )
+
+
 def _make_dynamic_bypass_injection(plans):
     """Build a clone-safe injection that resolves the paired model at load time."""
     if PatcherInjection is None or _BYPASS_MANAGER is None:
@@ -263,7 +284,7 @@ def _make_dynamic_bypass_injection(plans):
             adapter = _ModelBlendBypassAdapter(source_patcher, module_path, ratio)
             manager.add_adapter(weight_key, adapter, strength=1.0)
 
-        inner_injections = manager.create_injections(model_patcher.model)
+        inner_injections = tuple(manager.create_injections(model_patcher.model))
         hook_count = manager.get_hook_count()
         if hook_count != len(plans):
             raise RuntimeError(
@@ -280,10 +301,21 @@ def _make_dynamic_bypass_injection(plans):
             for inner in reversed(injected):
                 inner.eject(model_patcher)
             raise
-        active_injections[model_patcher] = tuple(inner_injections)
+
+        cleanup = weakref.finalize(
+            model_patcher,
+            _eject_abandoned_bypass_injections,
+            inner_injections,
+        )
+        cleanup.atexit = False
+        active_injections[model_patcher] = (inner_injections, cleanup)
 
     def eject(model_patcher):
-        inner_injections = active_injections.pop(model_patcher, ())
+        active = active_injections.pop(model_patcher, None)
+        if active is None:
+            return
+        inner_injections, cleanup = active
+        cleanup.detach()
         for inner in reversed(inner_injections):
             inner.eject(model_patcher)
 
