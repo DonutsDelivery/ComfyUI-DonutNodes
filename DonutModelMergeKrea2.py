@@ -1,11 +1,10 @@
-"""Krea2 model merge with an optional quantized-weight bypass path.
+"""Krea2 model merge with an optional quantized-weight hybrid bypass path.
 
-The regular mode mirrors ComfyUI's built-in ``ModelMergeKrea2`` node.  The
-experimental mode keeps eligible linear layers from model1 and model2 intact
-and blends their forward outputs instead of materialising merged quantized
-weights.  Small/unsupported parameters continue to use ComfyUI's normal patch
-path, so the node is intentionally a hybrid rather than an all-or-nothing
-runtime replacement.
+The regular mode mirrors ComfyUI's built-in ``ModelMergeKrea2`` node. The
+experimental mode bypasses only exact model2 swaps (ratio 0.0) for compatible
+linear layers, keeping those quantized modules intact at inference time.
+Partial blends remain on ComfyUI's normal patch path so inference uses one
+materialized linear forward instead of evaluating both full model layers.
 """
 
 from __future__ import annotations
@@ -93,9 +92,9 @@ def _direct_module_state_keys(keys, module_path: str):
     """Return state keys owned directly by a module, not by its children.
 
     Quantized Comfy linear layers can own buffers such as ``weight_scale``,
-    ``input_scale`` and ``pre_quant_scale`` in addition to weight/bias.  When a
-    layer is bypassed, all of those direct keys must remain with their original
-    model so each full module forward uses internally consistent metadata.
+    ``input_scale`` and ``pre_quant_scale`` in addition to weight/bias. When a
+    layer is swapped at runtime, all direct keys stay with their original model
+    so the source module uses internally consistent quantization metadata.
     """
     prefix = f"{module_path}."
     direct = set()
@@ -171,7 +170,7 @@ def _bypass_prerequisite_error(model1, model2):
 
 if _WEIGHT_ADAPTER_BASE is not None:
     class _ModelBlendBypassAdapter(_WEIGHT_ADAPTER_BASE):
-        """Blend two complete linear forwards without rebuilding either weight."""
+        """Swap one compatible linear forward to model2 without rebuilding weight."""
 
         name = "donut_model_merge"
 
@@ -180,14 +179,10 @@ if _WEIGHT_ADAPTER_BASE is not None:
             self.module_path = module_path
             self.model1_ratio = float(model1_ratio)
             self.loaded_keys = set()
-            # BypassForwardHook moves adapter weights to the compute device.  This
-            # adapter owns none; the source patcher manages its model's weights.
             self.weights = ()
             self._source_module = None
 
         def _get_source_module(self):
-            # Resolve lazily: additional models may apply object patches after the
-            # output model's injection is installed but before the first forward.
             if self._source_module is None:
                 source_root = getattr(self.source_patcher, "model", None)
                 source_module = _module_for_path(source_root, self.module_path)
@@ -203,26 +198,12 @@ if _WEIGHT_ADAPTER_BASE is not None:
             ratio = self.model1_ratio
             if ratio >= 1.0:
                 return original_forward(x, *args, **kwargs)
-
-            source_out = self._get_source_module()(x, *args, **kwargs)
-            if ratio <= 0.0:
-                return source_out
-
-            base_out = original_forward(x, *args, **kwargs)
-            if not torch.is_tensor(base_out) or not torch.is_tensor(source_out):
-                raise TypeError(
-                    "Donut Krea2 merge bypass expected tensor outputs from both "
-                    f"linear layers at '{self.module_path}'"
-                )
-            if base_out.shape != source_out.shape:
+            if ratio != 0.0:
                 raise RuntimeError(
-                    "Donut Krea2 merge bypass received different output shapes at "
-                    f"'{self.module_path}': {tuple(base_out.shape)} vs "
-                    f"{tuple(source_out.shape)}"
+                    "Donut Krea2 merge bypass received a partial ratio. Partial "
+                    "blends must stay on Comfy's materialized patch path."
                 )
-            if source_out.device != base_out.device or source_out.dtype != base_out.dtype:
-                source_out = source_out.to(device=base_out.device, dtype=base_out.dtype)
-            return base_out * ratio + source_out * (1.0 - ratio)
+            return self._get_source_module()(x, *args, **kwargs)
 else:
     class _ModelBlendBypassAdapter:  # pyright: ignore[reportRedeclaration]
         def __init__(self, *args, **kwargs):
@@ -300,6 +281,7 @@ def _regular_merge(model1, model2, ratios):
 
 
 def _build_bypass_plans(base_model, source_model, patch_keys, ratios):
+    """Plan only exact model2 swaps; partial ratios are deliberately materialized."""
     plans = []
     bypassed_keys = set()
     seen_paths = set()
@@ -313,7 +295,7 @@ def _build_bypass_plans(base_model, source_model, patch_keys, ratios):
         seen_paths.add(module_path)
 
         ratio = _ratio_for_key(key, ratios)
-        if ratio >= 1.0:
+        if ratio != 0.0:
             continue
 
         base_module = _module_for_weight_key(base_model.model, key)
@@ -332,7 +314,7 @@ def _build_bypass_plans(base_model, source_model, patch_keys, ratios):
 
 
 class DonutModelMergeKrea2:
-    """ComfyUI ModelMergeKrea2 plus an opt-in forward-time merge bypass."""
+    """ComfyUI ModelMergeKrea2 plus an opt-in hybrid runtime bypass."""
 
     class_type = "CUSTOM"
     aux_id = "DonutsDelivery/ComfyUI-DonutNodes"
@@ -371,11 +353,12 @@ class DonutModelMergeKrea2:
                 "execution_mode": (list(_EXECUTION_MODES), {
                     "default": "Comfy patches",
                     "tooltip": (
-                        "Experimental bypass keeps eligible model1/model2 linear "
-                        "weights intact and blends their forward outputs, avoiding "
-                        "rebuilt merged quantized weights. Unsupported tensors use "
-                        "Comfy patches. Partial ratios run both linear layers and the "
-                        "runtime result is not materialized when saving a checkpoint."
+                        "Experimental bypass is hybrid: exact 0.0 model2 swaps use "
+                        "runtime forwarding for compatible linear layers, while "
+                        "partial ratios use normal Comfy merged weights so inference "
+                        "runs one linear forward instead of two. Exact 1.0 keeps "
+                        "model1 unchanged. Runtime swaps are not materialized when "
+                        "saving a checkpoint."
                     ),
                 }),
             },
@@ -386,8 +369,8 @@ class DonutModelMergeKrea2:
     CATEGORY = "model/merging/model specific"
     DESCRIPTION = (
         "Krea2 component merge with the same controls as ComfyUI's built-in node. "
-        "Experimental bypass is intended for inference with quantized models; use "
-        "Comfy patches when the merged weights must be saved."
+        "Experimental bypass accelerates hard model1/model2 component swaps while "
+        "keeping partial blends on Comfy's single-forward materialized merge path."
     )
 
     def merge(self, model1, model2, execution_mode="Comfy patches", **ratios):
@@ -414,42 +397,40 @@ class DonutModelMergeKrea2:
             ratios,
         )
 
-        if not plans:
-            print(
-                "[DonutModelMergeKrea2] Experimental bypass found no compatible "
-                "linear targets; using Comfy patches"
-            )
-            return (_regular_merge(model1, model2, ratios),)
-
         regular_count = 0
+        partial_count = 0
         for key, patch in patches.items():
             if key in bypassed_keys:
                 continue
             ratio = _ratio_for_key(key, ratios)
             if ratio >= 1.0:
                 continue
+            if 0.0 < ratio < 1.0:
+                partial_count += 1
             merged.add_patches({key: patch}, 1.0 - ratio, ratio)
             regular_count += 1
+
+        if not plans:
+            print(
+                "[DonutModelMergeKrea2] Experimental bypass used Comfy patches "
+                f"for {partial_count} partial state key(s); no runtime swaps needed"
+            )
+            return (merged,)
 
         merged.set_additional_models(_SOURCE_MODELS_KEY, [source])
         merged.set_injections(
             _INJECTION_KEY,
             [_make_dynamic_bypass_injection(plans)],
         )
-        # ModelPatcher treats two patchless models with the same injection and
-        # attachment *keys* as equivalent; it does not compare injection payloads.
-        # A clone-stable, per-result attachment key prevents different ratio sets
-        # from sharing a loaded-model cache entry. The UUID also distinguishes
-        # results that retain one or more regular patches.
         identity_key = f"{_CACHE_ATTACHMENT_PREFIX}{uuid.uuid4().hex}"
         merged.set_attachments(identity_key, tuple(plans))
         if hasattr(merged, "patches_uuid"):
             merged.patches_uuid = uuid.uuid4()
 
         print(
-            "[DonutModelMergeKrea2] Experimental bypass attached "
-            f"{len(plans)} model-blend forward hook(s); kept {regular_count} "
-            "state key(s) on Comfy's regular patch path"
+            "[DonutModelMergeKrea2] Experimental hybrid attached "
+            f"{len(plans)} exact model2 swap hook(s); kept {regular_count} "
+            f"state key(s) on Comfy's regular path ({partial_count} partial)"
         )
         return (merged,)
 
