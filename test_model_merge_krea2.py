@@ -176,43 +176,24 @@ class InputSchemaTests(unittest.TestCase):
         inputs = module.DonutModelMergeKrea2.INPUT_TYPES()
         required = list(inputs['required'])
         expected = [
-            'model1',
-            'model2',
-            'first.',
-            'tmlp.',
-            'txtmlp.',
-            'tproj.',
-            'txtfusion.layerwise_blocks.0.',
-            'txtfusion.layerwise_blocks.1.',
-            'txtfusion.projector.',
-            'txtfusion.refiner_blocks.0.',
+            'model1', 'model2', 'first.', 'tmlp.', 'txtmlp.', 'tproj.',
+            'txtfusion.layerwise_blocks.0.', 'txtfusion.layerwise_blocks.1.',
+            'txtfusion.projector.', 'txtfusion.refiner_blocks.0.',
             'txtfusion.refiner_blocks.1.',
-            *[f'blocks.{index}.' for index in range(28)],
-            'last.',
+            *[f'blocks.{index}.' for index in range(28)], 'last.',
         ]
         self.assertEqual(required, expected)
         self.assertEqual(inputs['optional']['execution_mode'][1]['default'], 'Comfy patches')
 
 
 class AdapterTests(unittest.TestCase):
-    def test_blends_model1_and_model2_forward_outputs(self):
-        base = torch.nn.Linear(2, 1)
+    def test_partial_ratio_is_rejected_by_runtime_adapter(self):
         source = torch.nn.Linear(2, 1)
-        with torch.no_grad():
-            base.weight[:] = torch.tensor([[1.0, 0.0]])
-            base.bias[:] = torch.tensor([1.0])
-            source.weight[:] = torch.tensor([[0.0, 2.0]])
-            source.bias[:] = torch.tensor([-1.0])
-
         source_root = torch.nn.Module()
         source_root.layer = source
-        source_patcher = types.SimpleNamespace(model=source_root)
-        adapter = module._ModelBlendBypassAdapter(source_patcher, 'layer', 0.25)
-        x = torch.tensor([[2.0, 3.0]])
-
-        actual = adapter.bypass_forward(base.forward, x)
-        expected = 0.25 * base(x) + 0.75 * source(x)
-        self.assertTrue(torch.allclose(actual, expected))
+        adapter = module._ModelBlendBypassAdapter(types.SimpleNamespace(model=source_root), 'layer', 0.25)
+        with self.assertRaisesRegex(RuntimeError, 'Partial blends'):
+            adapter.bypass_forward(lambda x: x, torch.ones(1, 2))
 
     def test_ratio_zero_does_not_call_model1_forward(self):
         source = torch.nn.Linear(1, 1, bias=False)
@@ -237,20 +218,16 @@ class MergeTests(unittest.TestCase):
         }
         model1 = FakePatcher(root1)
         model2 = FakePatcher(root2, patches)
-
         (merged,) = module.DonutModelMergeKrea2().merge(
-            model1,
-            model2,
-            execution_mode='Comfy patches',
+            model1, model2, execution_mode='Comfy patches',
             **{'first.': 0.9, 'blocks.0.': 0.2, 'last.': 0.7},
         )
-
         by_key = {next(iter(call[0])): call[1:] for call in merged.added}
         self.assertEqual(by_key['diffusion_model.blocks.0.proj.weight'], (0.8, 0.2))
         self.assertAlmostEqual(by_key['diffusion_model.raw_scale'][0], 0.1)
         self.assertEqual(by_key['diffusion_model.raw_scale'][1], 0.9)
 
-    def test_experimental_mode_bypasses_all_direct_linear_state(self):
+    def test_experimental_mode_bypasses_exact_model2_linear_state(self):
         root1 = TinyKrea()
         root2 = TinyKrea()
         with torch.no_grad():
@@ -258,7 +235,6 @@ class MergeTests(unittest.TestCase):
             root1.diffusion_model.first.bias.zero_()
             root2.diffusion_model.first.weight.copy_(2.0 * torch.eye(2))
             root2.diffusion_model.first.bias.fill_(1.0)
-
         patches = {
             'diffusion_model.first.weight': object(),
             'diffusion_model.first.bias': object(),
@@ -267,14 +243,10 @@ class MergeTests(unittest.TestCase):
         }
         model1 = FakePatcher(root1)
         model2 = FakePatcher(root2, patches)
-
         (merged,) = module.DonutModelMergeKrea2().merge(
-            model1,
-            model2,
-            execution_mode='Experimental bypass',
-            **{'first.': 0.25, 'last.': 1.0},
+            model1, model2, execution_mode='Experimental bypass',
+            **{'first.': 0.0, 'last.': 1.0},
         )
-
         regular_keys = {next(iter(call[0])) for call in merged.added}
         self.assertEqual(regular_keys, {'diffusion_model.raw_scale'})
         self.assertIn(module._SOURCE_MODELS_KEY, merged.additional_models)
@@ -282,19 +254,15 @@ class MergeTests(unittest.TestCase):
         self.assertNotEqual(merged.patches_uuid, model1.patches_uuid)
         identity_keys = [key for key in merged.attachments if key.startswith(module._CACHE_ATTACHMENT_PREFIX)]
         self.assertEqual(len(identity_keys), 1)
-
         outer = merged.injections[module._INJECTION_KEY][0]
         outer.inject(merged)
         try:
             x = torch.tensor([[2.0, 4.0]])
-            actual = merged.model.diffusion_model.first(x)
-            # Explicit expected output: .25*x + .75*(2*x + 1)
-            expected = 0.25 * x + 0.75 * (2.0 * x + 1.0)
-            self.assertTrue(torch.allclose(actual, expected))
+            self.assertTrue(torch.allclose(merged.model.diffusion_model.first(x), 2.0 * x + 1.0))
         finally:
             outer.eject(merged)
 
-    def test_patchless_bypass_gets_a_unique_cache_identity_attachment(self):
+    def test_partial_ratio_uses_materialized_comfy_patches_without_runtime_source(self):
         root1 = TinyKrea()
         root2 = TinyKrea()
         patches = {
@@ -304,19 +272,31 @@ class MergeTests(unittest.TestCase):
         }
         model1 = FakePatcher(root1)
         model2 = FakePatcher(root2, patches)
-
         (merged,) = module.DonutModelMergeKrea2().merge(
-            model1,
-            model2,
-            execution_mode='Experimental bypass',
-            **{'first.': 0.5},
+            model1, model2, execution_mode='Experimental bypass', **{'first.': 0.5},
         )
+        self.assertEqual(len(merged.added), 3)
+        for _, strength_patch, strength_model in merged.added:
+            self.assertEqual((strength_patch, strength_model), (0.5, 0.5))
+        self.assertFalse(merged.injections)
+        self.assertFalse(merged.additional_models)
+        self.assertFalse(merged.attachments)
 
+    def test_patchless_exact_swap_gets_a_unique_cache_identity_attachment(self):
+        root1 = TinyKrea()
+        root2 = TinyKrea()
+        patches = {
+            'diffusion_model.first.weight': object(),
+            'diffusion_model.first.bias': object(),
+            'diffusion_model.first.weight_scale': object(),
+        }
+        model1 = FakePatcher(root1)
+        model2 = FakePatcher(root2, patches)
+        (merged,) = module.DonutModelMergeKrea2().merge(
+            model1, model2, execution_mode='Experimental bypass', **{'first.': 0.0},
+        )
         self.assertEqual(merged.added, [])
-        identity_keys = [
-            key for key in merged.attachments
-            if key.startswith(module._CACHE_ATTACHMENT_PREFIX)
-        ]
+        identity_keys = [key for key in merged.attachments if key.startswith(module._CACHE_ATTACHMENT_PREFIX)]
         self.assertEqual(len(identity_keys), 1)
         cloned = merged.clone()
         self.assertEqual(set(cloned.attachments), set(merged.attachments))
@@ -326,12 +306,8 @@ class MergeTests(unittest.TestCase):
         patches = {'diffusion_model.first.weight': object()}
         model1 = FakePatcher(root)
         model2 = FakePatcher(root, patches)
-
         (merged,) = module.DonutModelMergeKrea2().merge(
-            model1,
-            model2,
-            execution_mode='Experimental bypass',
-            **{'first.': 0.5},
+            model1, model2, execution_mode='Experimental bypass', **{'first.': 0.0},
         )
         self.assertEqual(len(merged.added), 1)
         self.assertFalse(merged.injections)
@@ -344,12 +320,8 @@ class MergeTests(unittest.TestCase):
         model1 = FakePatcher(root1)
         model1.injections['existing'] = [object()]
         model2 = FakePatcher(root2, patches)
-
         (merged,) = module.DonutModelMergeKrea2().merge(
-            model1,
-            model2,
-            execution_mode='Experimental bypass',
-            **{'first.': 0.5},
+            model1, model2, execution_mode='Experimental bypass', **{'first.': 0.0},
         )
         self.assertEqual(len(merged.added), 1)
         self.assertEqual(set(merged.injections), {'existing'})
