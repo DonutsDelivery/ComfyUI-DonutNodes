@@ -7,7 +7,7 @@ Custom nodes for ComfyUI focused on LoRA management, model merging, and image en
 ## Features
 
 - **Block-weighted LoRA stacking** with per-block strength control, CivitAI integration, and an experimental quantized-model bypass mode
-- **Krea2 component model merging** with regular patches or an experimental quantized forward bypass
+- **Krea2 component model merging** with regular patches or an experimental hybrid hard-swap bypass
 - **Donut Detailers** for per-block model tuning and face/object enhancement
 - **TeaCache acceleration** for faster SDXL inference
 - **Tiled upscaling** with seamless blending
@@ -52,7 +52,7 @@ Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the origin
 | DonutKSamplerCFG | CFG sampling with curve control |
 | DonutSpectralNoiseSharpener | Reference-based spectral sharpening |
 | ModelMergeZIT | ZIT model merging |
-| DonutModelMergeKrea2 | Krea2 component merging with optional quantized forward bypass |
+| DonutModelMergeKrea2 | Krea2 component merging with optional hybrid hard-swap bypass |
 | DonutModelSave | Save merged models |
 
 ### Experimental quantized LoRA bypass
@@ -81,23 +81,24 @@ their previous behavior.
 ComfyUI's built-in `ModelMergeKrea2`: `1.0` keeps `model1`, while `0.0` uses
 `model2`. Its optional `execution_mode` also defaults to `Comfy patches`.
 
-In `Experimental bypass`, eligible linear layers keep both models' quantized
-weights intact and evaluate:
+`Experimental bypass` uses a hybrid strategy optimized for inference:
 
-`ratio * model1_layer(x) + (1 - ratio) * model2_layer(x)`
+- `1.0` keeps the `model1` component unchanged.
+- `0.0` uses a runtime hard swap to the compatible `model2` linear layer, keeping that layer's original weight, bias, and quantization metadata intact.
+- Partial ratios such as `0.25`, `0.5`, and `0.75` use ComfyUI's normal materialized merge patches so inference executes one merged linear forward instead of two full model forwards.
 
-Direct state owned by those linear layers—including bias and quantization
-metadata—stays with its original model. Normalization, modulation, and other
-unsupported tensors still use ComfyUI's regular merge patches. A ratio of
-`0.0` runs only the `model2` layer, `1.0` runs only `model1`, and a partial
-ratio runs both linear layers, trading more inference compute and model memory
-for avoiding rebuilt merged quantized weights.
+This avoids the main performance problem of the original experimental version,
+which evaluated both full linear layers for every partial blend. Unsupported
+hard-swap targets still use ComfyUI's regular patch path. Model2 is retained as
+an additional runtime model only when at least one compatible exact `0.0` swap
+is active.
 
-The bypass is an inference-time result and is not materialized by checkpoint
-saving. Select `Comfy patches` before `DonutModelSave` or another checkpoint
-save node. Inputs that share the same underlying model, use different load
-devices, or already contain runtime injections automatically use the regular
-compatibility path instead of failing.
+Runtime hard swaps are inference-time behavior and are not materialized by
+checkpoint saving. Select `Comfy patches` before `DonutModelSave` or another
+checkpoint save node when you need fully saved merged weights. Inputs that
+share the same underlying model, use different load devices, or already contain
+runtime injections automatically use the regular compatibility path instead of
+failing.
 
 ### Fusion-aware Krea2 LoRA safety
 
