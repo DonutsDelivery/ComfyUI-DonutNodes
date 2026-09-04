@@ -1,8 +1,10 @@
+import gc
 import importlib.util
 import sys
 import types
 import unittest
 import uuid
+import weakref
 from pathlib import Path
 
 import torch
@@ -261,6 +263,39 @@ class MergeTests(unittest.TestCase):
             self.assertTrue(torch.allclose(merged.model.diffusion_model.first(x), 2.0 * x + 1.0))
         finally:
             outer.eject(merged)
+
+    def test_abandoned_merge_output_restores_shared_model1_forward(self):
+        root1 = TinyKrea()
+        root2 = TinyKrea()
+        with torch.no_grad():
+            root1.diffusion_model.first.weight.copy_(torch.eye(2))
+            root1.diffusion_model.first.bias.zero_()
+            root2.diffusion_model.first.weight.copy_(2.0 * torch.eye(2))
+            root2.diffusion_model.first.bias.fill_(1.0)
+        patches = {
+            'diffusion_model.first.weight': object(),
+            'diffusion_model.first.bias': object(),
+            'diffusion_model.first.weight_scale': object(),
+        }
+        model1 = FakePatcher(root1)
+        model2 = FakePatcher(root2, patches)
+        (merged,) = module.DonutModelMergeKrea2().merge(
+            model1,
+            model2,
+            execution_mode='Experimental bypass',
+            **{'first.': 0.0},
+        )
+        outer = merged.injections[module._INJECTION_KEY][0]
+        outer.inject(merged)
+        x = torch.tensor([[2.0, 4.0]])
+        self.assertTrue(torch.allclose(root1.diffusion_model.first(x), 2.0 * x + 1.0))
+
+        merged_ref = weakref.ref(merged)
+        del merged
+        gc.collect()
+
+        self.assertIsNone(merged_ref())
+        self.assertTrue(torch.allclose(root1.diffusion_model.first(x), x))
 
     def test_partial_ratio_uses_materialized_comfy_patches_without_runtime_source(self):
         root1 = TinyKrea()
