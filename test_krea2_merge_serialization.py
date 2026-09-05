@@ -49,6 +49,8 @@ class FakePatcher:
         self.added.append((dict(patches), strength_patch, strength_model))
 
     def model_state_dict_for_saving(self, model, prefix):
+        # Match ComfyUI: prefix is used internally for patch lookup, but the
+        # returned dictionary remains relative to the supplied diffusion model.
         self.assert_prefix = prefix
         return dict(self.state_dict)
 
@@ -107,21 +109,30 @@ class Krea2MergeSerializationTests(unittest.TestCase):
         self.assertIn("other_source", converted.additional_models)
         self.assertEqual(converted.attachments["other_attachment"], 7)
 
-    def test_composition_replaces_complete_direct_module_state(self):
+    def test_full_patcher_key_is_translated_to_relative_unet_key(self):
+        self.assertEqual(
+            serialization._relative_unet_key("diffusion_model.txtfusion.layerwise_blocks.0.attn.wq.weight"),
+            "txtfusion.layerwise_blocks.0.attn.wq.weight",
+        )
+        self.assertEqual(serialization._relative_unet_key("first.weight"), "first.weight")
+
+    def test_composition_replaces_complete_direct_module_state_with_relative_keys(self):
+        # model_state_dict_for_saving(model.diffusion_model, "diffusion_model.")
+        # returns these relative keys in real ComfyUI.
         base_state = {
-            "diffusion_model.first.weight": "base-weight",
-            "diffusion_model.first.bias": "base-bias",
-            "diffusion_model.first.weight_scale": "base-scale",
-            "diffusion_model.first.child.weight": "base-child",
-            "diffusion_model.other.weight": "base-other",
+            "first.weight": "base-weight",
+            "first.bias": "base-bias",
+            "first.weight_scale": "base-scale",
+            "first.child.weight": "base-child",
+            "other.weight": "base-other",
         }
         source_state = {
-            "diffusion_model.first.weight": "source-weight",
-            "diffusion_model.first.bias": "source-bias",
-            "diffusion_model.first.weight_scale": "source-scale",
-            "diffusion_model.first.input_scale": "source-input-scale",
-            "diffusion_model.first.child.weight": "source-child",
-            "diffusion_model.other.weight": "source-other",
+            "first.weight": "source-weight",
+            "first.bias": "source-bias",
+            "first.weight_scale": "source-scale",
+            "first.input_scale": "source-input-scale",
+            "first.child.weight": "source-child",
+            "other.weight": "source-other",
         }
         base, source, plan, _identity = make_merge(base_state, source_state)
 
@@ -131,16 +142,46 @@ class Krea2MergeSerializationTests(unittest.TestCase):
             (plan,),
         )
 
-        self.assertEqual(composed["diffusion_model.first.weight"], "source-weight")
-        self.assertEqual(composed["diffusion_model.first.bias"], "source-bias")
-        self.assertEqual(composed["diffusion_model.first.weight_scale"], "source-scale")
-        self.assertEqual(composed["diffusion_model.first.input_scale"], "source-input-scale")
+        self.assertEqual(base.assert_prefix, "diffusion_model.")
+        self.assertEqual(source.assert_prefix, "diffusion_model.")
+        self.assertEqual(composed["first.weight"], "source-weight")
+        self.assertEqual(composed["first.bias"], "source-bias")
+        self.assertEqual(composed["first.weight_scale"], "source-scale")
+        self.assertEqual(composed["first.input_scale"], "source-input-scale")
         # Child modules are not direct state of the swapped Linear and therefore
         # remain on the normal model1/partial-patch path.
-        self.assertEqual(composed["diffusion_model.first.child.weight"], "base-child")
-        self.assertEqual(composed["diffusion_model.other.weight"], "base-other")
+        self.assertEqual(composed["first.child.weight"], "base-child")
+        self.assertEqual(composed["other.weight"], "base-other")
         self.assertEqual(module_count, 1)
         self.assertEqual(key_count, 4)
+
+    def test_realistic_txtfusion_relative_key_is_found(self):
+        module_path = "diffusion_model.txtfusion.layerwise_blocks.0.attn.wq"
+        weight_key = module_path + ".weight"
+        plan = (module_path, weight_key, 0.0)
+        base_state = {
+            "txtfusion.layerwise_blocks.0.attn.wq.weight": "base",
+            "txtfusion.layerwise_blocks.0.attn.wq.weight_scale": "base-scale",
+        }
+        source_state = {
+            "txtfusion.layerwise_blocks.0.attn.wq.weight": "source",
+            "txtfusion.layerwise_blocks.0.attn.wq.weight_scale": "source-scale",
+        }
+        base = FakePatcher(base_state)
+        source = FakePatcher(source_state)
+
+        composed, module_count, key_count = serialization.compose_krea2_merge_unet_state_dict(
+            base,
+            source,
+            (plan,),
+        )
+
+        self.assertEqual(composed["txtfusion.layerwise_blocks.0.attn.wq.weight"], "source")
+        self.assertEqual(
+            composed["txtfusion.layerwise_blocks.0.attn.wq.weight_scale"],
+            "source-scale",
+        )
+        self.assertEqual((module_count, key_count), (1, 2))
 
     def test_later_bypass_lora_components_can_be_applied_only_to_swapped_weights(self):
         source = FakePatcher()
