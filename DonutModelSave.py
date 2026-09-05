@@ -9,11 +9,11 @@ ComfyUI loaded a model in fp8 but the desired baked LoRA/merge output should be
 saved as bf16/fp16/fp32 instead.
 
 The state-dict construction path follows comfy.sd.save_checkpoint:
-load_models_gpu(...) -> ModelPatcher.state_dict_for_saving(...). This routes
-through ComfyUI's LazyCastingParam machinery, so ordinary patches are materialized
-one weight at a time. Donut Experimental-bypass LoRAs are first converted on a
-temporary clone to equivalent ordinary adapter patches, so bypass inference is
-also baked into saved weights without densifying the whole model in VRAM.
+load_models_gpu(...) -> ModelPatcher state_dict_for_saving machinery. Ordinary
+patches are materialized one weight at a time. Donut Experimental-bypass LoRAs
+are converted on a temporary clone to equivalent ordinary adapter patches.
+Donut Model Merge Krea2 Experimental-bypass hard swaps are composed from the
+retained model2 source state so those runtime-only swaps are also baked.
 """
 
 from contextlib import nullcontext
@@ -35,12 +35,24 @@ try:
         clone_with_bypass_as_regular_patches,
         get_bypass_components,
     )
+    from .donut_krea2_merge_serialization import (
+        clone_with_regular_components,
+        clone_without_krea2_merge_runtime,
+        compose_krea2_merge_unet_state_dict,
+        get_krea2_merge_bypass_info,
+    )
     from .DonutExtractLoRA import DonutExtractLoRA
 except ImportError:
     from model_lifecycle import offload_models
     from donut_bypass_materialization import (
         clone_with_bypass_as_regular_patches,
         get_bypass_components,
+    )
+    from donut_krea2_merge_serialization import (
+        clone_with_regular_components,
+        clone_without_krea2_merge_runtime,
+        compose_krea2_merge_unet_state_dict,
+        get_krea2_merge_bypass_info,
     )
     from DonutExtractLoRA import DonutExtractLoRA
 
@@ -132,18 +144,40 @@ def _materialize_and_cast(sd, dtype):
 
 
 def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
-    """
-    Faithful reproduction of comfy.sd.save_checkpoint with:
-      - workflow metadata stripped
-      - optional dtype conversion
-      - Donut Experimental-bypass adapters serialized as ordinary patches
-    """
-    bypass_components = get_bypass_components(model)
+    """Save a model/checkpoint while materializing Donut runtime-only bypasses."""
+    lora_bypass_components = get_bypass_components(model)
+    krea2_merge_info = get_krea2_merge_bypass_info(model)
+
+    has_runtime_serialization = bool(lora_bypass_components) or krea2_merge_info is not None
     use_ejected = getattr(model, "use_ejected", None)
-    context = use_ejected() if bypass_components and callable(use_ejected) else nullcontext()
+    context = (
+        use_ejected()
+        if has_runtime_serialization and callable(use_ejected)
+        else nullcontext()
+    )
 
     with context:
+        # Convert final-model bypass LoRAs to ordinary patches for every normal
+        # model1/partial-blend key. The Krea2 exact-swap keys are replaced from
+        # model2 below, so their final bypass-LoRA components are also applied to
+        # a source-model clone before composing the state dict.
         save_model = clone_with_bypass_as_regular_patches(model)
+        source_for_save = None
+        krea2_plans = None
+
+        if krea2_merge_info is not None:
+            source_model, krea2_plans, _attachment_keys = krea2_merge_info
+            save_model = clone_without_krea2_merge_runtime(
+                save_model,
+                krea2_merge_info,
+            )
+
+            swapped_weight_keys = {plan[1] for plan in krea2_plans}
+            source_for_save = clone_with_regular_components(
+                source_model,
+                lora_bypass_components,
+                allowed_keys=swapped_weight_keys,
+            )
 
         metadata, extra_keys = _build_modelspec_metadata(save_model, filename, counter)
         if args.disable_metadata:
@@ -151,6 +185,11 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
 
         clip_sd = None
         load_models = [save_model]
+        if source_for_save is not None:
+            # Keeping source model2 explicit here preserves ComfyUI's normal
+            # partial-loading behavior on low-VRAM systems instead of forcing a
+            # dense merged model into VRAM.
+            load_models.append(source_for_save)
         if clip is not None:
             load_models.append(clip.load_model())
             clip_sd = clip.get_sd()
@@ -159,12 +198,36 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
             vae_sd = vae.get_sd()
 
         # Do not force_patch_weights. Normal partial loading is important on
-        # low-VRAM systems; LazyCastingParam applies regular and converted-bypass
-        # patches as each saved tensor is moved to CPU.
+        # low-VRAM systems; lazy state-dict tensors apply regular patches as each
+        # tensor is materialized on CPU.
         comfy.model_management.load_models_gpu(load_models)
 
         clip_vision_sd = None
-        sd = save_model.state_dict_for_saving(clip_sd, vae_sd, clip_vision_sd)
+        if source_for_save is not None:
+            unet_sd, swapped_modules, swapped_state_keys = \
+                compose_krea2_merge_unet_state_dict(
+                    save_model,
+                    source_for_save,
+                    krea2_plans,
+                )
+            sd = save_model.model.state_dict_for_saving(
+                unet_sd,
+                clip_state_dict=clip_sd,
+                vae_state_dict=vae_sd,
+                clip_vision_state_dict=clip_vision_sd,
+            )
+            print(
+                "[DonutSave] Materializing Krea2 Experimental-bypass merge: "
+                f"{swapped_modules} model2 module swap(s), "
+                f"{swapped_state_keys} direct state key(s)"
+            )
+        else:
+            sd = save_model.state_dict_for_saving(
+                clip_sd,
+                vae_sd,
+                clip_vision_sd,
+            )
+
         for k in extra_keys:
             sd[k] = extra_keys[k]
 
@@ -261,9 +324,10 @@ class DonutDiffusionModelSave(DonutModelSave):
     DEPRECATED = False
     DESCRIPTION = (
         "Saves only the diffusion MODEL as safetensors with no workflow metadata. "
-        "Ordinary ModelPatcher changes and Donut Experimental-bypass LoRAs are baked "
-        "into the saved weights. BF16 is the default so a model loaded in fp8 is "
-        "not silently re-saved as fp8."
+        "Ordinary ModelPatcher changes, Donut Experimental-bypass LoRAs, and "
+        "Donut Model Merge Krea2 Experimental-bypass hard swaps are baked into "
+        "the saved weights. BF16 is the default so a model loaded in fp8 is not "
+        "silently re-saved as fp8."
     )
 
 
