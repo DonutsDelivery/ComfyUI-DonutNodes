@@ -1,14 +1,18 @@
 """
-DonutModelSave / DonutCheckpointSave
+DonutSave / DonutModelSave / DonutCheckpointSave
 
-Mirrors ComfyUI's stock CheckpointSave / ModelSave behavior exactly, but:
-  - Strips the embedded workflow (no `prompt` / `extra_pnginfo` in metadata)
-  - Adds an optional dtype conversion (fp8/fp16/bf16/fp32)
+No-workflow save nodes with explicit dtype control.
 
-The state-dict construction path is the same as comfy.sd.save_checkpoint:
+DonutModelSave is the dedicated diffusion-model-only saver: it accepts only MODEL,
+never CLIP/VAE, and writes under diffusion_models/ by default. This is useful when
+ComfyUI loaded a model in fp8 but the desired baked LoRA/merge output should be
+saved as bf16/fp16/fp32 instead.
+
+The state-dict construction path follows comfy.sd.save_checkpoint:
 load_models_gpu(...) -> ModelPatcher.state_dict_for_saving(...). This routes
-through ComfyUI's LazyCastingParam machinery, which is the canonical way
-patches (LoRAs, merges) get baked into a saved checkpoint.
+through ComfyUI's LazyCastingParam machinery, so patches such as LoRAs and model
+merges are materialized into the saved weights while still supporting low-VRAM
+partial loading.
 """
 
 import os
@@ -29,7 +33,7 @@ except ImportError:
     from model_lifecycle import offload_models
 
 
-DTYPE_OPTIONS = ["original", "fp8_e4m3fn", "fp8_e5m2", "fp16", "bf16", "fp32"]
+DTYPE_OPTIONS = ["original", "bf16", "fp16", "fp32", "fp8_e4m3fn", "fp8_e5m2"]
 
 DTYPE_MAP = {
     "fp16": torch.float16,
@@ -87,10 +91,12 @@ def _build_modelspec_metadata(model, filename, counter):
 
 def _materialize_and_cast(sd, dtype):
     """
-    Walk the state dict, force-materialize any LazyCastingParam wrappers
-    (this is what causes patches/LoRAs to actually get applied to the
-    saved tensors), and optionally cast floating-point tensors to a
-    target dtype. Result lives on CPU and is contiguous.
+    Force-materialize patched/LazyCastingParam tensors and optionally cast them.
+
+    The completed state dict is CPU-resident. This avoids requiring the full baked
+    model to fit in VRAM; ComfyUI can use its normal partial-loading path while
+    patched weights are materialized for saving. System RAM must still be large
+    enough for the completed output state dict.
     """
     target_dtype = DTYPE_MAP.get(dtype) if dtype != "original" else None
 
@@ -98,8 +104,8 @@ def _materialize_and_cast(sd, dtype):
     keys = list(sd.keys())
     for k in keys:
         t = sd[k]
-        # LazyCastingParam.to("cpu") triggers patch_weight_to_device, which
-        # is the canonical way patched weights get materialized for save.
+        # LazyCastingParam.to("cpu") triggers patch_weight_to_device, which is
+        # the canonical path that bakes attached ModelPatcher patches/LoRAs.
         if isinstance(t, torch.Tensor):
             t = t.to("cpu")
             if target_dtype is not None and t.is_floating_point():
@@ -107,7 +113,7 @@ def _materialize_and_cast(sd, dtype):
             if not t.is_contiguous():
                 t = t.contiguous()
         out[k] = t
-        # Drop the original entry so we release the wrapper promptly.
+        # Release the original wrapper/reference promptly while building output.
         sd[k] = None
 
     return out
@@ -119,14 +125,10 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
       - workflow metadata stripped
       - optional dtype conversion
     """
-    # Build modelspec metadata exactly the way CheckpointSave would,
-    # but without prompt / extra_pnginfo. args.disable_metadata is
-    # respected too — if the user disabled metadata globally we emit none.
     metadata, extra_keys = _build_modelspec_metadata(model, filename, counter)
     if args.disable_metadata:
         metadata = {}
 
-    # --- the rest mirrors comfy.sd.save_checkpoint exactly ---
     clip_sd = None
     load_models = [model]
     if clip is not None:
@@ -136,11 +138,9 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
     if vae is not None:
         vae_sd = vae.get_sd()
 
-    # Match comfy.sd.save_checkpoint exactly: no force_patch_weights.
-    # Patches that aren't physically applied in-place are wrapped in
-    # LazyCastingParam and resolved when we call .to("cpu") below.
-    # (force_patch_weights=True would assert-fail under partial loading,
-    # which is what kicks in on low-VRAM systems.)
+    # Do not force_patch_weights here. ComfyUI's normal load_models_gpu path may
+    # partially load large models on low-VRAM systems, and LazyCastingParam
+    # materialization below bakes patches during the CPU state-dict pass.
     comfy.model_management.load_models_gpu(load_models)
 
     clip_vision_sd = None
@@ -148,10 +148,8 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
     for k in extra_keys:
         sd[k] = extra_keys[k]
 
-    # Materialize lazy wrappers, optionally cast dtype, ensure contiguous.
     sd = _materialize_and_cast(sd, dtype)
 
-    # Free only the model families materialized by this save operation.
     offload_models(comfy.model_management, *load_models)
 
     comfy.utils.save_torch_file(sd, output_path, metadata=metadata)
@@ -161,12 +159,7 @@ class DonutSave:
     """
     Connection-driven unified save node. Saves the diffusion model only when
     clip/vae are unwired, or a full checkpoint (model + clip + vae) when they
-    are connected. Behaves like ComfyUI's stock ModelSave / CheckpointSave
-    nodes, except no workflow is embedded and dtype is selectable.
-
-    The save() method here is the shared engine; DonutModelSave and
-    DonutCheckpointSave are thin alias subclasses that keep their original
-    INPUT_TYPES for byte-identical deserialization of saved workflows.
+    are connected. No workflow metadata is embedded and dtype is selectable.
     """
 
     def __init__(self):
@@ -178,7 +171,10 @@ class DonutSave:
             "required": {
                 "model": ("MODEL",),
                 "filename_prefix": ("STRING", {"default": "ComfyUI"}),
-                "dtype": (DTYPE_OPTIONS, {"default": "original"}),
+                "dtype": (DTYPE_OPTIONS, {
+                    "default": "original",
+                    "tooltip": "Output floating-point dtype. 'original' preserves the loaded dtype, including fp8 if the model was loaded as fp8.",
+                }),
             },
             "optional": {
                 "clip": ("CLIP",),
@@ -214,23 +210,32 @@ class DonutSave:
 
 
 class DonutModelSave(DonutSave):
-    """
-    Alias of DonutSave preserving the original ModelSave INPUT_TYPES
-    (model + filename_prefix + dtype, no clip/vae). Delegates to
-    DonutSave.save().
-    """
+    """Save only the diffusion MODEL, with patches/LoRAs baked and dtype explicit."""
+
+    DEPRECATED = False
+    DESCRIPTION = (
+        "Saves only the diffusion model as safetensors with no workflow metadata. "
+        "Attached ModelPatcher changes such as LoRAs/merges are baked into the saved weights. "
+        "Choose bf16/fp16/fp32 to override a model that ComfyUI loaded as fp8."
+    )
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "model": ("MODEL",),
-                "filename_prefix": ("STRING", {"default": "diffusion_models/ComfyUI"}),
-                "dtype": (DTYPE_OPTIONS, {"default": "original"}),
+                "filename_prefix": ("STRING", {
+                    "default": "diffusion_models/ComfyUI",
+                    "tooltip": "Saved under ComfyUI/output by default; use diffusion_models/... for model-library style organization.",
+                }),
+                "dtype": (DTYPE_OPTIONS, {
+                    "default": "bf16",
+                    "tooltip": "Saved weight dtype. BF16 is the default to avoid accidentally preserving an fp8-loaded model. 'original' keeps the currently loaded dtype.",
+                }),
             }
         }
 
-    def save(self, model, filename_prefix, dtype="original"):
+    def save(self, model, filename_prefix, dtype="bf16"):
         return super().save(
             model=model,
             filename_prefix=filename_prefix,
@@ -239,11 +244,7 @@ class DonutModelSave(DonutSave):
 
 
 class DonutCheckpointSave(DonutSave):
-    """
-    Alias of DonutSave preserving the original CheckpointSave INPUT_TYPES
-    (model + clip + vae + filename_prefix + dtype). Delegates to
-    DonutSave.save().
-    """
+    """Legacy full checkpoint alias (model + CLIP + VAE)."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -275,4 +276,5 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutSave": "Donut Save (No Workflow)",
+    "DonutModelSave": "Donut Diffusion Model Save (No Workflow)",
 }
