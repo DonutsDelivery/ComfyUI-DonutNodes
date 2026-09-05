@@ -13,8 +13,10 @@ fake_comfy = types.ModuleType("comfy")
 fake_comfy.__path__ = []
 fake_lora = types.ModuleType("comfy.lora")
 fake_utils = types.ModuleType("comfy.utils")
+fake_model_patcher = types.ModuleType("comfy.model_patcher")
 fake_comfy.lora = fake_lora
 fake_comfy.utils = fake_utils
+fake_comfy.model_patcher = fake_model_patcher
 
 
 def fake_calculate_weight(patches, weight, key, **kwargs):
@@ -26,7 +28,18 @@ def fake_calculate_weight(patches, weight, key, **kwargs):
     return out
 
 
+def fake_get_key_weight(model, key):
+    obj = model
+    parts = key.split(".")
+    for part in parts[:-1]:
+        obj = getattr(obj, part)
+    # Deliberately use getattr here: requesting weight_scale from the fake
+    # quantized Linear will raise exactly like the real ComfyUI failure.
+    return getattr(obj, parts[-1]), None, None
+
+
 fake_lora.calculate_weight = fake_calculate_weight
+fake_model_patcher.get_key_weight = fake_get_key_weight
 fake_utils.save_torch_file = lambda *args, **kwargs: None
 
 fake_folder_paths = types.ModuleType("folder_paths")
@@ -37,10 +50,17 @@ fake_folder_paths.get_save_image_path = lambda prefix, output: (
 
 _previous = {
     name: sys.modules.get(name)
-    for name in ("comfy", "comfy.lora", "comfy.utils", "folder_paths")
+    for name in (
+        "comfy",
+        "comfy.lora",
+        "comfy.model_patcher",
+        "comfy.utils",
+        "folder_paths",
+    )
 }
 sys.modules["comfy"] = fake_comfy
 sys.modules["comfy.lora"] = fake_lora
+sys.modules["comfy.model_patcher"] = fake_model_patcher
 sys.modules["comfy.utils"] = fake_utils
 sys.modules["folder_paths"] = fake_folder_paths
 
@@ -113,6 +133,35 @@ class FakeInjectionModel:
         self.added.append((patches, strength))
 
 
+class FakeQuantizedPatcher:
+    """State dict exposes scale metadata that the live Linear does not own."""
+
+    def __init__(self):
+        layer = types.SimpleNamespace(weight=torch.randn(4, 3))
+        diffusion_model = types.SimpleNamespace(layer=layer)
+        self.model = types.SimpleNamespace(diffusion_model=diffusion_model)
+        self.patches = {}
+        self.backup = {}
+        self.hook_backup = {}
+
+        def state_dict():
+            return {
+                "diffusion_model.layer.weight": layer.weight,
+                "diffusion_model.layer.weight_scale": torch.tensor(0.125),
+                "diffusion_model.layer.input_scale": torch.tensor(0.5),
+            }
+
+        self.model.state_dict = state_dict
+
+
+class FakeQuantizedValue:
+    def __init__(self, tensor):
+        self.tensor = tensor
+
+    def dequantize(self):
+        return self.tensor
+
+
 class DonutExtractLoRATests(unittest.TestCase):
     def test_rank_factorization_reconstructs_low_rank_matrix(self):
         left = torch.tensor([[1.0, 2.0], [3.0, -1.0], [0.5, 4.0]])
@@ -155,6 +204,23 @@ class DonutExtractLoRATests(unittest.TestCase):
 
         expected = torch.ones(3, 4)
         self.assertTrue(torch.allclose(result, expected))
+
+    def test_quantized_metadata_keys_are_not_resolved_as_module_weights(self):
+        model = FakeQuantizedPatcher()
+
+        patches = extract._get_extractable_key_patches(model)
+
+        self.assertEqual(list(patches), ["diffusion_model.layer.weight"])
+        self.assertTrue(torch.equal(patches["diffusion_model.layer.weight"][0][0], model.model.diffusion_model.layer.weight))
+
+    def test_quantized_value_is_dequantized_before_float32_extraction(self):
+        expected = torch.tensor([[1.25, -2.5], [3.75, 4.0]], dtype=torch.float16)
+        value = FakeQuantizedValue(expected)
+
+        result = extract._convert_base_weight(value, lambda x, **kwargs: x)
+
+        self.assertEqual(result.dtype, torch.float32)
+        self.assertTrue(torch.equal(result, expected.float()))
 
     def test_discovers_and_flattens_existing_bypass_manager(self):
         a = Adapter(torch.ones(2, 2))
