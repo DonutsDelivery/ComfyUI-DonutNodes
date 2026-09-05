@@ -10,11 +10,13 @@ saved as bf16/fp16/fp32 instead.
 
 The state-dict construction path follows comfy.sd.save_checkpoint:
 load_models_gpu(...) -> ModelPatcher.state_dict_for_saving(...). This routes
-through ComfyUI's LazyCastingParam machinery, so patches such as LoRAs and model
-merges are materialized into the saved weights while still supporting low-VRAM
-partial loading.
+through ComfyUI's LazyCastingParam machinery, so ordinary patches are materialized
+one weight at a time. Donut Experimental-bypass LoRAs are first converted on a
+temporary clone to equivalent ordinary adapter patches, so bypass inference is
+also baked into saved weights without densifying the whole model in VRAM.
 """
 
+from contextlib import nullcontext
 import os
 
 import folder_paths
@@ -29,8 +31,18 @@ from comfy.cli_args import args
 
 try:
     from .model_lifecycle import offload_models
+    from .donut_bypass_materialization import (
+        clone_with_bypass_as_regular_patches,
+        get_bypass_components,
+    )
+    from .DonutExtractLoRA import DonutExtractLoRA
 except ImportError:
     from model_lifecycle import offload_models
+    from donut_bypass_materialization import (
+        clone_with_bypass_as_regular_patches,
+        get_bypass_components,
+    )
+    from DonutExtractLoRA import DonutExtractLoRA
 
 
 DTYPE_OPTIONS = ["original", "bf16", "fp16", "fp32", "fp8_e4m3fn", "fp8_e5m2"]
@@ -113,7 +125,7 @@ def _materialize_and_cast(sd, dtype):
             if not t.is_contiguous():
                 t = t.contiguous()
         out[k] = t
-        # Release the original wrapper/reference promptly while building output.
+        # Drop the original entry so wrappers can be released promptly.
         sd[k] = None
 
     return out
@@ -124,33 +136,40 @@ def _save_via_comfy(model, clip, vae, output_path, filename, counter, dtype):
     Faithful reproduction of comfy.sd.save_checkpoint with:
       - workflow metadata stripped
       - optional dtype conversion
+      - Donut Experimental-bypass adapters serialized as ordinary patches
     """
-    metadata, extra_keys = _build_modelspec_metadata(model, filename, counter)
-    if args.disable_metadata:
-        metadata = {}
+    bypass_components = get_bypass_components(model)
+    use_ejected = getattr(model, "use_ejected", None)
+    context = use_ejected() if bypass_components and callable(use_ejected) else nullcontext()
 
-    clip_sd = None
-    load_models = [model]
-    if clip is not None:
-        load_models.append(clip.load_model())
-        clip_sd = clip.get_sd()
-    vae_sd = None
-    if vae is not None:
-        vae_sd = vae.get_sd()
+    with context:
+        save_model = clone_with_bypass_as_regular_patches(model)
 
-    # Do not force_patch_weights here. ComfyUI's normal load_models_gpu path may
-    # partially load large models on low-VRAM systems, and LazyCastingParam
-    # materialization below bakes patches during the CPU state-dict pass.
-    comfy.model_management.load_models_gpu(load_models)
+        metadata, extra_keys = _build_modelspec_metadata(save_model, filename, counter)
+        if args.disable_metadata:
+            metadata = {}
 
-    clip_vision_sd = None
-    sd = model.state_dict_for_saving(clip_sd, vae_sd, clip_vision_sd)
-    for k in extra_keys:
-        sd[k] = extra_keys[k]
+        clip_sd = None
+        load_models = [save_model]
+        if clip is not None:
+            load_models.append(clip.load_model())
+            clip_sd = clip.get_sd()
+        vae_sd = None
+        if vae is not None:
+            vae_sd = vae.get_sd()
 
-    sd = _materialize_and_cast(sd, dtype)
+        # Do not force_patch_weights. Normal partial loading is important on
+        # low-VRAM systems; LazyCastingParam applies regular and converted-bypass
+        # patches as each saved tensor is moved to CPU.
+        comfy.model_management.load_models_gpu(load_models)
 
-    offload_models(comfy.model_management, *load_models)
+        clip_vision_sd = None
+        sd = save_model.state_dict_for_saving(clip_sd, vae_sd, clip_vision_sd)
+        for k in extra_keys:
+            sd[k] = extra_keys[k]
+
+        sd = _materialize_and_cast(sd, dtype)
+        offload_models(comfy.model_management, *load_models)
 
     comfy.utils.save_torch_file(sd, output_path, metadata=metadata)
 
@@ -242,9 +261,9 @@ class DonutDiffusionModelSave(DonutModelSave):
     DEPRECATED = False
     DESCRIPTION = (
         "Saves only the diffusion MODEL as safetensors with no workflow metadata. "
-        "Attached ModelPatcher changes such as LoRAs and model merges are baked into "
-        "the saved weights. BF16 is the default so a model loaded in fp8 is not "
-        "silently re-saved as fp8."
+        "Ordinary ModelPatcher changes and Donut Experimental-bypass LoRAs are baked "
+        "into the saved weights. BF16 is the default so a model loaded in fp8 is "
+        "not silently re-saved as fp8."
     )
 
 
@@ -278,9 +297,11 @@ NODE_CLASS_MAPPINGS = {
     "DonutModelSave": DonutModelSave,
     "DonutDiffusionModelSave": DonutDiffusionModelSave,
     "DonutCheckpointSave": DonutCheckpointSave,
+    "DonutExtractLoRA": DonutExtractLoRA,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutSave": "Donut Save (No Workflow)",
     "DonutDiffusionModelSave": "Donut Diffusion Model Save (No Workflow)",
+    "DonutExtractLoRA": "Donut Extract LoRA (Raw → Patched)",
 }
