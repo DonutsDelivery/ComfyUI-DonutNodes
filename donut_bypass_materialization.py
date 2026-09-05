@@ -180,3 +180,10 @@ def clone_with_bypass_as_regular_patches(model):
             converted.add_patches({key: adapter}, strength)
 
     return converted
+
+
+# In normal package loading, DonutSafeApplyLoRAStack is imported before
+# DonutModelSave (which imports this helper), so this patches the already-loaded
+# bypass application function. The function is idempotent and harmless in tests
+# or older environments where the safe stack module is unavailable.
+install_bypass_recording_patch()
