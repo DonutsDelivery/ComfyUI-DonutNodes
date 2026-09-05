@@ -56,6 +56,10 @@ from .donut_lora_civitai import NODE_DISPLAY_NAME_MAPPINGS as d_lora_civitai
 from .DonutTiledUpscale import NODE_CLASS_MAPPINGS        as m_tiled_upscale
 from .DonutTiledUpscale import NODE_DISPLAY_NAME_MAPPINGS as d_tiled_upscale
 
+# Tiled Upscale + color preservation
+from .DonutColorPreservingUpscale import NODE_CLASS_MAPPINGS        as m_color_upscale
+from .DonutColorPreservingUpscale import NODE_DISPLAY_NAME_MAPPINGS as d_color_upscale
+
 # ZIT Detailer (Z-Image Turbo / Lumina2)
 from .DonutDetailerZIT import NODE_CLASS_MAPPINGS        as m_zit_detailer
 from .DonutDetailerZIT import NODE_DISPLAY_NAME_MAPPINGS as d_zit_detailer
@@ -83,7 +87,6 @@ from .DonutFaceDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_face_detailer
 # Universal Detailer (Florence-2)
 from .DonutUniversalDetailer import NODE_CLASS_MAPPINGS        as m_universal_detailer
 from .DonutUniversalDetailer import NODE_DISPLAY_NAME_MAPPINGS as d_universal_detailer
-
 
 # Weight-Vector Scale (helper for third-party ConditioningKrea2Rebalance and LoRA block_vector strings)
 from .DonutWeightVectorScale import NODE_CLASS_MAPPINGS        as m_weight_vector_scale
@@ -148,6 +151,7 @@ NODE_CLASS_MAPPINGS = {
     **m_donut_sampler,
     **m_lora_civitai,
     **m_tiled_upscale,
+    **m_color_upscale,
     **m_zit_detailer,
     **m_merge_zit,
     **m_merge_krea2,
@@ -155,7 +159,6 @@ NODE_CLASS_MAPPINGS = {
     **m_model_save,
     **m_face_detailer,
     **m_universal_detailer,
-
     **m_weight_vector_scale,
     **m_gamma,
     **m_auto_gamma,
@@ -182,6 +185,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_donut_sampler,
     **d_lora_civitai,
     **d_tiled_upscale,
+    **d_color_upscale,
     **d_zit_detailer,
     **d_merge_zit,
     **d_merge_krea2,
@@ -189,7 +193,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_model_save,
     **d_face_detailer,
     **d_universal_detailer,
-
     **d_weight_vector_scale,
     **d_gamma,
     **d_auto_gamma,
