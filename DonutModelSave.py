@@ -210,14 +210,7 @@ class DonutSave:
 
 
 class DonutModelSave(DonutSave):
-    """Save only the diffusion MODEL, with patches/LoRAs baked and dtype explicit."""
-
-    DEPRECATED = False
-    DESCRIPTION = (
-        "Saves only the diffusion model as safetensors with no workflow metadata. "
-        "Attached ModelPatcher changes such as LoRAs/merges are baked into the saved weights. "
-        "Choose bf16/fp16/fp32 to override a model that ComfyUI loaded as fp8."
-    )
+    """Legacy model-only saver ID kept for saved-workflow compatibility."""
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -241,6 +234,18 @@ class DonutModelSave(DonutSave):
             filename_prefix=filename_prefix,
             dtype=dtype,
         )
+
+
+class DonutDiffusionModelSave(DonutModelSave):
+    """Visible diffusion-model-only save node with explicit output dtype."""
+
+    DEPRECATED = False
+    DESCRIPTION = (
+        "Saves only the diffusion MODEL as safetensors with no workflow metadata. "
+        "Attached ModelPatcher changes such as LoRAs and model merges are baked into "
+        "the saved weights. BF16 is the default so a model loaded in fp8 is not "
+        "silently re-saved as fp8."
+    )
 
 
 class DonutCheckpointSave(DonutSave):
@@ -271,10 +276,11 @@ class DonutCheckpointSave(DonutSave):
 NODE_CLASS_MAPPINGS = {
     "DonutSave": DonutSave,
     "DonutModelSave": DonutModelSave,
+    "DonutDiffusionModelSave": DonutDiffusionModelSave,
     "DonutCheckpointSave": DonutCheckpointSave,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "DonutSave": "Donut Save (No Workflow)",
-    "DonutModelSave": "Donut Diffusion Model Save (No Workflow)",
+    "DonutDiffusionModelSave": "Donut Diffusion Model Save (No Workflow)",
 }
