@@ -20,6 +20,7 @@ so tensors are materialized one at a time during saving.
 KREA2_MERGE_INJECTION_KEY = "donut_krea2_model_merge_bypass"
 KREA2_MERGE_SOURCE_KEY = "donut_krea2_model_merge_sources"
 KREA2_MERGE_PLAN_PREFIX = "donut_krea2_model_merge_identity:"
+_DIFFUSION_PREFIX = "diffusion_model."
 
 
 def _get_injections(model):
@@ -40,6 +41,23 @@ def _get_additional_models(model, key):
 def _get_attachments(model):
     attachments = getattr(model, "attachments", None)
     return attachments if isinstance(attachments, dict) else {}
+
+
+def _relative_unet_key(key):
+    """Translate a full ModelPatcher key to the UNet save-dict key namespace.
+
+    ComfyUI's ``model_state_dict_for_saving(model.diffusion_model,
+    prefix="diffusion_model.")`` uses the prefix only to resolve ModelPatcher
+    patches. The dictionary it returns keeps the diffusion-model-local state
+    keys (for example ``blocks.0.attn.wq.weight``), not the full
+    ``diffusion_model.blocks.0.attn.wq.weight`` key. Merge plans, on the other
+    hand, intentionally store the full ModelPatcher key. Keep that distinction
+    explicit here instead of depending on test doubles to happen to use the
+    same namespace.
+    """
+    if isinstance(key, str) and key.startswith(_DIFFUSION_PREFIX):
+        return key[len(_DIFFUSION_PREFIX):]
+    return key
 
 
 def get_krea2_merge_bypass_info(model):
@@ -179,26 +197,35 @@ def compose_krea2_merge_unet_state_dict(base_model, source_model, plans):
     ``base_model`` is the final model with runtime merge plumbing removed and all
     normal patches preserved. ``source_model`` is the retained model2 patcher,
     optionally with later bypass-LoRA adapters registered as ordinary patches.
+
+    The merge plans are stored in ModelPatcher's full ``diffusion_model.*`` key
+    namespace, while these two state dicts are local to ``model.diffusion_model``.
+    Convert the plan keys to that relative namespace before selecting state.
     """
     base_sd = base_model.model_state_dict_for_saving(
         base_model.model.diffusion_model,
-        "diffusion_model.",
+        _DIFFUSION_PREFIX,
     )
     source_sd = source_model.model_state_dict_for_saving(
         source_model.model.diffusion_model,
-        "diffusion_model.",
+        _DIFFUSION_PREFIX,
     )
 
     swapped_modules = 0
     swapped_keys = 0
     for module_path, weight_key, _ratio in plans:
-        base_keys = _direct_module_state_keys(base_sd, module_path)
-        source_keys = _direct_module_state_keys(source_sd, module_path)
+        state_module_path = _relative_unet_key(module_path)
+        state_weight_key = _relative_unet_key(weight_key)
 
-        if weight_key not in source_keys:
+        base_keys = _direct_module_state_keys(base_sd, state_module_path)
+        source_keys = _direct_module_state_keys(source_sd, state_module_path)
+
+        if state_weight_key not in source_keys:
+            available = ", ".join(sorted(source_keys)) if source_keys else "none"
             raise RuntimeError(
                 "Donut Krea2 save could not find the model2 source weight for "
-                f"bypassed module '{module_path}'."
+                f"bypassed module '{module_path}'. Expected UNet state key "
+                f"'{state_weight_key}'; direct source keys: {available}."
             )
         if not source_keys:
             raise RuntimeError(
