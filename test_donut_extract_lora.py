@@ -19,6 +19,9 @@ fake_comfy.utils = fake_utils
 fake_comfy.model_patcher = fake_model_patcher
 
 
+SAVED_FILES = []
+
+
 def fake_calculate_weight(patches, weight, key, **kwargs):
     out = weight.clone()
     for patch in patches:
@@ -38,9 +41,13 @@ def fake_get_key_weight(model, key):
     return getattr(obj, parts[-1]), None, None
 
 
+def fake_save_torch_file(sd, path, metadata=None):
+    SAVED_FILES.append((dict(sd), path, dict(metadata or {})))
+
+
 fake_lora.calculate_weight = fake_calculate_weight
 fake_model_patcher.get_key_weight = fake_get_key_weight
-fake_utils.save_torch_file = lambda *args, **kwargs: None
+fake_utils.save_torch_file = fake_save_torch_file
 
 fake_folder_paths = types.ModuleType("folder_paths")
 fake_folder_paths.get_output_directory = lambda: "/tmp"
@@ -56,6 +63,8 @@ _previous = {
         "comfy.model_patcher",
         "comfy.utils",
         "folder_paths",
+        "donut_bypass_materialization",
+        "donut_krea2_merge_serialization",
     )
 }
 sys.modules["comfy"] = fake_comfy
@@ -72,6 +81,14 @@ try:
     helper = importlib.util.module_from_spec(helper_spec)
     helper_spec.loader.exec_module(helper)
     sys.modules["donut_bypass_materialization"] = helper
+
+    krea_spec = importlib.util.spec_from_file_location(
+        "donut_krea2_merge_serialization",
+        Path(__file__).with_name("donut_krea2_merge_serialization.py"),
+    )
+    krea = importlib.util.module_from_spec(krea_spec)
+    krea_spec.loader.exec_module(krea)
+    sys.modules["donut_krea2_merge_serialization"] = krea
 
     extract_spec = importlib.util.spec_from_file_location(
         "donut_extract_lora_tested",
@@ -95,6 +112,11 @@ class Adapter:
 class CompositeAdapter:
     def __init__(self, components):
         self.components = components
+
+
+class FalseyInjectionList(list):
+    def __bool__(self):
+        return False
 
 
 class FakeInjectionModel:
@@ -162,7 +184,69 @@ class FakeQuantizedValue:
         return self.tensor
 
 
+class FakeModelTree:
+    def __init__(self, layer_weight, layer_bias, other_weight=None):
+        self.diffusion_model = types.SimpleNamespace(
+            layer=types.SimpleNamespace(
+                weight=layer_weight.clone(),
+                bias=None if layer_bias is None else layer_bias.clone(),
+            ),
+            other=types.SimpleNamespace(
+                weight=(
+                    torch.eye(layer_weight.shape[0])
+                    if other_weight is None
+                    else other_weight.clone()
+                ),
+            ),
+        )
+
+    def state_dict(self):
+        state = {
+            "diffusion_model.layer.weight": self.diffusion_model.layer.weight,
+            "diffusion_model.other.weight": self.diffusion_model.other.weight,
+        }
+        if self.diffusion_model.layer.bias is not None:
+            state["diffusion_model.layer.bias"] = self.diffusion_model.layer.bias
+        return state
+
+
+class FakeMergePatcher:
+    def __init__(self, layer_weight, layer_bias, other_weight=None, clone_id="base"):
+        self.model = FakeModelTree(layer_weight, layer_bias, other_weight)
+        self.patches = {}
+        self.backup = {}
+        self.hook_backup = {}
+        self.injections = {}
+        self.attachments = {}
+        self.additional_models = {}
+        self.clone_base_uuid = clone_id
+
+    def get_attachment(self, key):
+        return self.attachments.get(key)
+
+    def get_injections(self, key):
+        return self.injections.get(key, [])
+
+    def get_additional_models_with_key(self, key):
+        return self.additional_models.get(key, [])
+
+
+def attach_krea2_swap(patched, source):
+    plan = (
+        "diffusion_model.layer",
+        "diffusion_model.layer.weight",
+        0.0,
+    )
+    patched.injections[krea.KREA2_MERGE_INJECTION_KEY] = FalseyInjectionList([object()])
+    patched.additional_models[krea.KREA2_MERGE_SOURCE_KEY] = [source]
+    patched.attachments[krea.KREA2_MERGE_PLAN_PREFIX + "test"] = (plan,)
+    return plan
+
+
 class DonutExtractLoRATests(unittest.TestCase):
+    def setUp(self):
+        SAVED_FILES.clear()
+
     def test_rank_factorization_reconstructs_low_rank_matrix(self):
         left = torch.tensor([[1.0, 2.0], [3.0, -1.0], [0.5, 4.0]])
         right = torch.tensor([[2.0, 0.0, 1.0, -1.0], [1.0, 3.0, -2.0, 0.5]])
@@ -211,7 +295,10 @@ class DonutExtractLoRATests(unittest.TestCase):
         patches = extract._get_extractable_key_patches(model)
 
         self.assertEqual(list(patches), ["diffusion_model.layer.weight"])
-        self.assertTrue(torch.equal(patches["diffusion_model.layer.weight"][0][0], model.model.diffusion_model.layer.weight))
+        self.assertTrue(torch.equal(
+            patches["diffusion_model.layer.weight"][0][0],
+            model.model.diffusion_model.layer.weight,
+        ))
 
     def test_quantized_value_is_dequantized_before_float32_extraction(self):
         expected = torch.tensor([[1.25, -2.5], [3.75, 4.0]], dtype=torch.float16)
@@ -249,6 +336,127 @@ class DonutExtractLoRATests(unittest.TestCase):
         patches, strength = converted.added[0]
         self.assertIs(patches["diffusion_model.layer.weight"], adapter)
         self.assertEqual(strength, 0.75)
+
+    def test_falsey_krea2_runtime_is_not_treated_as_invisible(self):
+        model = FakeMergePatcher(torch.eye(2), torch.zeros(2))
+        model.injections[krea.KREA2_MERGE_INJECTION_KEY] = FalseyInjectionList([object()])
+
+        self.assertIn(
+            krea.KREA2_MERGE_INJECTION_KEY,
+            extract._runtime_injection_keys(model),
+        )
+
+    def test_effective_sources_use_model2_for_hard_swap_and_model1_elsewhere(self):
+        raw = FakeMergePatcher(
+            torch.eye(2),
+            torch.zeros(2),
+            other_weight=torch.eye(2),
+        )
+        source = FakeMergePatcher(
+            4.0 * torch.eye(2),
+            torch.tensor([2.0, -1.0]),
+            other_weight=99.0 * torch.eye(2),
+        )
+        patched = FakeMergePatcher(
+            torch.eye(2),
+            torch.zeros(2),
+            other_weight=torch.eye(2),
+        )
+        attach_krea2_swap(patched, source)
+        patched.patches["diffusion_model.other.weight"] = [
+            (1.0, Adapter(3.0 * torch.eye(2)), 1.0, None, None),
+        ]
+        bypass = {
+            "diffusion_model.layer.weight": [
+                (Adapter(torch.ones(2, 2)), 0.5),
+            ],
+        }
+
+        effective, swapped, swap_count = extract._get_effective_key_patches(
+            patched,
+            bypass,
+        )
+
+        swapped_weight = extract._effective_weight(
+            "diffusion_model.layer.weight",
+            effective["diffusion_model.layer.weight"],
+            bypass["diffusion_model.layer.weight"],
+        )
+        swapped_bias = extract._effective_weight(
+            "diffusion_model.layer.bias",
+            effective["diffusion_model.layer.bias"],
+            None,
+        )
+        other_weight = extract._effective_weight(
+            "diffusion_model.other.weight",
+            effective["diffusion_model.other.weight"],
+            None,
+        )
+
+        self.assertEqual(swap_count, 1)
+        self.assertIn("diffusion_model.layer.weight", swapped)
+        self.assertIn("diffusion_model.layer.bias", swapped)
+        self.assertTrue(torch.allclose(
+            swapped_weight,
+            4.0 * torch.eye(2) + 0.5 * torch.ones(2, 2),
+        ))
+        self.assertTrue(torch.equal(swapped_bias, torch.tensor([2.0, -1.0])))
+        self.assertTrue(torch.equal(other_weight, 4.0 * torch.eye(2)))
+        self.assertNotEqual(id(raw), id(patched))
+
+    def test_full_extraction_includes_krea2_swap_lora_and_bias_diff(self):
+        raw = FakeMergePatcher(
+            torch.eye(2),
+            torch.zeros(2),
+            clone_id="same-base",
+        )
+        source = FakeMergePatcher(
+            4.0 * torch.eye(2),
+            torch.tensor([2.0, -1.0]),
+            clone_id="model2",
+        )
+        patched = FakeMergePatcher(
+            torch.eye(2),
+            torch.zeros(2),
+            clone_id="same-base",
+        )
+        attach_krea2_swap(patched, source)
+        bypass_delta = torch.tensor([[1.0, -1.0], [0.5, 0.25]])
+        patched.attachments[helper.BYPASS_ATTACHMENT_KEY] = {
+            "diffusion_model.layer.weight": [
+                (Adapter(bypass_delta), 0.5),
+            ],
+        }
+
+        _path, report = extract.DonutExtractLoRA().extract(
+            raw,
+            patched,
+            rank=2,
+            filename_prefix="loras/test",
+            dtype="fp32",
+        )
+
+        self.assertEqual(len(SAVED_FILES), 1)
+        sd, _saved_path, metadata = SAVED_FILES[0]
+        up = sd["diffusion_model.layer.lora_up.weight"]
+        down = sd["diffusion_model.layer.lora_down.weight"]
+        reconstructed_delta = up @ down
+        expected_target = 4.0 * torch.eye(2) + 0.5 * bypass_delta
+        expected_delta = expected_target - torch.eye(2)
+
+        self.assertTrue(torch.allclose(
+            reconstructed_delta,
+            expected_delta,
+            atol=1e-4,
+            rtol=1e-4,
+        ))
+        self.assertTrue(torch.equal(
+            sd["diffusion_model.layer.diff_b"],
+            torch.tensor([2.0, -1.0]),
+        ))
+        self.assertEqual(metadata["donut.krea2_merge_aware"], "true")
+        self.assertIn("included 1 Krea2 model2 hard swap", report)
+        self.assertNotIn("unsupported runtime injections", report)
 
     def test_node_schema_has_raw_patched_and_rank(self):
         required = extract.DonutExtractLoRA.INPUT_TYPES()["required"]
