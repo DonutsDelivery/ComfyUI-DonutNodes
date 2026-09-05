@@ -4,13 +4,13 @@ Experimental bypass keeps adapter math in forward hooks instead of changing the
 ModelPatcher weight state. That is ideal for quantized/low-VRAM inference, but a
 plain state-dict save or ModelSubtract cannot see those adapters.
 
-Newer Donut builds may record adapter components as a ModelPatcher attachment.
-For compatibility with already-created bypass models, these helpers can also
-recover the BypassInjectionManager captured by ComfyUI's PatcherInjection
-closures. Consumers then clone the patcher, remove the runtime injection, and
-register the exact same adapters on ComfyUI's ordinary patch path. This lets
-LazyCastingParam materialize one weight at a time without constructing a dense
-full-model delta in memory.
+New Donut bypass applications record adapter components as a ModelPatcher
+attachment. For compatibility with already-created bypass models, these helpers
+can also recover the BypassInjectionManager captured by ComfyUI's
+PatcherInjection closures. Consumers then clone the patcher, remove the runtime
+injection, and register the exact same adapters on ComfyUI's ordinary patch path.
+This lets LazyCastingParam materialize one weight at a time without constructing
+a dense full-model delta in memory.
 """
 
 BYPASS_ATTACHMENT_KEY = "donut_bypass_lora_components_v1"
@@ -32,6 +32,14 @@ def _flatten_adapter(adapter, strength):
         if valid:
             return flattened
     return [(adapter, float(strength))]
+
+
+def _get_attached_components(model):
+    getter = getattr(model, "get_attachment", None)
+    if not callable(getter):
+        return {}
+    value = getter(BYPASS_ATTACHMENT_KEY)
+    return value if isinstance(value, dict) else {}
 
 
 def _discover_components_from_injections(model):
@@ -77,11 +85,9 @@ def _discover_components_from_injections(model):
 
 def get_bypass_components(model):
     """Return {weight_key: [(adapter, strength), ...]} for Donut bypass LoRAs."""
-    getter = getattr(model, "get_attachment", None)
-    if callable(getter):
-        value = getter(BYPASS_ATTACHMENT_KEY)
-        if isinstance(value, dict) and value:
-            return value
+    attached = _get_attached_components(model)
+    if attached:
+        return attached
 
     # Older bypass models did not persist explicit extraction metadata. The
     # injection manager itself still owns the exact adapter objects, so recover
@@ -94,9 +100,11 @@ def attach_bypass_components(model, adapters_by_key):
     if not adapters_by_key:
         return model
 
+    # Only merge the explicit attachment here. Calling get_bypass_components()
+    # would rediscover the same injection manager and duplicate every component.
     merged = {
         key: list(components)
-        for key, components in get_bypass_components(model).items()
+        for key, components in _get_attached_components(model).items()
     }
     for key, components in adapters_by_key.items():
         merged.setdefault(key, []).extend(list(components))
@@ -106,6 +114,41 @@ def attach_bypass_components(model, adapters_by_key):
         raise RuntimeError("This ComfyUI ModelPatcher does not support attachments.")
     setter(BYPASS_ATTACHMENT_KEY, merged)
     return model
+
+
+def install_bypass_recording_patch():
+    """Make future Donut bypass results persist their adapter components.
+
+    The existing apply implementation already constructs ComfyUI's
+    BypassInjectionManager. Wrapping it after import lets us recover that exact
+    manager once and store its adapters as clone-persistent metadata without
+    changing the inference implementation itself.
+    """
+    try:
+        from . import DonutSafeApplyLoRAStack as safe_module
+    except ImportError:
+        try:
+            import DonutSafeApplyLoRAStack as safe_module
+        except ImportError:
+            return False
+
+    original = getattr(safe_module, "_apply_bypass_applications", None)
+    if not callable(original):
+        return False
+    if getattr(original, "_donut_records_bypass_components", False):
+        return True
+
+    def wrapped(model, applications):
+        result = original(model, applications)
+        discovered = _discover_components_from_injections(result)
+        if discovered:
+            attach_bypass_components(result, discovered)
+        return result
+
+    wrapped._donut_records_bypass_components = True
+    wrapped._donut_original = original
+    safe_module._apply_bypass_applications = wrapped
+    return True
 
 
 def clone_with_bypass_as_regular_patches(model):
