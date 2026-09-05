@@ -9,6 +9,11 @@ The extractor processes one model weight at a time on CPU. It does not need the
 full patched model or a dense full-model difference resident in VRAM, making it
 more practical on lower-VRAM GPUs. Large matrices use randomized low-rank SVD;
 small matrices use exact SVD.
+
+Quantized ComfyUI models may expose auxiliary state-dict entries such as
+``weight_scale``/``input_scale`` that are not real module attributes. We never
+feed those entries through ModelPatcher.get_key_patches(); instead we enumerate
+only actual ``*.weight`` targets and reproduce get_key_patches for those keys.
 """
 
 import logging
@@ -18,6 +23,7 @@ import folder_paths
 import torch
 
 import comfy.lora
+import comfy.model_patcher
 import comfy.utils
 
 try:
@@ -47,19 +53,121 @@ def _runtime_injection_keys(model):
     return {key for key, value in injections.items() if value}
 
 
-def _convert_base_weight(base_weight, convert_func):
-    if not torch.is_tensor(base_weight):
-        raise TypeError(f"Unsupported base weight type: {type(base_weight).__name__}")
+def _identity(value, **kwargs):
+    return value
 
-    weight = base_weight.detach().to(device="cpu", dtype=torch.float32).clone()
+
+def _weight_target_keys(model, bypass_components=None):
+    """Return real diffusion-model weight targets, excluding quant metadata.
+
+    Quantized state dicts can contain entries such as ``*.weight_scale`` and
+    ``*.input_scale``. Those are serialization metadata, not LoRA targets, and
+    calling ModelPatcher.get_key_patches() on the full state dict can try to
+    resolve them as normal module attributes. Restricting the scan to the
+    canonical ``*.weight`` keys avoids that failure and is also exactly what a
+    standard LoRA can represent.
+    """
+    keys = set()
+
+    try:
+        state_dict = model.model.state_dict()
+        keys.update(
+            key for key in state_dict.keys()
+            if key.startswith("diffusion_model.") and key.endswith(".weight")
+        )
+    except Exception:
+        logging.exception("[DonutExtractLoRA] Could not enumerate model state dict")
+
+    patches = getattr(model, "patches", {})
+    if isinstance(patches, dict):
+        keys.update(
+            key for key in patches.keys()
+            if isinstance(key, str)
+            and key.startswith("diffusion_model.")
+            and key.endswith(".weight")
+        )
+
+    if isinstance(bypass_components, dict):
+        keys.update(
+            key for key in bypass_components.keys()
+            if isinstance(key, str)
+            and key.startswith("diffusion_model.")
+            and key.endswith(".weight")
+        )
+
+    return keys
+
+
+def _single_key_patches(model, key):
+    """Reproduce ModelPatcher.get_key_patches() for one real weight key.
+
+    Doing this one key at a time avoids ComfyUI's quantization bookkeeping keys
+    while preserving physically patched backups, hook backups, conversion
+    functions, and the ordered regular patch stack.
+    """
+    try:
+        weight, _set_func, convert_func = comfy.model_patcher.get_key_weight(
+            model.model, key
+        )
+    except (AttributeError, IndexError, KeyError, TypeError) as exc:
+        raise RuntimeError(f"Could not resolve model weight {key}: {exc}") from exc
+
+    backup = getattr(model, "backup", {}).get(key)
+    if backup is not None:
+        weight = backup.weight
+
+    hook_backup = getattr(model, "hook_backup", {}).get(key)
+    if hook_backup is not None:
+        weight = hook_backup[0]
+
+    if convert_func is None:
+        convert_func = _identity
+
+    result = [(weight, convert_func)]
+    patches = getattr(model, "patches", {})
+    if key in patches:
+        result.extend(patches[key])
+    return result
+
+
+def _get_extractable_key_patches(model, bypass_components=None):
+    """Return get_key_patches-style entries for only actual LoRA weight targets."""
+    output = {}
+    for key in sorted(_weight_target_keys(model, bypass_components)):
+        try:
+            output[key] = _single_key_patches(model, key)
+        except Exception as exc:
+            # A model may expose a serialization-only weight-like key without a
+            # resolvable live module. Do not let one exotic layer abort every
+            # otherwise extractable LoRA layer.
+            logging.warning("[DonutExtractLoRA] Skipping unresolved weight %s: %s", key, exc)
+    return output
+
+
+def _convert_base_weight(base_weight, convert_func):
+    """Convert a normal or quantized model weight to CPU float32."""
+    value = base_weight
+
+    # Comfy quantized modules commonly provide convert_weight(), which
+    # dequantizes QuantizedTensor. Apply the model's own conversion before doing
+    # any dtype conversion ourselves so per-format scale information is honored.
     if convert_func is not None:
         try:
-            weight = convert_func(weight, inplace=True)
+            value = convert_func(value, inplace=False)
         except TypeError:
-            weight = convert_func(weight)
-    if not torch.is_tensor(weight):
-        raise TypeError("Model weight conversion did not return a Tensor")
-    return weight.float().cpu()
+            try:
+                value = convert_func(value, inplace=True)
+            except TypeError:
+                value = convert_func(value)
+
+    dequantize = getattr(value, "dequantize", None)
+    if callable(dequantize):
+        value = dequantize()
+
+    if not torch.is_tensor(value):
+        raise TypeError(f"Unsupported base weight type: {type(value).__name__}")
+
+    return value.detach().to(device="cpu", dtype=torch.float32).clone()
 
 
 def _effective_weight(key, key_patches, bypass_components):
@@ -69,16 +177,17 @@ def _effective_weight(key, key_patches, bypass_components):
 
     first = key_patches[0]
     if not isinstance(first, (tuple, list)) or len(first) < 2:
-        raise TypeError(f"Unexpected get_key_patches layout for {key}")
+        raise TypeError(f"Unexpected key-patch layout for {key}")
 
     base_weight, convert_func = first[0], first[1]
     weight = _convert_base_weight(base_weight, convert_func)
     patches = list(key_patches[1:])
 
     # Donut's experimental bypass is activation-side at inference time, but for
-    # a plain additive LoRA/LoKr target its exact equivalent is an ordinary
-    # weight adapter patch at the same strength. Append it here before computing
-    # the effective weight so extraction sees what inference actually used.
+    # the bypass-compatible additive adapters Donut permits, its exact
+    # serialization equivalent is an ordinary weight-adapter patch at the same
+    # strength. Append those adapters before computing the effective weight so
+    # extraction sees what inference actually used.
     for adapter, strength in bypass_components or ():
         strength = float(strength)
         if strength != 0.0:
@@ -150,8 +259,9 @@ class DonutExtractLoRA:
     DESCRIPTION = (
         "Extracts a standard low-rank LoRA representing PATCHED MODEL - RAW MODEL. "
         "Understands Donut Experimental bypass, whose adapter effect is invisible "
-        "to ordinary ModelSubtract/state-dict LoRA extractors. Large SVDs run in "
-        "CPU memory so the full merged model does not need to fit in VRAM."
+        "to ordinary ModelSubtract/state-dict LoRA extractors. Quantization metadata "
+        "is ignored safely, and large SVDs run in CPU memory so the full merged "
+        "model does not need to fit in VRAM."
     )
 
     @classmethod
@@ -191,10 +301,10 @@ class DonutExtractLoRA:
         rank = int(rank)
         output_dtype = OUTPUT_DTYPE_MAP[dtype]
 
-        raw_keys = raw_model.get_key_patches("diffusion_model.")
-        patched_keys = patched_model.get_key_patches("diffusion_model.")
         raw_bypass = get_bypass_components(raw_model)
         patched_bypass = get_bypass_components(patched_model)
+        raw_keys = _get_extractable_key_patches(raw_model, raw_bypass)
+        patched_keys = _get_extractable_key_patches(patched_model, patched_bypass)
 
         raw_injections = _runtime_injection_keys(raw_model)
         patched_injections = _runtime_injection_keys(patched_model)
@@ -222,8 +332,6 @@ class DonutExtractLoRA:
         )
 
         for key in common_keys:
-            if not key.endswith(".weight"):
-                continue
             try:
                 raw_weight = _effective_weight(key, raw_keys[key], raw_bypass.get(key))
                 patched_weight = _effective_weight(key, patched_keys[key], patched_bypass.get(key))
@@ -274,6 +382,7 @@ class DonutExtractLoRA:
             "donut.rank": str(rank),
             "donut.dtype": dtype,
             "donut.bypass_aware": "true",
+            "donut.quant_metadata_safe": "true",
         }
         comfy.utils.save_torch_file(output_sd, output_path, metadata=metadata)
 
