@@ -31,6 +31,7 @@ from comfy.cli_args import args
 
 try:
     from .model_lifecycle import offload_models
+    from .donut_save_path import get_model_save_path
     from .donut_bypass_materialization import (
         clone_with_bypass_as_regular_patches,
         get_bypass_components,
@@ -44,6 +45,7 @@ try:
     from .DonutExtractLoRA import DonutExtractLoRA
 except ImportError:
     from model_lifecycle import offload_models
+    from donut_save_path import get_model_save_path
     from donut_bypass_materialization import (
         clone_with_bypass_as_regular_patches,
         get_bypass_components,
@@ -271,7 +273,7 @@ class DonutSave:
 
     def save(self, model, filename_prefix, dtype="original", clip=None, vae=None):
         full_output_folder, filename, counter, subfolder, filename_prefix = \
-            folder_paths.get_save_image_path(filename_prefix, self.output_dir)
+            get_model_save_path(folder_paths, filename_prefix, self.output_dir)
 
         output_path = os.path.join(
             full_output_folder, f"{filename}_{counter:05}_.safetensors"
@@ -301,7 +303,7 @@ class DonutModelSave(DonutSave):
                 "model": ("MODEL",),
                 "filename_prefix": ("STRING", {
                     "default": "diffusion_models/ComfyUI",
-                    "tooltip": "Saved under ComfyUI/output by default; use diffusion_models/... for model-library style organization.",
+                    "tooltip": "Saved under ComfyUI/output by default; existing symlinks beneath output are supported for model storage.",
                 }),
                 "dtype": (DTYPE_OPTIONS, {
                     "default": "bf16",
@@ -326,7 +328,8 @@ class DonutDiffusionModelSave(DonutModelSave):
         "Saves only the diffusion MODEL as safetensors with no workflow metadata. "
         "Ordinary ModelPatcher changes, Donut Experimental-bypass LoRAs, and "
         "Donut Model Merge Krea2 Experimental-bypass hard swaps are baked into "
-        "the saved weights. BF16 is the default so a model loaded in fp8 is not "
+        "the saved weights. Existing output-directory symlinks are supported for "
+        "model storage. BF16 is the default so a model loaded in fp8 is not "
         "silently re-saved as fp8."
     )
 
