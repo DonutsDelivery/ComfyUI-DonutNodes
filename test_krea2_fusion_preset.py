@@ -21,6 +21,15 @@ def _load_module():
 
     base = types.ModuleType(f"{package_name}.DonutKrea2FusionControl")
     base.PRESET_MANUAL = "Custom settings"
+    base.PRESET_BYPASS_2 = "COPY settings: Krea2FilterBypass 2vector"
+    base.PRESET_BYPASS_3 = "COPY settings: Krea2FilterBypass 3vector"
+    base.PRESET_REBALANCE = "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1"
+    base.PRESET_ENHANCER = "COPY settings: capitan01R Krea2T-Enhancer defaults"
+    base.PRESET_REBALANCE_ENHANCER = "HYBRID settings: Rebalance + Krea2T-Enhancer"
+    base.PRESET_REBALANCE_BYPASS_2 = "HYBRID settings: Rebalance + Krea2FilterBypass 2vector"
+    base.PRESET_REBALANCE_BYPASS_3 = "HYBRID settings: Rebalance + Krea2FilterBypass 3vector"
+    base.PRESET_DONUT_BALANCED = "DONUT settings: RMS-balanced classic"
+    base.PRESET_DONUT_BALANCED_ENHANCER = "DONUT settings: RMS-balanced classic + Krea2T-Enhancer"
 
     class BaseNode:
         @classmethod
@@ -29,7 +38,7 @@ def _load_module():
                 "required": {
                     "model": ("MODEL",),
                     "conditioning_in_1": ("CONDITIONING",),
-                    "compatibility_preset": ([base.PRESET_MANUAL, "DONUT settings: legacy"], {
+                    "compatibility_preset": ([base.PRESET_MANUAL, base.PRESET_DONUT_BALANCED], {
                         "default": base.PRESET_MANUAL,
                     }),
                     "tap_method": (["Donut 12-tap gains"],),
@@ -51,13 +60,14 @@ def _load_module():
             }
 
         def apply(self, **kwargs):
+            preset = kwargs.get("compatibility_preset", base.PRESET_MANUAL)
             return (
                 kwargs["model"],
                 kwargs["conditioning_in_1"],
                 None,
                 None,
                 None,
-                "preset_label=Custom settings; preset_is_ui_only=true\n"
+                f"preset_label={preset}; preset_is_ui_only=true\n"
                 "external_files_loaded=none",
             )
 
@@ -118,7 +128,23 @@ class TeacherFixPresetTests(unittest.TestCase):
         required = schema["required"]
         self.assertEqual(list(required)[-1], "ui_mode")
         self.assertEqual(required["ui_mode"][1]["default"], "Advanced")
-        self.assertIn(module.PRESET_TEACHERFIX, required["compatibility_preset"][0])
+        self.assertEqual(required["compatibility_preset"][1]["default"], "Custom")
+        self.assertEqual(
+            required["compatibility_preset"][0],
+            [
+                "Custom",
+                "Bypass 2",
+                "Bypass 3",
+                "Rebalance",
+                "Enhancer",
+                "Rebalance + Enhancer",
+                "Rebalance + Bypass 2",
+                "Rebalance + Bypass 3",
+                "Balanced",
+                "Balanced + Enhancer",
+                "TeacherFix",
+            ],
+        )
 
     def test_exact_file_is_discovered_by_size_and_hash_even_when_renamed(self):
         module, fake_folder_paths = _load_module()
@@ -133,6 +159,34 @@ class TeacherFixPresetTests(unittest.TestCase):
             name, path = module._find_teacherfix_file()
         self.assertEqual(name, "renamed_teacherfix.safetensors")
         self.assertEqual(path, "/fake/renamed_teacherfix.safetensors")
+
+    def test_simplified_names_delegate_to_existing_presets(self):
+        module, _ = _load_module()
+
+        class FakeModel:
+            pass
+
+        result = module.DonutKrea2FusionControl().apply(
+            model=FakeModel(),
+            conditioning_in_1=object(),
+            compatibility_preset="Bypass 2",
+            tap_method="Donut 12-tap gains",
+            tap_profile="off",
+            per_layer_weights="1",
+            tap_strength=1.0,
+            tap_formula="scale_around_1",
+            tap_normalization="none",
+            projector_method="Donut projector-input gains",
+            projector_profile="off",
+            projector_layer_weights="1",
+            projector_strength=1.0,
+            projector_formula="scale_around_1",
+            projector_normalization="none",
+            fusion_method="Standard Krea2 fusion",
+            fusion_strength=1.0,
+            ui_mode="Advanced",
+        )
+        self.assertIn("preset_label=Bypass 2", result[-1])
 
     def test_teacherfix_strength_patches_all_33_targets(self):
         module, _ = _load_module()
@@ -183,6 +237,7 @@ class TeacherFixPresetTests(unittest.TestCase):
         self.assertEqual(len(result[0].loaded), EXPECTED_TARGETS)
         self.assertEqual(set(result[0].loaded.values()), {0.75})
         self.assertIs(result[1], conditioning)
+        self.assertIn("preset_label=TeacherFix", result[-1])
         self.assertIn("preset_is_ui_only=false", result[-1])
         self.assertIn("renamed_teacherfix.safetensors", result[-1])
 
@@ -190,10 +245,14 @@ class TeacherFixPresetTests(unittest.TestCase):
         js = (ROOT / "web" / "donut_krea2_fusion_simple_mode.js").read_text()
         self.assertIn('const SIMPLE = "Simple";', js)
         self.assertIn('const ADVANCED = "Advanced";', js)
-        self.assertIn('const TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000";', js)
+        self.assertIn('const CUSTOM = "Custom";', js)
+        self.assertIn('const TEACHERFIX = "TeacherFix";', js)
+        self.assertIn('"Bypass 2"', js)
+        self.assertIn('"Balanced + Enhancer"', js)
         self.assertIn('name === "tap_strength"', js)
         self.assertIn("SIMPLE_PROJECTOR_STRENGTH", js)
         self.assertIn("SIMPLE_FUSION_STRENGTH", js)
+        self.assertIn("LEGACY_TO_SIMPLE", js)
         self.assertIn("queueMicrotask", js)
 
 
