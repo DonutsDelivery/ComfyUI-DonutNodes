@@ -1,7 +1,10 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DonutKrea2FusionControl";
+const SIMPLE = "Simple";
+const ADVANCED = "Advanced";
 const CUSTOM = "Custom";
+const TEACHERFIX = "TeacherFix";
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
@@ -11,17 +14,22 @@ const PROJECTOR_BYPASS_3 = "Krea2FilterBypass 3vector diff";
 const FUSION_STANDARD = "Standard Krea2 fusion";
 const FUSION_ENHANCER = "capitan01R Krea2T-Enhancer operation";
 
-const PROFILE_VECTORS = {
-  off: "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0",
-  classic: "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
-  deep_2: "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,1.0,1.0",
-  deep_3: "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0,1.0",
+const LEGACY_TO_SIMPLE = {
+  "Custom settings": CUSTOM,
+  "COPY settings: Krea2FilterBypass 2vector": "Bypass 2",
+  "COPY settings: Krea2FilterBypass 3vector": "Bypass 3",
+  "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1": "Rebalance",
+  "COPY settings: capitan01R Krea2T-Enhancer defaults": "Enhancer",
+  "HYBRID settings: Rebalance + Krea2T-Enhancer": "Rebalance + Enhancer",
+  "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": "Rebalance + Bypass 2",
+  "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
+  "DONUT settings: RMS-balanced classic": "Balanced",
+  "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
+  "DONUT settings: Krea2 C33 TeacherFix EMA5000": TEACHERFIX,
 };
 
-// Legacy keys remain here so older saved workflows can still replay their
-// original preset values. The UI override exposes the shorter display labels.
-const PRESETS = {
-  "COPY settings: Krea2FilterBypass 2vector": {
+const SIMPLE_PRESETS = {
+  "Bypass 2": {
     tap_method: TAP_DONUT,
     tap_profile: "off",
     tap_strength: 1.0,
@@ -35,7 +43,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-  "COPY settings: Krea2FilterBypass 3vector": {
+  "Bypass 3": {
     tap_method: TAP_DONUT,
     tap_profile: "off",
     tap_strength: 1.0,
@@ -49,7 +57,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-  "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1": {
+  Rebalance: {
     tap_method: TAP_REBALANCE,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -63,7 +71,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-  "COPY settings: capitan01R Krea2T-Enhancer defaults": {
+  Enhancer: {
     tap_method: TAP_DONUT,
     tap_profile: "off",
     tap_strength: 1.0,
@@ -77,7 +85,7 @@ const PRESETS = {
     fusion_method: FUSION_ENHANCER,
     fusion_strength: 1.0,
   },
-  "HYBRID settings: Rebalance + Krea2T-Enhancer": {
+  "Rebalance + Enhancer": {
     tap_method: TAP_REBALANCE,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -91,7 +99,7 @@ const PRESETS = {
     fusion_method: FUSION_ENHANCER,
     fusion_strength: 1.0,
   },
-  "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": {
+  "Rebalance + Bypass 2": {
     tap_method: TAP_REBALANCE,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -105,7 +113,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-  "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": {
+  "Rebalance + Bypass 3": {
     tap_method: TAP_REBALANCE,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -119,8 +127,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-
-  "DONUT settings: RMS-balanced classic": {
+  Balanced: {
     tap_method: TAP_DONUT,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -134,7 +141,7 @@ const PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
-  "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": {
+  "Balanced + Enhancer": {
     tap_method: TAP_DONUT,
     tap_profile: "classic",
     tap_strength: 1.0,
@@ -148,33 +155,67 @@ const PRESETS = {
     fusion_method: FUSION_ENHANCER,
     fusion_strength: 1.0,
   },
+  [TEACHERFIX]: {
+    tap_method: TAP_DONUT,
+    tap_profile: "off",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
 };
 
-const MANAGED_WIDGETS = [
+const SIMPLE_PROJECTOR_STRENGTH = new Set([
+  "Bypass 2",
+  "Bypass 3",
+  "Rebalance + Bypass 2",
+  "Rebalance + Bypass 3",
+]);
+
+const SIMPLE_FUSION_STRENGTH = new Set([
+  "Enhancer",
+  "Rebalance + Enhancer",
+  "Balanced + Enhancer",
+]);
+
+const ADVANCED_WIDGETS = [
+  "tap_method",
   "tap_profile",
+  "per_layer_weights",
   "tap_strength",
   "tap_formula",
   "tap_normalization",
+  "projector_method",
   "projector_profile",
+  "projector_layer_weights",
   "projector_strength",
   "projector_formula",
   "projector_normalization",
-  "fusion_strength",
-  "per_layer_weights",
-  "projector_layer_weights",
-];
-
-const SETTINGS_WIDGETS = [
-  "tap_method",
-  ...MANAGED_WIDGETS,
-  "projector_method",
   "fusion_method",
+  "fusion_strength",
 ];
 
 const HIDDEN_PREFIX = "donuthidden-";
 
 function widget(node, name) {
   return node.widgets?.find((item) => item.name === name);
+}
+
+function simplifyPresetName(name) {
+  return LEGACY_TO_SIMPLE[name] ?? name;
+}
+
+function normalizePresetWidget(node) {
+  const preset = widget(node, "compatibility_preset");
+  if (!preset) return;
+  const simplified = simplifyPresetName(preset.value);
+  if (simplified !== preset.value) preset.value = simplified;
 }
 
 function hideWidget(item) {
@@ -195,23 +236,75 @@ function showWidget(item) {
   delete item._donutKrea2ComputeSize;
 }
 
-function updateVisibility(node) {
+function resize(node) {
+  const size = node.computeSize();
+  node.setSize([Math.max(node.size[0], size[0]), size[1]]);
+  node.setDirtyCanvas?.(true, true);
+}
+
+function syncSimpleStrength(node, presetName = widget(node, "compatibility_preset")?.value) {
+  presetName = simplifyPresetName(presetName);
+  const strength = Number(widget(node, "tap_strength")?.value ?? 1.0);
+  if (!Number.isFinite(strength)) return;
+
+  if (SIMPLE_PROJECTOR_STRENGTH.has(presetName)) {
+    const projectorStrength = widget(node, "projector_strength");
+    if (projectorStrength) projectorStrength.value = strength;
+  }
+  if (SIMPLE_FUSION_STRENGTH.has(presetName)) {
+    const fusionStrength = widget(node, "fusion_strength");
+    if (fusionStrength) fusionStrength.value = strength;
+  }
+}
+
+function applySimplePreset(node, name) {
+  name = simplifyPresetName(name);
+  const values = SIMPLE_PRESETS[name];
+  if (!values) return;
+
+  node._donutApplyingKrea2Preset = true;
+  try {
+    for (const [widgetName, value] of Object.entries(values)) {
+      const item = widget(node, widgetName);
+      if (!item) continue;
+      item.value = value;
+      item.callback?.(value);
+    }
+  } finally {
+    node._donutApplyingKrea2Preset = false;
+  }
+}
+
+function updateModeVisibility(node) {
+  normalizePresetWidget(node);
+  const mode = widget(node, "ui_mode")?.value ?? ADVANCED;
+  if (mode === SIMPLE) {
+    for (const name of ADVANCED_WIDGETS) {
+      const item = widget(node, name);
+      if (name === "tap_strength") showWidget(item);
+      else hideWidget(item);
+    }
+    resize(node);
+    return;
+  }
+
+  const visible = new Set(["tap_method", "tap_profile", "projector_method", "fusion_method"]);
   const tapMethod = widget(node, "tap_method")?.value;
   const tapProfile = widget(node, "tap_profile")?.value;
   const projectorMethod = widget(node, "projector_method")?.value;
   const projectorProfile = widget(node, "projector_profile")?.value;
   const fusionMethod = widget(node, "fusion_method")?.value;
+  const preset = simplifyPresetName(widget(node, "compatibility_preset")?.value);
 
-  const visible = new Set();
-  visible.add("tap_profile");
   if (tapProfile !== "off") {
     visible.add("tap_strength");
+    visible.add("per_layer_weights");
     if (tapMethod === TAP_DONUT) {
       visible.add("tap_formula");
       visible.add("tap_normalization");
     }
-    visible.add("per_layer_weights");
   }
+  if (preset === TEACHERFIX) visible.add("tap_strength");
 
   if (projectorMethod === PROJECTOR_DONUT) {
     visible.add("projector_profile");
@@ -227,40 +320,20 @@ function updateVisibility(node) {
 
   if (fusionMethod === FUSION_ENHANCER) visible.add("fusion_strength");
 
-  for (const name of MANAGED_WIDGETS) {
+  for (const name of ADVANCED_WIDGETS) {
     const item = widget(node, name);
     if (visible.has(name)) showWidget(item);
     else hideWidget(item);
   }
-
-  const size = node.computeSize();
-  node.setSize([Math.max(node.size[0], size[0]), size[1]]);
-  node.setDirtyCanvas?.(true, true);
+  resize(node);
 }
 
-function applyPreset(node, name) {
-  const values = PRESETS[name];
-  if (!values) {
-    updateVisibility(node);
-    return;
-  }
-
-  node._donutApplyingKrea2Preset = true;
-  try {
-    for (const [widgetName, value] of Object.entries(values)) {
-      const item = widget(node, widgetName);
-      if (!item) continue;
-      item.value = value;
-      item.callback?.(value);
-    }
-  } finally {
-    node._donutApplyingKrea2Preset = false;
-  }
-  updateVisibility(node);
+function scheduleVisibility(node) {
+  queueMicrotask(() => updateModeVisibility(node));
 }
 
 app.registerExtension({
-  name: "donut.krea2FusionControl.presets",
+  name: "donut.krea2FusionControl.simpleModeTeacherFix",
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData?.name !== NODE_NAME) return;
 
@@ -268,31 +341,16 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const result = onCreated?.apply(this, arguments);
       const node = this;
+      const modeWidget = widget(node, "ui_mode");
       const presetWidget = widget(node, "compatibility_preset");
+      const tapStrengthWidget = widget(node, "tap_strength");
 
-      for (const name of SETTINGS_WIDGETS) {
-        const item = widget(node, name);
-        if (!item) continue;
-        const previous = item.callback;
-        item.callback = function (value) {
+      if (modeWidget) {
+        const previous = modeWidget.callback;
+        modeWidget.callback = function (value) {
           const callbackResult = previous?.apply(this, arguments);
-          if (name === "tap_profile" && PROFILE_VECTORS[value]) {
-            const weights = widget(node, "per_layer_weights");
-            if (weights) weights.value = PROFILE_VECTORS[value];
-          } else if (name === "projector_profile" && PROFILE_VECTORS[value]) {
-            const weights = widget(node, "projector_layer_weights");
-            if (weights) weights.value = PROFILE_VECTORS[value];
-          } else if (name === "per_layer_weights") {
-            const profile = widget(node, "tap_profile");
-            if (profile) profile.value = "custom";
-          } else if (name === "projector_layer_weights") {
-            const profile = widget(node, "projector_profile");
-            if (profile) profile.value = "custom";
-          }
-          if (!node._donutApplyingKrea2Preset && presetWidget) {
-            presetWidget.value = CUSTOM;
-          }
-          updateVisibility(node);
+          if (value === SIMPLE) syncSimpleStrength(node);
+          scheduleVisibility(node);
           return callbackResult;
         };
       }
@@ -301,19 +359,49 @@ app.registerExtension({
         const previous = presetWidget.callback;
         presetWidget.callback = function (value) {
           const callbackResult = previous?.apply(this, arguments);
-          applyPreset(node, value);
+          const simplified = simplifyPresetName(value);
+          applySimplePreset(node, simplified);
+          presetWidget.value = simplified;
+          if (widget(node, "ui_mode")?.value === SIMPLE) {
+            queueMicrotask(() => {
+              if (widget(node, "ui_mode")?.value !== SIMPLE) return;
+              syncSimpleStrength(node, simplified);
+              updateModeVisibility(node);
+            });
+          }
+          scheduleVisibility(node);
           return callbackResult;
         };
       }
 
-      updateVisibility(node);
+      if (tapStrengthWidget) {
+        const previous = tapStrengthWidget.callback;
+        tapStrengthWidget.callback = function (value) {
+          const presetBefore = simplifyPresetName(presetWidget?.value);
+          const callbackResult = previous?.apply(this, arguments);
+          if (widget(node, "ui_mode")?.value === SIMPLE && presetBefore && presetBefore !== CUSTOM) {
+            queueMicrotask(() => {
+              if (widget(node, "ui_mode")?.value !== SIMPLE) return;
+              if (presetWidget) presetWidget.value = presetBefore;
+              syncSimpleStrength(node, presetBefore);
+              updateModeVisibility(node);
+            });
+          }
+          scheduleVisibility(node);
+          return callbackResult;
+        };
+      }
+
+      scheduleVisibility(node);
       return result;
     };
 
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = onConfigure?.apply(this, arguments);
-      updateVisibility(this);
+      normalizePresetWidget(this);
+      if (widget(this, "ui_mode")?.value === SIMPLE) syncSimpleStrength(this);
+      scheduleVisibility(this);
       return result;
     };
   },
