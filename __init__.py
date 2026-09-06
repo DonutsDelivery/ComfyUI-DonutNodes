@@ -132,8 +132,8 @@ from .DonutKrea2ImageConditioning import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_c
 from .DonutKrea2FusionControl import NODE_CLASS_MAPPINGS        as m_krea2_fusion
 from .DonutKrea2FusionControl import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_fusion
 
-# Keep the same Krea2 Fusion Control node id while adding a bundled TeacherFix
-# preset and the Simple/Advanced frontend mode.
+# Keep the same Krea2 Fusion Control node id while adding the hash-verified
+# TeacherFix preset and the Simple/Advanced frontend mode.
 from .DonutKrea2FusionPreset import NODE_CLASS_MAPPINGS        as m_krea2_fusion_preset
 from .DonutKrea2FusionPreset import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_fusion_preset
 
