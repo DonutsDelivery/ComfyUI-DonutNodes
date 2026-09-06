@@ -18,7 +18,33 @@ UI_MODE_SIMPLE = "Simple"
 UI_MODE_ADVANCED = "Advanced"
 UI_MODES = (UI_MODE_SIMPLE, UI_MODE_ADVANCED)
 
-PRESET_TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000"
+PRESET_CUSTOM = "Custom"
+PRESET_BYPASS_2 = "Bypass 2"
+PRESET_BYPASS_3 = "Bypass 3"
+PRESET_REBALANCE = "Rebalance"
+PRESET_ENHANCER = "Enhancer"
+PRESET_REBALANCE_ENHANCER = "Rebalance + Enhancer"
+PRESET_REBALANCE_BYPASS_2 = "Rebalance + Bypass 2"
+PRESET_REBALANCE_BYPASS_3 = "Rebalance + Bypass 3"
+PRESET_BALANCED = "Balanced"
+PRESET_BALANCED_ENHANCER = "Balanced + Enhancer"
+PRESET_TEACHERFIX = "TeacherFix"
+
+SIMPLE_PRESET_TO_LEGACY = {
+    PRESET_CUSTOM: base.PRESET_MANUAL,
+    PRESET_BYPASS_2: base.PRESET_BYPASS_2,
+    PRESET_BYPASS_3: base.PRESET_BYPASS_3,
+    PRESET_REBALANCE: base.PRESET_REBALANCE,
+    PRESET_ENHANCER: base.PRESET_ENHANCER,
+    PRESET_REBALANCE_ENHANCER: base.PRESET_REBALANCE_ENHANCER,
+    PRESET_REBALANCE_BYPASS_2: base.PRESET_REBALANCE_BYPASS_2,
+    PRESET_REBALANCE_BYPASS_3: base.PRESET_REBALANCE_BYPASS_3,
+    PRESET_BALANCED: base.PRESET_DONUT_BALANCED,
+    PRESET_BALANCED_ENHANCER: base.PRESET_DONUT_BALANCED_ENHANCER,
+}
+SIMPLE_PRESETS = tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_TEACHERFIX,)
+LEGACY_PRESET_TO_SIMPLE = {legacy: simple for simple, legacy in SIMPLE_PRESET_TO_LEGACY.items()}
+
 TEACHERFIX_FILENAME = "krea2_c33_teacherfix_ema5000.safetensors"
 TEACHERFIX_ALIASES = (
     TEACHERFIX_FILENAME,
@@ -31,14 +57,12 @@ TEACHERFIX_SHA256 = "db3c2b7612828120e7ef9cc8fe77124c6fd8de2e38f150599e62abd9695
 _TEACHERFIX_CACHE = None
 
 
-def _copy_combo_spec(spec, extra_option=None, tooltip=None):
-    options = list(spec[0])
-    if extra_option is not None and extra_option not in options:
-        options.append(extra_option)
+def _preset_combo_spec(spec, tooltip=None):
     settings = dict(spec[1]) if len(spec) > 1 and isinstance(spec[1], dict) else {}
+    settings["default"] = PRESET_CUSTOM
     if tooltip is not None:
         settings["tooltip"] = tooltip
-    return (options, settings)
+    return (list(SIMPLE_PRESETS), settings)
 
 
 def _sha256_file(path):
@@ -147,6 +171,14 @@ def _apply_teacherfix(model, strength):
     return patched, loaded_count, relative_name
 
 
+def _rewrite_preset_diagnostics(diagnostics, legacy_name, simple_name):
+    return str(diagnostics).replace(
+        f"preset_label={legacy_name}",
+        f"preset_label={simple_name}",
+        1,
+    )
+
+
 def _rewrite_teacherfix_diagnostics(diagnostics, strength, loaded_count, relative_name):
     diagnostics = str(diagnostics)
     diagnostics = diagnostics.replace(
@@ -169,9 +201,9 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
     """Existing Krea2 Fusion Control plus TeacherFix and compact UI mode."""
 
     DESCRIPTION = (
-        "Krea 2 text-fusion controls with Simple/Advanced UI modes, the existing "
-        "community compatibility presets, and a hash-verified C33 TeacherFix "
-        "EMA5000 preset discovered automatically from ComfyUI/models/loras."
+        "Krea 2 text-fusion controls with Simple/Advanced UI modes, simplified "
+        "preset names, and a hash-verified TeacherFix preset discovered "
+        "automatically from ComfyUI/models/loras."
     )
 
     @classmethod
@@ -181,12 +213,10 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         required = {}
         for name, spec in original_required.items():
             if name == "compatibility_preset":
-                required[name] = _copy_combo_spec(
+                required[name] = _preset_combo_spec(
                     spec,
-                    PRESET_TEACHERFIX,
                     (
-                        "Select a preset. Existing compatibility presets copy settings "
-                        "into the controls; TeacherFix automatically finds and applies "
+                        "Select a preset. TeacherFix automatically finds and applies "
                         "the exact hash-verified LoRA from ComfyUI/models/loras."
                     ),
                 )
@@ -216,22 +246,28 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
 
-        preset = kwargs.get("compatibility_preset", base.PRESET_MANUAL)
-        if preset != PRESET_TEACHERFIX:
-            return super().apply(*args, **kwargs)
+        preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
+        if preset == PRESET_TEACHERFIX:
+            strength = float(kwargs.get("tap_strength", 1.0))
+            delegated = dict(kwargs)
+            # The base node validates its own legacy preset labels. Keep all
+            # submitted controls and substitute only the label for that call.
+            delegated["compatibility_preset"] = base.PRESET_MANUAL
+            result = list(super().apply(*args, **delegated))
 
-        strength = float(kwargs.get("tap_strength", 1.0))
+            patched_model, loaded_count, relative_name = _apply_teacherfix(result[0], strength)
+            result[0] = patched_model
+            result[-1] = _rewrite_teacherfix_diagnostics(
+                result[-1], strength, loaded_count, relative_name
+            )
+            return tuple(result)
+
+        legacy_preset = SIMPLE_PRESET_TO_LEGACY.get(preset, preset)
         delegated = dict(kwargs)
-        # The base node validates its own preset labels. Keep all submitted
-        # controls and substitute only the label for that validation call.
-        delegated["compatibility_preset"] = base.PRESET_MANUAL
+        delegated["compatibility_preset"] = legacy_preset
         result = list(super().apply(*args, **delegated))
-
-        patched_model, loaded_count, relative_name = _apply_teacherfix(result[0], strength)
-        result[0] = patched_model
-        result[-1] = _rewrite_teacherfix_diagnostics(
-            result[-1], strength, loaded_count, relative_name
-        )
+        if preset in SIMPLE_PRESET_TO_LEGACY:
+            result[-1] = _rewrite_preset_diagnostics(result[-1], legacy_preset, preset)
         return tuple(result)
 
 
