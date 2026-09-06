@@ -3,39 +3,185 @@ import { app } from "../../scripts/app.js";
 const NODE_NAME = "DonutKrea2FusionControl";
 const SIMPLE = "Simple";
 const ADVANCED = "Advanced";
-const CUSTOM = "Custom settings";
-const TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000";
+const CUSTOM = "Custom";
+const TEACHERFIX = "TeacherFix";
 
 const TAP_DONUT = "Donut 12-tap gains";
+const TAP_REBALANCE = "nova452 Rebalance operation";
 const PROJECTOR_DONUT = "Donut projector-input gains";
+const PROJECTOR_BYPASS_2 = "Krea2FilterBypass 2vector diff";
+const PROJECTOR_BYPASS_3 = "Krea2FilterBypass 3vector diff";
+const FUSION_STANDARD = "Standard Krea2 fusion";
 const FUSION_ENHANCER = "capitan01R Krea2T-Enhancer operation";
 
-const TEACHERFIX_VALUES = {
-  tap_method: TAP_DONUT,
-  tap_profile: "off",
-  tap_strength: 1.0,
-  tap_formula: "scale_around_1",
-  tap_normalization: "tensor_rms",
-  projector_method: PROJECTOR_DONUT,
-  projector_profile: "off",
-  projector_strength: 1.0,
-  projector_formula: "scale_around_1",
-  projector_normalization: "none",
-  fusion_method: "Standard Krea2 fusion",
-  fusion_strength: 1.0,
+const LEGACY_TO_SIMPLE = {
+  "Custom settings": CUSTOM,
+  "COPY settings: Krea2FilterBypass 2vector": "Bypass 2",
+  "COPY settings: Krea2FilterBypass 3vector": "Bypass 3",
+  "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1": "Rebalance",
+  "COPY settings: capitan01R Krea2T-Enhancer defaults": "Enhancer",
+  "HYBRID settings: Rebalance + Krea2T-Enhancer": "Rebalance + Enhancer",
+  "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": "Rebalance + Bypass 2",
+  "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
+  "DONUT settings: RMS-balanced classic": "Balanced",
+  "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
+  "DONUT settings: Krea2 C33 TeacherFix EMA5000": TEACHERFIX,
+};
+
+const SIMPLE_PRESETS = {
+  "Bypass 2": {
+    tap_method: TAP_DONUT,
+    tap_profile: "off",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_BYPASS_2,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  "Bypass 3": {
+    tap_method: TAP_DONUT,
+    tap_profile: "off",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_BYPASS_3,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  Rebalance: {
+    tap_method: TAP_REBALANCE,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "none",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  Enhancer: {
+    tap_method: TAP_DONUT,
+    tap_profile: "off",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_ENHANCER,
+    fusion_strength: 1.0,
+  },
+  "Rebalance + Enhancer": {
+    tap_method: TAP_REBALANCE,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "none",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_ENHANCER,
+    fusion_strength: 1.0,
+  },
+  "Rebalance + Bypass 2": {
+    tap_method: TAP_REBALANCE,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "none",
+    projector_method: PROJECTOR_BYPASS_2,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  "Rebalance + Bypass 3": {
+    tap_method: TAP_REBALANCE,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "none",
+    projector_method: PROJECTOR_BYPASS_3,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  Balanced: {
+    tap_method: TAP_DONUT,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
+  "Balanced + Enhancer": {
+    tap_method: TAP_DONUT,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_ENHANCER,
+    fusion_strength: 1.0,
+  },
+  [TEACHERFIX]: {
+    tap_method: TAP_DONUT,
+    tap_profile: "off",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+  },
 };
 
 const SIMPLE_PROJECTOR_STRENGTH = new Set([
-  "COPY settings: Krea2FilterBypass 2vector",
-  "COPY settings: Krea2FilterBypass 3vector",
-  "HYBRID settings: Rebalance + Krea2FilterBypass 2vector",
-  "HYBRID settings: Rebalance + Krea2FilterBypass 3vector",
+  "Bypass 2",
+  "Bypass 3",
+  "Rebalance + Bypass 2",
+  "Rebalance + Bypass 3",
 ]);
 
 const SIMPLE_FUSION_STRENGTH = new Set([
-  "COPY settings: capitan01R Krea2T-Enhancer defaults",
-  "HYBRID settings: Rebalance + Krea2T-Enhancer",
-  "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
+  "Enhancer",
+  "Rebalance + Enhancer",
+  "Balanced + Enhancer",
 ]);
 
 const ADVANCED_WIDGETS = [
@@ -59,6 +205,17 @@ const HIDDEN_PREFIX = "donuthidden-";
 
 function widget(node, name) {
   return node.widgets?.find((item) => item.name === name);
+}
+
+function simplifyPresetName(name) {
+  return LEGACY_TO_SIMPLE[name] ?? name;
+}
+
+function normalizePresetWidget(node) {
+  const preset = widget(node, "compatibility_preset");
+  if (!preset) return;
+  const simplified = simplifyPresetName(preset.value);
+  if (simplified !== preset.value) preset.value = simplified;
 }
 
 function hideWidget(item) {
@@ -86,6 +243,7 @@ function resize(node) {
 }
 
 function syncSimpleStrength(node, presetName = widget(node, "compatibility_preset")?.value) {
+  presetName = simplifyPresetName(presetName);
   const strength = Number(widget(node, "tap_strength")?.value ?? 1.0);
   if (!Number.isFinite(strength)) return;
 
@@ -99,12 +257,18 @@ function syncSimpleStrength(node, presetName = widget(node, "compatibility_prese
   }
 }
 
-function applyTeacherFixPreset(node) {
+function applySimplePreset(node, name) {
+  name = simplifyPresetName(name);
+  const values = SIMPLE_PRESETS[name];
+  if (!values) return;
+
   node._donutApplyingKrea2Preset = true;
   try {
-    for (const [name, value] of Object.entries(TEACHERFIX_VALUES)) {
-      const item = widget(node, name);
-      if (item) item.value = value;
+    for (const [widgetName, value] of Object.entries(values)) {
+      const item = widget(node, widgetName);
+      if (!item) continue;
+      item.value = value;
+      item.callback?.(value);
     }
   } finally {
     node._donutApplyingKrea2Preset = false;
@@ -112,6 +276,7 @@ function applyTeacherFixPreset(node) {
 }
 
 function updateModeVisibility(node) {
+  normalizePresetWidget(node);
   const mode = widget(node, "ui_mode")?.value ?? ADVANCED;
   if (mode === SIMPLE) {
     for (const name of ADVANCED_WIDGETS) {
@@ -129,7 +294,7 @@ function updateModeVisibility(node) {
   const projectorMethod = widget(node, "projector_method")?.value;
   const projectorProfile = widget(node, "projector_profile")?.value;
   const fusionMethod = widget(node, "fusion_method")?.value;
-  const preset = widget(node, "compatibility_preset")?.value;
+  const preset = simplifyPresetName(widget(node, "compatibility_preset")?.value);
 
   if (tapProfile !== "off") {
     visible.add("tap_strength");
@@ -139,8 +304,6 @@ function updateModeVisibility(node) {
       visible.add("tap_normalization");
     }
   }
-  // TeacherFix uses tap_strength as its LoRA strength even though its
-  // normal tap profile is intentionally off.
   if (preset === TEACHERFIX) visible.add("tap_strength");
 
   if (projectorMethod === PROJECTOR_DONUT) {
@@ -196,11 +359,13 @@ app.registerExtension({
         const previous = presetWidget.callback;
         presetWidget.callback = function (value) {
           const callbackResult = previous?.apply(this, arguments);
-          if (value === TEACHERFIX) applyTeacherFixPreset(node);
+          const simplified = simplifyPresetName(value);
+          applySimplePreset(node, simplified);
+          presetWidget.value = simplified;
           if (widget(node, "ui_mode")?.value === SIMPLE) {
             queueMicrotask(() => {
               if (widget(node, "ui_mode")?.value !== SIMPLE) return;
-              syncSimpleStrength(node, value);
+              syncSimpleStrength(node, simplified);
               updateModeVisibility(node);
             });
           }
@@ -212,13 +377,9 @@ app.registerExtension({
       if (tapStrengthWidget) {
         const previous = tapStrengthWidget.callback;
         tapStrengthWidget.callback = function (value) {
-          const presetBefore = presetWidget?.value;
+          const presetBefore = simplifyPresetName(presetWidget?.value);
           const callbackResult = previous?.apply(this, arguments);
           if (widget(node, "ui_mode")?.value === SIMPLE && presetBefore && presetBefore !== CUSTOM) {
-            // The legacy Advanced UI intentionally changes the preset label to
-            // Custom when any setting is edited. Restore it in a microtask so
-            // this remains correct regardless of extension registration order:
-            // an outer legacy callback may still run after this callback returns.
             queueMicrotask(() => {
               if (widget(node, "ui_mode")?.value !== SIMPLE) return;
               if (presetWidget) presetWidget.value = presetBefore;
@@ -238,6 +399,7 @@ app.registerExtension({
     const onConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = onConfigure?.apply(this, arguments);
+      normalizePresetWidget(this);
       if (widget(this, "ui_mode")?.value === SIMPLE) syncSimpleStrength(this);
       scheduleVisibility(this);
       return result;
