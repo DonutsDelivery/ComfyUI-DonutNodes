@@ -241,6 +241,37 @@ class TeacherFixPresetTests(unittest.TestCase):
         self.assertIn("preset_is_ui_only=false", result[-1])
         self.assertIn("renamed_teacherfix.safetensors", result[-1])
 
+    def test_pre_rename_teacherfix_label_is_still_accepted(self):
+        module, _ = _load_module()
+        module._TEACHERFIX_CACHE = (
+            {
+                f"diffusion_model.txtfusion.fake_{index}.lora_down.weight": object()
+                for index in range(EXPECTED_TARGETS)
+            },
+            "renamed_teacherfix.safetensors",
+        )
+
+        class FakeModel:
+            def __init__(self):
+                self.model = object()
+                self.loaded = {}
+
+            def clone(self):
+                return FakeModel()
+
+            def add_patches(self, patches, strength_patch=1.0):
+                self.loaded.update({key: strength_patch for key in patches})
+                return list(patches)
+
+        result = module.DonutKrea2FusionControl().apply(
+            model=FakeModel(),
+            conditioning_in_1=object(),
+            compatibility_preset=module.LEGACY_TEACHERFIX,
+            tap_strength=1.0,
+            ui_mode="Advanced",
+        )
+        self.assertIn("preset_label=TeacherFix", result[-1])
+
     def test_frontend_has_compact_simple_and_full_advanced_modes(self):
         js = (ROOT / "web" / "donut_krea2_fusion_simple_mode.js").read_text()
         self.assertIn('const SIMPLE = "Simple";', js)
