@@ -1,0 +1,227 @@
+"""Bundled Krea 2 TeacherFix preset and Simple/Advanced UI mode.
+
+This module intentionally overrides the existing ``DonutKrea2FusionControl``
+node id instead of registering a second node.  The base implementation remains
+the source of truth for all existing tap/projector/fusion controls; this layer
+adds one bundled text-fusion LoRA preset plus a UI-mode selector.
+"""
+
+from pathlib import Path
+import importlib
+import math
+
+from . import DonutKrea2FusionControl as base
+
+
+UI_MODE_SIMPLE = "Simple"
+UI_MODE_ADVANCED = "Advanced"
+UI_MODES = (UI_MODE_SIMPLE, UI_MODE_ADVANCED)
+
+PRESET_TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000"
+TEACHERFIX_FILENAME = "krea2_c33_teacherfix_ema5000.safetensors"
+TEACHERFIX_TARGET_COUNT = 33
+TEACHERFIX_SHA256 = "db3c2b7612828120e7ef9cc8fe77124c6fd8de2e38f150599e62abd9695f6beb"
+TEACHERFIX_PATH = Path(__file__).resolve().parent / "assets" / TEACHERFIX_FILENAME
+
+_BUNDLED_LORA_CACHE = None
+
+
+def _copy_combo_spec(spec, extra_option=None, tooltip=None):
+    options = list(spec[0])
+    if extra_option is not None and extra_option not in options:
+        options.append(extra_option)
+    settings = dict(spec[1]) if len(spec) > 1 and isinstance(spec[1], dict) else {}
+    if tooltip is not None:
+        settings["tooltip"] = tooltip
+    return (options, settings)
+
+
+def _load_bundled_lora():
+    global _BUNDLED_LORA_CACHE
+    if _BUNDLED_LORA_CACHE is not None:
+        return _BUNDLED_LORA_CACHE
+
+    if not TEACHERFIX_PATH.is_file():
+        raise RuntimeError(
+            f"Bundled Krea2 TeacherFix preset is missing: {TEACHERFIX_PATH}"
+        )
+
+    comfy_utils = getattr(base.comfy, "utils", None)
+    if comfy_utils is None:
+        comfy_utils = importlib.import_module("comfy.utils")
+
+    state = comfy_utils.load_torch_file(str(TEACHERFIX_PATH), safe_load=True)
+    if not isinstance(state, dict):
+        raise RuntimeError("Bundled Krea2 TeacherFix preset did not load as a state dict")
+
+    target_bases = {
+        key[: -len(".lora_down.weight")]
+        for key in state
+        if isinstance(key, str) and key.endswith(".lora_down.weight")
+    }
+    if len(target_bases) != TEACHERFIX_TARGET_COUNT:
+        raise RuntimeError(
+            "Bundled Krea2 TeacherFix preset has an unexpected target count: "
+            f"{len(target_bases)} != {TEACHERFIX_TARGET_COUNT}"
+        )
+
+    _BUNDLED_LORA_CACHE = state
+    return state
+
+
+def _apply_bundled_teacherfix(model, strength):
+    strength = float(strength)
+    if not math.isfinite(strength):
+        raise ValueError("TeacherFix strength must be finite")
+    if strength == 0.0:
+        return model, 0
+
+    comfy_lora = getattr(base.comfy, "lora", None)
+    if comfy_lora is None:
+        comfy_lora = importlib.import_module("comfy.lora")
+
+    state = _load_bundled_lora()
+    key_map = comfy_lora.model_lora_keys_unet(model.model)
+    patches = comfy_lora.load_lora(state, key_map, log_missing=False)
+    if len(patches) != TEACHERFIX_TARGET_COUNT:
+        raise RuntimeError(
+            "Bundled Krea2 TeacherFix preset mapped an unexpected number of targets: "
+            f"{len(patches)} != {TEACHERFIX_TARGET_COUNT}. "
+            "Make sure the input MODEL is Krea 2."
+        )
+
+    patched = model.clone()
+    loaded = patched.add_patches(patches, strength_patch=strength)
+    loaded_count = len(loaded)
+    if loaded_count != TEACHERFIX_TARGET_COUNT:
+        raise RuntimeError(
+            "Bundled Krea2 TeacherFix preset could not patch every target: "
+            f"{loaded_count}/{TEACHERFIX_TARGET_COUNT} loaded"
+        )
+    return patched, loaded_count
+
+
+def _publish_teacherfix_budget(model, strength):
+    transformer_options = model.model_options.setdefault("transformer_options", {})
+    existing = transformer_options.get(base.FUSION_BUDGET_KEY)
+    if isinstance(existing, dict) and int(existing.get("version", 0)) == 1:
+        metadata = dict(existing)
+    else:
+        metadata = {
+            "version": 1,
+            "tap_method": base.TAP_METHOD_DONUT,
+            "tap_gains": tuple(float(value) for value in base._PROFILE_OFF),
+            "tap_normalization": "none",
+            "projector_method": base.PROJECTOR_METHOD_DONUT,
+            "projector_gains": tuple(float(value) for value in base._PROFILE_OFF),
+            "projector_normalization": "none",
+            "fusion_method": base.FUSION_METHOD_STANDARD,
+            "fusion_strength": 0.0,
+        }
+    metadata["bundled_teacherfix"] = True
+    metadata["bundled_teacherfix_strength"] = float(strength)
+    metadata["bundled_teacherfix_targets"] = TEACHERFIX_TARGET_COUNT
+    transformer_options[base.FUSION_BUDGET_KEY] = metadata
+    return model
+
+
+def _rewrite_teacherfix_diagnostics(diagnostics, strength, loaded_count):
+    diagnostics = str(diagnostics)
+    diagnostics = diagnostics.replace(
+        f"preset_label={base.PRESET_MANUAL}; preset_is_ui_only=true",
+        f"preset_label={PRESET_TEACHERFIX}; preset_is_ui_only=false; bundled_asset=true",
+        1,
+    )
+    diagnostics = diagnostics.replace(
+        "external_files_loaded=none",
+        (
+            f"bundled_teacherfix={TEACHERFIX_FILENAME}; "
+            f"teacherfix_strength={float(strength):g}; "
+            f"teacherfix_targets={loaded_count}; external_files_loaded=none"
+        ),
+        1,
+    )
+    return diagnostics
+
+
+class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
+    """Existing Krea2 Fusion Control plus a bundled TeacherFix preset."""
+
+    DESCRIPTION = (
+        "Krea 2 text-fusion controls with Simple/Advanced UI modes, the existing "
+        "community compatibility presets, and a bundled C33 TeacherFix EMA5000 "
+        "text-fusion preset. No user-supplied LoRA path is required."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        schema = super().INPUT_TYPES()
+        original_required = schema["required"]
+        required = {}
+        for name, spec in original_required.items():
+            if name == "compatibility_preset":
+                required[name] = _copy_combo_spec(
+                    spec,
+                    PRESET_TEACHERFIX,
+                    (
+                        "Select a preset. Existing compatibility presets copy settings "
+                        "into the controls; the TeacherFix preset additionally applies "
+                        "its bundled text-fusion weights."
+                    ),
+                )
+            elif name == "tap_strength":
+                settings = dict(spec[1]) if len(spec) > 1 and isinstance(spec[1], dict) else {}
+                settings["tooltip"] = (
+                    "Tap strength. In Simple mode this is the single preset-strength "
+                    "control; for the bundled TeacherFix preset it is the LoRA strength."
+                )
+                required[name] = (spec[0], settings)
+            else:
+                required[name] = spec
+
+        # Append the UI-only mode selector after every legacy widget so existing
+        # saved workflows keep their widgets_values positions unchanged.
+        required["ui_mode"] = (list(UI_MODES), {
+            "default": UI_MODE_ADVANCED,
+            "tooltip": (
+                "Simple shows only preset + tap_strength. Advanced restores "
+                "the current full Text Fusion control surface."
+            ),
+        })
+
+        return {
+            **schema,
+            "required": required,
+        }
+
+    def apply(self, *args, ui_mode=UI_MODE_ADVANCED, **kwargs):
+        if ui_mode not in UI_MODES:
+            raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
+
+        preset = kwargs.get("compatibility_preset", base.PRESET_MANUAL)
+        if preset != PRESET_TEACHERFIX:
+            return super().apply(*args, **kwargs)
+
+        strength = float(kwargs.get("tap_strength", 1.0))
+        delegated = dict(kwargs)
+        # The base node validates its own preset labels. Keep all visible/hidden
+        # settings exactly as submitted and only substitute the label for that
+        # validation call; the bundled preset is applied below.
+        delegated["compatibility_preset"] = base.PRESET_MANUAL
+        result = list(super().apply(*args, **delegated))
+
+        patched_model, loaded_count = _apply_bundled_teacherfix(result[0], strength)
+        if loaded_count:
+            patched_model = _publish_teacherfix_budget(patched_model, strength)
+        result[0] = patched_model
+        result[-1] = _rewrite_teacherfix_diagnostics(result[-1], strength, loaded_count)
+        return tuple(result)
+
+
+NODE_CLASS_MAPPINGS = {
+    "DonutKrea2FusionControl": DonutKrea2FusionControl,
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "DonutKrea2FusionControl": "Donut Krea2 Fusion Control",
+}
