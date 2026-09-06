@@ -94,7 +94,6 @@ def _load_module():
         "renamed_teacherfix.safetensors",
     ]
     fake_folder_paths.get_full_path = lambda category, name: f"/fake/{name}"
-    sys.modules["folder_paths"] = fake_folder_paths
 
     spec = importlib.util.spec_from_file_location(
         f"{package_name}.DonutKrea2FusionPreset",
@@ -103,7 +102,7 @@ def _load_module():
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
-    return module
+    return module, fake_folder_paths
 
 
 class TeacherFixPresetTests(unittest.TestCase):
@@ -114,7 +113,7 @@ class TeacherFixPresetTests(unittest.TestCase):
         self.assertIn(f"TEACHERFIX_SIZE_BYTES = {EXPECTED_SIZE:_}", source)
         self.assertIn(f"TEACHERFIX_TARGET_COUNT = {EXPECTED_TARGETS}", source)
 
-        module = _load_module()
+        module, _ = _load_module()
         schema = module.DonutKrea2FusionControl.INPUT_TYPES()
         required = schema["required"]
         self.assertEqual(list(required)[-1], "ui_mode")
@@ -122,8 +121,9 @@ class TeacherFixPresetTests(unittest.TestCase):
         self.assertIn(module.PRESET_TEACHERFIX, required["compatibility_preset"][0])
 
     def test_exact_file_is_discovered_by_size_and_hash_even_when_renamed(self):
-        module = _load_module()
+        module, fake_folder_paths = _load_module()
         with (
+            mock.patch.dict(sys.modules, {"folder_paths": fake_folder_paths}),
             mock.patch.object(module.os.path, "isfile", return_value=True),
             mock.patch.object(module.os.path, "getsize", side_effect=lambda path: (
                 EXPECTED_SIZE if "renamed_teacherfix" in path else 123
@@ -135,7 +135,7 @@ class TeacherFixPresetTests(unittest.TestCase):
         self.assertEqual(path, "/fake/renamed_teacherfix.safetensors")
 
     def test_teacherfix_strength_patches_all_33_targets(self):
-        module = _load_module()
+        module, _ = _load_module()
         module._TEACHERFIX_CACHE = (
             {
                 f"diffusion_model.txtfusion.fake_{index}.lora_down.weight": object()
