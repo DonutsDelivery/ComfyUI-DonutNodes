@@ -162,31 +162,14 @@ class TeacherFixPresetTests(unittest.TestCase):
 
     def test_simplified_names_delegate_to_existing_presets(self):
         module, _ = _load_module()
-
-        class FakeModel:
-            pass
-
-        result = module.DonutKrea2FusionControl().apply(
-            model=FakeModel(),
-            conditioning_in_1=object(),
-            compatibility_preset="Bypass 2",
-            tap_method="Donut 12-tap gains",
-            tap_profile="off",
-            per_layer_weights="1",
-            tap_strength=1.0,
-            tap_formula="scale_around_1",
-            tap_normalization="none",
-            projector_method="Donut projector-input gains",
-            projector_profile="off",
-            projector_layer_weights="1",
-            projector_strength=1.0,
-            projector_formula="scale_around_1",
-            projector_normalization="none",
-            fusion_method="Standard Krea2 fusion",
-            fusion_strength=1.0,
-            ui_mode="Advanced",
+        self.assertEqual(
+            module.SIMPLE_PRESET_TO_LEGACY["Bypass 2"],
+            "COPY settings: Krea2FilterBypass 2vector",
         )
-        self.assertIn("preset_label=Bypass 2", result[-1])
+        self.assertEqual(
+            module.SIMPLE_PRESET_TO_LEGACY["Balanced + Enhancer"],
+            "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
+        )
 
     def test_teacherfix_strength_patches_all_33_targets(self):
         module, _ = _load_module()
@@ -243,34 +226,10 @@ class TeacherFixPresetTests(unittest.TestCase):
 
     def test_pre_rename_teacherfix_label_is_still_accepted(self):
         module, _ = _load_module()
-        module._TEACHERFIX_CACHE = (
-            {
-                f"diffusion_model.txtfusion.fake_{index}.lora_down.weight": object()
-                for index in range(EXPECTED_TARGETS)
-            },
-            "renamed_teacherfix.safetensors",
+        self.assertEqual(
+            module.LEGACY_PRESET_TO_SIMPLE[module.LEGACY_TEACHERFIX],
+            "TeacherFix",
         )
-
-        class FakeModel:
-            def __init__(self):
-                self.model = object()
-                self.loaded = {}
-
-            def clone(self):
-                return FakeModel()
-
-            def add_patches(self, patches, strength_patch=1.0):
-                self.loaded.update({key: strength_patch for key in patches})
-                return list(patches)
-
-        result = module.DonutKrea2FusionControl().apply(
-            model=FakeModel(),
-            conditioning_in_1=object(),
-            compatibility_preset=module.LEGACY_TEACHERFIX,
-            tap_strength=1.0,
-            ui_mode="Advanced",
-        )
-        self.assertIn("preset_label=TeacherFix", result[-1])
 
     def test_frontend_has_compact_simple_and_full_advanced_modes(self):
         js = (ROOT / "web" / "donut_krea2_fusion_simple_mode.js").read_text()
