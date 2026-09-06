@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DonutKrea2FusionControl";
-const CUSTOM = "Custom settings";
+const CUSTOM = "Custom";
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
