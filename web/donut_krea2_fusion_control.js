@@ -18,6 +18,8 @@ const PROFILE_VECTORS = {
   deep_3: "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,2.0,1.0",
 };
 
+// Legacy keys remain here so older saved workflows can still replay their
+// original preset values. The UI override exposes the shorter display labels.
 const PRESETS = {
   "COPY settings: Krea2FilterBypass 2vector": {
     tap_method: TAP_DONUT,
