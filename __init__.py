@@ -132,6 +132,11 @@ from .DonutKrea2ImageConditioning import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_c
 from .DonutKrea2FusionControl import NODE_CLASS_MAPPINGS        as m_krea2_fusion
 from .DonutKrea2FusionControl import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_fusion
 
+# Keep the same Krea2 Fusion Control node id while adding a bundled TeacherFix
+# preset and the Simple/Advanced frontend mode.
+from .DonutKrea2FusionPreset import NODE_CLASS_MAPPINGS        as m_krea2_fusion_preset
+from .DonutKrea2FusionPreset import NODE_DISPLAY_NAME_MAPPINGS as d_krea2_fusion_preset
+
 # Image Adjust (unified tone/color/contrast/sharpen)
 from .DonutImageAdjust import NODE_CLASS_MAPPINGS        as m_image_adjust
 from .DonutImageAdjust import NODE_DISPLAY_NAME_MAPPINGS as d_image_adjust
@@ -170,6 +175,7 @@ NODE_CLASS_MAPPINGS = {
     **m_zit_layerblend,
     **m_krea2_cond,
     **m_krea2_fusion,
+    **m_krea2_fusion_preset,
     **m_image_adjust,
 }
 
@@ -204,6 +210,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **d_zit_layerblend,
     **d_krea2_cond,
     **d_krea2_fusion,
+    **d_krea2_fusion_preset,
     **d_detailer,
     **d_image_adjust,
 }
