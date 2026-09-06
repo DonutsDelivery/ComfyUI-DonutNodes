@@ -139,7 +139,7 @@ function updateModeVisibility(node) {
       visible.add("tap_normalization");
     }
   }
-  // TeacherFix uses tap_strength as its bundled LoRA strength even though its
+  // TeacherFix uses tap_strength as its LoRA strength even though its
   // normal tap profile is intentionally off.
   if (preset === TEACHERFIX) visible.add("tap_strength");
 
@@ -197,7 +197,13 @@ app.registerExtension({
         presetWidget.callback = function (value) {
           const callbackResult = previous?.apply(this, arguments);
           if (value === TEACHERFIX) applyTeacherFixPreset(node);
-          if (widget(node, "ui_mode")?.value === SIMPLE) syncSimpleStrength(node, value);
+          if (widget(node, "ui_mode")?.value === SIMPLE) {
+            queueMicrotask(() => {
+              if (widget(node, "ui_mode")?.value !== SIMPLE) return;
+              syncSimpleStrength(node, value);
+              updateModeVisibility(node);
+            });
+          }
           scheduleVisibility(node);
           return callbackResult;
         };
