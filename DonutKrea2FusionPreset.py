@@ -6,7 +6,6 @@ the source of truth for all existing tap/projector/fusion controls; this layer
 adds one exact-file TeacherFix preset plus a UI-mode selector.
 """
 
-from pathlib import Path
 import hashlib
 import importlib
 import math
