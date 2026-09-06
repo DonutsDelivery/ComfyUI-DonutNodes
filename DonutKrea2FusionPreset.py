@@ -29,6 +29,7 @@ PRESET_REBALANCE_BYPASS_3 = "Rebalance + Bypass 3"
 PRESET_BALANCED = "Balanced"
 PRESET_BALANCED_ENHANCER = "Balanced + Enhancer"
 PRESET_TEACHERFIX = "TeacherFix"
+LEGACY_TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000"
 
 SIMPLE_PRESET_TO_LEGACY = {
     PRESET_CUSTOM: base.PRESET_MANUAL,
@@ -44,6 +45,7 @@ SIMPLE_PRESET_TO_LEGACY = {
 }
 SIMPLE_PRESETS = tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_TEACHERFIX,)
 LEGACY_PRESET_TO_SIMPLE = {legacy: simple for simple, legacy in SIMPLE_PRESET_TO_LEGACY.items()}
+LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_TEACHERFIX
 
 TEACHERFIX_FILENAME = "krea2_c33_teacherfix_ema5000.safetensors"
 TEACHERFIX_ALIASES = (
@@ -247,7 +249,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
 
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
-        if preset == PRESET_TEACHERFIX:
+        if preset in (PRESET_TEACHERFIX, LEGACY_TEACHERFIX):
             strength = float(kwargs.get("tap_strength", 1.0))
             delegated = dict(kwargs)
             # The base node validates its own legacy preset labels. Keep all
