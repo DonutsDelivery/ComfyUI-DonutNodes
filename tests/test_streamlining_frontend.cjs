@@ -1,127 +1,257 @@
-// Dependency-free frontend contract tests, not a real ComfyUI browser session.
+// Contract tests for the real extension against a small native-widget/DOM harness.
+// This is not a full ComfyUI renderer or a GPU test.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
+const clean = value => JSON.parse(JSON.stringify(value));
 class Element {
-  constructor(tag) { this.tag = tag; this.children = []; this.style = {}; this.events = {}; this.textContent = ''; }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = [...children]; }
-  setAttribute(key, value) { this[key] = value; }
-  addEventListener(name, callback) { this.events[name] = callback; }
-  fire(name) { this.events[name]?.({preventDefault() {}}); }
-  checkValidity() { return Number.isFinite(this.valueAsNumber) && this.valueAsNumber >= -1000 && this.valueAsNumber <= 1000; }
-  get valueAsNumber() { return Number(this.value); }
+    constructor(tag) { this.tag = tag; this.children = []; this.style = {}; this.events = {}; this.textContent = ''; }
+    append(...children) { this.children.push(...children); }
+    replaceChildren(...children) { this.children = children; }
+    setAttribute(name, value) { this[name] = value; }
+    addEventListener(name, fn) { this.events[name] = fn; }
 }
-function all(root, predicate) { return [root, ...root.children.flatMap(child => all(child, () => true))].filter(predicate); }
-let extension;
-const context = vm.createContext({ console, URLSearchParams, Math, Date,
-  document: {createElement: tag => new Element(tag)},
-  app: {registerExtension: value => { extension = value; }, graph: {change() {}}},
-  api: {apiURL: value => value},
-  ComfyWidgets: {STRING(node, name) { const widget = {name, value: '', inputEl: {}}; node.widgets.push(widget); return {widget}; }},
-});
-const source = fs.readFileSync(path.join(__dirname, '../web/donut_workflow.js'), 'utf8')
-  .replace(/^import .*;\n/gm, '').replace(/export function /g, 'function ');
-vm.runInContext(source, context);
-const definition = {name: 'DonutLoRALoader', input: {required: {slots_json: ['STRING', {
-  donut_loras: ['None', 'a.safetensors', 'b.safetensors'], donut_presets: ['None', 'KREA2-ALL:1,1', 'SDXL-ALL:1,1'],
-}]}}};
-const rows = count => Array.from({length: count}, (_, index) => ({id: `row-${index}`, enabled: index % 2 === 0,
-  lora_name: `lora-${index}`, model_weight: index / 10, clip_weight: index === 0 ? 0 : -index / 10, block_vector: `${index},1`,
-  block_preset: 'None', inherit_block_vector: index % 2 !== 0, lora_hash: `HASH${index}`, custom: {keep: index}}));
-function makeNode(name = definition.name, initial = '[]') {
-  class Node {
-    constructor() {
-      this.widgets = [{name: 'model_type', value: 'KREA2'}, {name: 'slots_json', value: initial, type: 'customtext'},
-        {name: 'global_block_vector', value: '1,1'}]; this.size = [400, 600]; this.parentEvents = [];
+const text = root => root.textContent + root.children.map(text).join(' ');
+const elements = (root, tag) => [root, ...root.children.flatMap(c => elements(c))].filter(e => !tag || e.tag === tag);
+const settle = async () => { for (let i = 0; i < 16; i++) await new Promise(r => setImmediate(r)); };
+const rows = count => Array.from({ length: count }, (_, i) => ({ id: `row-${i}`, enabled: i % 2 === 0,
+    lora_name: `folder/model-${i}.safetensors`, model_weight: .75, clip_weight: 0,
+    block_vector: '0,1,0', block_preset: 'KREA2-TEST:0,1,0', inherit_block_vector: true,
+    lora_hash: '', custom: { preserved: i } }));
+function setup(handler = undefined) {
+    const requests = []; let extension;
+    const api = {
+        apiURL: value => `/api${value}`,
+        async fetchApi(url, options) {
+            requests.push(url);
+            if (handler) { const result = await handler(url, options); if (result) return result; }
+            const value = url === '/models/loras' ? ['folder/a.safetensors', 'folder/b.safetensors']
+                : url.startsWith('/object_info') ? { DonutLoRAStack: { input: { required: {
+                    lora_name_1: [['None', 'fallback.safetensors']],
+                    block_preset_1: [['None', 'KREA2-TEST:0,1,0', 'KREA2-ALL:1,1,1', 'SDXL-ALL:1,1']]
+                } } } }
+                : url.includes('/analyze?') ? { found: true, supported: true, tensor_count: 8,
+                    components: [{ name: 'UNet', modules: 4, groups: [{ name: 'blocks', indices: [3, 4] }] }] }
+                : { name: new URL(url, 'http://local').searchParams.get('name'), hash: 'a'.repeat(10), has_collage: true,
+                    civitai: { model_id: 123, model_version_id: 456, model_name: 'Test model', version_name: 'v2',
+                        base_model: 'Krea2', recommended_weight: .65, trained_words: ['trigger'], creator_username: 'Author',
+                        description: '<script>not executable</script>', model_url: 'javascript:bad()' } };
+            return { ok: true, status: 200, json: async () => value };
+        }
+    };
+    const app = { registerExtension: x => { extension = x; }, graph: { change() {} } };
+    const context = vm.createContext({ console: { warn() {}, log() {} }, app, api, URLSearchParams, URL,
+        Math, Date, AbortController, setTimeout, clearTimeout, queueMicrotask,
+        document: { createElement: tag => new Element(tag) },
+        ComfyWidgets: { STRING(node, name) { const w = node.addWidget('customtext', name, '', () => {}, {}); w.inputEl = {}; return { widget: w }; } }
+    });
+    for (const file of ['donut_native_lora.js', 'donut_workflow_repair.js', 'donut_workflow.js']) {
+        const source = fs.readFileSync(path.join(__dirname, '../web', file), 'utf8')
+            .replace(/^import .*;\n/gm, '').replace(/^export \{.*\} from .*;\n/gm, '').replace(/export function /g, 'function ');
+        vm.runInContext(source, context);
     }
-    onNodeCreated() { this.parentEvents.push('created'); }
-    onConfigure() { this.parentEvents.push('configured'); }
-    onExecuted() { this.parentEvents.push('executed'); }
-    onSerialize(data) { this.parentEvents.push('serialized'); data.parent = true; }
-    addDOMWidget(name, type, root, options) { this.root = root; const w = {name, type, options}; this.widgets.push(w); return w; }
-    setDirtyCanvas() {}
-    setSize(size) { this.size = size; }
-    computeSize() { return this.size; }
-  }
-  extension.beforeRegisterNodeDef(Node, {...definition, name});
-  return new Node();
+    const backendNames = ['model_type', 'slots_json', 'global_block_vector', 'civitai_lookup', 'safe_stack', 'fusion_aware', 'max_fusion_boost', 'safe_limit', 'execution_mode'];
+    function make(initial = rows(3), lookup = 'Off', type = 'DonutLoRALoader') {
+        class Node {
+            constructor() {
+                this.widgets = []; this.inputs = []; this.properties = {}; this.size = [360, 900]; this.parent = [];
+                const values = ['KREA2', JSON.stringify(initial), '1,1,1', lookup, 'On', 'Use headroom', 2, 1, 'Experimental bypass'];
+                backendNames.forEach((name, i) => this.addWidget(name === 'slots_json' ? 'customtext' : 'combo', name, values[i], () => {}, {}));
+            }
+            addWidget(type, name, value, callback, options) { const w = { type, name, value, callback, options }; this.widgets.push(w); return w; }
+            addDOMWidget(name, type, element, options) { const w = { type, name, element, options }; this.widgets.push(w); return w; }
+            removeWidget(widget) { widget.onRemove?.(); this.widgets.splice(this.widgets.indexOf(widget), 1); }
+            computeSize() { return [this.size[0], 70 + this.widgets.reduce((sum, w) => sum + (w.hidden ? 0 : w.options?.getMinHeight?.() || 24), 0)]; }
+            setSize(value) { this.size = value; }
+            setDirtyCanvas() {}
+            onConfigure() { this.parent.push('configured'); }
+            onSerialize(data) { data.parent = true; }
+            onExecuted() { this.parent.push('executed'); }
+            onRemoved() { this.parent.push('removed'); }
+        }
+        extension.beforeRegisterNodeDef(Node, { name: type, input: { required: { slots_json: ['STRING', {}] } } });
+        const node = new Node(); node.onNodeCreated(); return node;
+    }
+    return { make, requests, api, context, get extension() { return extension; } };
 }
-const state = node => node.widgets.find(w => w.name === 'slots_json');
-const saved = node => JSON.parse(state(node).value);
-const boxes = node => all(node.root, e => e.tag === 'fieldset');
-const click = (root, label) => { const b = all(root, e => e.tag === 'button' && e.textContent === label)[0]; assert.ok(b, label); b.fire('click'); };
-const input = (root, label) => all(root, e => e.tag === 'label' && e.textContent === `${label} `)[0].children[0];
+const find = (node, suffix, id = 'row-0') => node.widgets.find(w => w.name === `donut_row:${id}:${suffix}`);
+const change = (widget, value) => { widget.value = value; widget.callback(value); };
+const saved = node => JSON.parse(node.widgets.find(w => w.name === 'slots_json').value);
+const panel = (node, id) => find(node, 'information', id).element;
 
-test('restore all six slots by named state, preserving disabled rows and metadata', () => {
-  const node = makeNode(); node.onNodeCreated(); node.onConfigure({widgets_values_named: {slots_json: JSON.stringify(rows(6))}});
-  assert.deepEqual(saved(node), rows(6)); assert.equal(boxes(node).length, 6);
-  assert.equal(state(node).type, 'converted-widget'); assert.equal(node.widgets.length, 4);
+test('native combo lists installed files even when unknown STRING metadata was stripped', async () => {
+    const { make } = setup(); const node = make(); await settle();
+    const picker = find(node, 'lora_name'); assert.equal(picker.type, 'combo');
+    assert.deepEqual(clean(picker.options.values), ['None', 'folder/a.safetensors', 'folder/b.safetensors', 'folder/model-0.safetensors']);
+    assert.equal(node.widgets.some(w => w.element && elements(w.element).some(e => ['select', 'datalist', 'input'].includes(e.tag))), false);
 });
-test('adding slots is unbounded by the old three-slot contract', () => {
-  const node = makeNode('DonutLoRALoader', JSON.stringify(rows(6))); node.onNodeCreated();
-  for (let i = 0; i < 5; i++) click(node.root, '+ Add LoRA');
-  assert.equal(saved(node).length, 11); assert.equal(new Set(saved(node).map(row => row.id)).size, 11);
-  assert.deepEqual(saved(node).slice(0, 6), rows(6));
+test('catalog falls back to the old loader schema when the core models route is unavailable', async () => {
+    const { make } = setup(url => url === '/models/loras' ? { ok: false, status: 404 } : null);
+    const node = make(); await settle(); assert.ok(find(node, 'lora_name').options.values.includes('fallback.safetensors'));
 });
-test('reorder and removal move complete rows, not just filenames', () => {
-  const node = makeNode('DonutLoRALoader', JSON.stringify(rows(6))); node.onNodeCreated();
-  click(boxes(node)[2], '↑'); const expected = rows(6); [expected[1], expected[2]] = [expected[2], expected[1]];
-  assert.deepEqual(saved(node), expected); click(boxes(node)[4], 'Remove'); expected.splice(4, 1);
-  assert.deepEqual(saved(node), expected);
+test('disabled rows retain native picker, enable and actions but hide every dependent parameter', async () => {
+    const { make } = setup(); const node = make(); await settle();
+    change(find(node, 'advanced'), true); const before = saved(node); const height = node.size[1];
+    change(find(node, 'enabled'), false);
+    for (const suffix of ['model_weight', 'clip_weight', 'advanced', 'block_preset', 'inherit', 'block_vector', 'information']) assert.equal(find(node, suffix).hidden, true, suffix);
+    for (const suffix of ['lora_name', 'enabled', 'actions']) assert.notEqual(find(node, suffix).hidden, true, suffix);
+    assert.ok(node.size[1] < height);
+    change(find(node, 'enabled'), true); assert.deepEqual(saved(node), before);
+    assert.equal(find(node, 'block_vector').value, '0,1,0'); assert.equal(find(node, 'clip_weight').value, 0);
 });
-test('named and positional serialization roundtrip with parent hooks intact', () => {
-  const original = rows(7); const node = makeNode('DonutDynamicLoRAStack'); node.onNodeCreated();
-  node.onConfigure({widgets_values: ['KREA2', JSON.stringify(original), '1,1']});
-  const output = {}; node.onSerialize(output); assert.equal(output.parent, true);
-  assert.equal(state(node).serializeValue(), JSON.stringify(original));
-  const copy = makeNode(); copy.onNodeCreated(); copy.onConfigure(output); assert.deepEqual(saved(copy), original);
-  assert.deepEqual(node.parentEvents, ['created', 'configured', 'serialized']);
+test('disabled rows do not trigger local analysis or CivitAI lookup; Off prevents network lookup', async () => {
+    const { make, requests } = setup(); make([{ ...rows(1)[0], enabled: false }], 'On'); await settle();
+    assert.equal(requests.some(u => /\/(info|analyze)\?/.test(u)), false);
+    const node = make(rows(1), 'Off'); await settle();
+    assert.ok(requests.some(u => u.includes('/analyze?'))); assert.equal(requests.some(u => u.includes('/info?')), false);
+    change(node.widgets.find(w => w.name === 'civitai_lookup'), 'On'); await settle();
+    assert.ok(requests.some(u => u.includes('/info?')));
 });
-test('malformed loaded JSON is not replaced with an empty stack', () => {
-  const node = makeNode(); node.onNodeCreated(); node.onConfigure({widgets_values_named: {slots_json: '[broken'}});
-  const output = {}; node.onSerialize(output); assert.equal(output.widgets_values_named.slots_json, '[broken');
-  const repair = all(node.root, e => e.tag === 'textarea')[0]; assert.ok(repair);
-  repair.value = JSON.stringify(rows(1)); repair.fire('change'); assert.deepEqual(saved(node), rows(1));
+test('lookup shows links, detected components, recommendations, triggers and bounded local previews before queueing', async () => {
+    const { make } = setup(); const node = make(rows(1), 'On'); await settle();
+    const root = panel(node); const content = text(root);
+    for (const expected of ['Detected weights', '8 tensors', 'blocks: 3, 4', 'Suggested weight: 0.65', 'Test model', 'Triggers: trigger']) assert.ok(content.includes(expected), expected);
+    const links = elements(root, 'a'); assert.ok(links.some(a => a.href === 'https://civitai.com/models/123?modelVersionId=456'));
+    assert.ok(links.every(a => a.rel === 'noopener noreferrer'));
+    assert.equal(elements(root, 'script').length, 0);
+    const image = elements(root, 'img')[0]; assert.equal(image.style.maxHeight, '150px');
+    assert.match(image.src, /^\/api\/donut\/loras\/preview\?/); assert.equal(find(node, 'information').options.getMaxHeight(), 250);
 });
-test('filename edits clear stale hash and late execution metadata cannot restore it', () => {
-  const node = makeNode('DonutLoRALoader', JSON.stringify(rows(1))); node.onNodeCreated();
-  const filename = input(boxes(node)[0], 'LoRA'); filename.value = 'new.safetensors'; filename.fire('change');
-  assert.equal(saved(node)[0].lora_hash, '');
-  node.onExecuted({donut_loras: [{id: 'row-0', lora_name: 'lora-0', lora_hash: 'OLDHASH'}]});
-  assert.equal(saved(node)[0].lora_hash, '');
-  node.onExecuted({donut_loras: [{id: 'row-0', lora_name: 'new.safetensors', lora_hash: 'NEWHASH'}]});
-  assert.equal(saved(node)[0].lora_hash, 'NEWHASH');
+test('preset combo labels contain no long vectors and selecting a preset edits only its intended fields', async () => {
+    const { make } = setup(); const node = make(); await settle();
+    const preset = find(node, 'block_preset'); assert.ok(preset.options.values.every(v => !v.includes(':') && !v.includes(',')));
+    assert.ok(!preset.options.values.includes('SDXL-ALL'));
+    change(preset, 'KREA2-ALL'); assert.equal(saved(node)[0].block_preset, 'KREA2-ALL:1,1,1');
+    assert.equal(saved(node)[0].block_vector, '1,1,1'); assert.equal(saved(node)[0].inherit_block_vector, false);
 });
-test('block presets edit the actual vector and disable inheritance', () => {
-  const node = makeNode('DonutLoRALoader', JSON.stringify(rows(2))); node.onNodeCreated();
-  const box = boxes(node)[1]; const select = all(box, e => e.tag === 'select')[0];
-  assert.equal(select.children.some(e => e.value.startsWith('SDXL')), false);
-  select.value = 'KREA2-ALL:1,1'; select.fire('change');
-  assert.equal(saved(node)[1].block_vector, '1,1'); assert.equal(saved(node)[1].inherit_block_vector, false);
+test('suggested weight is never applied silently and explicit action does not touch zero CLIP strength', async () => {
+    const { make } = setup(); const node = make(rows(1), 'On'); await settle();
+    assert.equal(saved(node)[0].model_weight, .75); change(find(node, 'actions'), 'Use suggested model weight');
+    assert.equal(saved(node)[0].model_weight, .65); assert.equal(saved(node)[0].clip_weight, 0);
 });
-test('invalid number does not corrupt canonical row state', () => {
-  const node = makeNode('DonutLoRALoader', JSON.stringify(rows(1))); node.onNodeCreated();
-  const weight = input(boxes(node)[0], 'Model strength'); weight.value = 'NaN'; weight.fire('change');
-  assert.equal(saved(node)[0].model_weight, 0); weight.value = '0.75'; weight.fire('change'); assert.equal(saved(node)[0].model_weight, .75);
+test('add, reorder and remove preserve complete rows and have no six-row ceiling', async () => {
+    const { make } = setup(); const node = make(rows(6)); await settle();
+    for (let i = 0; i < 4; i++) node.widgets.find(w => w.name === '+ Add LoRA').callback();
+    assert.equal(saved(node).length, 10);
+    change(find(node, 'actions', 'row-2'), 'Move up'); assert.equal(saved(node)[1].id, 'row-2');
+    assert.deepEqual(saved(node)[1].custom, { preserved: 2 });
+    change(find(node, 'actions', 'row-2'), 'Remove'); assert.equal(saved(node).length, 9);
 });
-test('seed controls have unique serialized names', () => {
-  const node = makeNode('DonutSeedPlan'); node.widgets = ['text_seed', 'control_after_generate', 'sampler_seed',
-    'control_after_generate', 'filename_seed', 'control_after_generate'].map(name => ({name})); node.onNodeCreated();
-  assert.deepEqual(node.widgets.map(w => w.name), ['text_seed', 'text_seed_control', 'sampler_seed', 'sampler_seed_control', 'filename_seed', 'filename_seed_control']);
+test('workflow and API serializers exclude every row/helper widget; only canonical JSON carries row state', async () => {
+    const { make } = setup(); const node = make(rows(6)); await settle();
+    const output = {}; node.onSerialize(output); assert.equal(output.parent, true);
+    assert.equal(output.widgets_values.length, 9);
+    assert.equal(Object.keys(output.widgets_values_named).length, 9);
+    assert.equal(node.widgets.filter(w => w.name.startsWith('donut_row:')).every(w => w.serialize === false && w.options.serialize === false), true);
+    const copy = make([]); copy.onConfigure(output); await settle(); assert.deepEqual(saved(copy), saved(node));
+    const positional = make([]); positional.onConfigure({ widgets_values: output.widgets_values }); await settle(); assert.deepEqual(saved(positional), saved(node));
 });
-test('grouped merge hides controls without deleting or changing their values', () => {
-  const node = makeNode('DonutModelMergeKrea2'); node.widgets = [
-    {name: 'ratio_mode', value: 'Grouped'}, {name: 'blocks.0.', value: .45, type: 'number'},
-    {name: 'txtfusion.projector.', value: .35, type: 'number'}, {name: 'tmlp.', value: .95, type: 'number'}];
-  node.onNodeCreated(); assert.equal(node.widgets.length, 4); assert.equal(node.widgets[1].type, 'converted-widget');
-  assert.equal(node.widgets[3].type, 'number'); node.widgets[0].value = 'Per block'; node.widgets[0].callback();
-  assert.equal(node.widgets[1].type, 'number'); assert.equal(node.widgets[1].value, .45);
+test('invalid saved JSON is preserved for repair rather than replaced by an empty stack', async () => {
+    const { make } = setup(); const node = make(); node.onConfigure({ widgets_values_named: { slots_json: '[broken' } }); await settle();
+    const output = {}; node.onSerialize(output); assert.equal(output.widgets_values_named.slots_json, '[broken');
+    assert.equal(node.widgets.find(w => w.name === '+ Add LoRA').disabled, true);
+    change(node.widgets.find(w => w.name === 'Repair slots_json'), JSON.stringify(rows(2))); assert.equal(saved(node).length, 2);
 });
-test('prompt preview is read-only, not an extra backend input', () => {
-  const node = makeNode('DonutText'); node.onNodeCreated(); node.onExecuted({text: ['resolved prompt']});
-  const preview = node.widgets.find(w => w.name === 'resolved_text');
-  assert.equal(preview.value, 'resolved prompt'); assert.equal(preview.options.serialize, false); assert.equal(preview.inputEl.readOnly, true);
+test('changing filename clears its hash; stale execution metadata cannot attach to the new selection', async () => {
+    const { make } = setup(); const node = make([{ ...rows(1)[0], lora_hash: 'a'.repeat(64) }]); await settle();
+    change(find(node, 'lora_name'), 'folder/b.safetensors'); assert.equal(saved(node)[0].lora_hash, '');
+    node.onExecuted({ donut_loras: [{ id: 'row-0', lora_name: 'folder/model-0.safetensors', lora_hash: 'b'.repeat(64) }] });
+    assert.equal(saved(node)[0].lora_hash, '');
+    node.onExecuted({ donut_loras: [{ id: 'row-0', lora_name: 'folder/b.safetensors', lora_hash: 'c'.repeat(64) }] });
+    assert.equal(saved(node)[0].lora_hash, 'c'.repeat(64));
+});
+test('metadata responses arriving after a row was replaced cannot change its name or hash', async () => {
+    let resolveOld;
+    const { make } = setup(url => url.includes('/info?') && url.includes('model-0') ? new Promise(resolve => { resolveOld = resolve; }) : null);
+    const node = make(rows(1), 'On'); await settle();
+    change(find(node, 'lora_name'), 'folder/b.safetensors'); await settle();
+    resolveOld({ ok: true, json: async () => ({ hash: 'b'.repeat(10), civitai: { model_name: 'OLD' } }) }); await settle();
+    assert.equal(saved(node)[0].lora_name, 'folder/b.safetensors'); assert.equal(saved(node)[0].lora_hash, 'a'.repeat(10));
+    assert.ok(!text(panel(node)).includes('OLD'));
+});
+test('full stored hashes are not downgraded to ten-character UI lookup prefixes', async () => {
+    const { make } = setup(); const node = make([{ ...rows(1)[0], lora_hash: 'b'.repeat(64) }], 'On'); await settle();
+    assert.equal(saved(node)[0].lora_hash, 'b'.repeat(64));
+});
+test('failed catalog requests display retry state and never reset saved names', async () => {
+    const { make } = setup(url => /models\/loras|object_info/.test(url) ? { ok: false, status: 503 } : null);
+    const node = make(); await settle(); assert.ok(node.widgets.some(w => w.name.includes('LoRA list unavailable')));
+    assert.equal(saved(node)[0].lora_name, 'folder/model-0.safetensors');
+});
+test('network errors are visible and the row provides retry instead of a blank metadata panel', async () => {
+    const { make } = setup(url => url.includes('/info?') ? { ok: false, status: 503 } : null);
+    const node = make(rows(1), 'On'); await settle(); assert.ok(text(panel(node)).includes('503'));
+    assert.ok(text(panel(node)).includes('Retry metadata'));
+});
+test('metadata calls are deduplicated by filename and limited to two simultaneous requests', async () => {
+    let active = 0, peak = 0;
+    const { context, api } = setup(async url => {
+        if (url.includes('/info?')) {
+            active++; peak = Math.max(peak, active); await new Promise(r => setTimeout(r, 2)); active--;
+        }
+    });
+    const service = context.createLoraService(api);
+    const promises = Array.from({ length: 10 }, (_, i) => service.details('info', `file-${i % 5}`));
+    await Promise.all(promises); assert.equal(peak, 2);
+});
+test('read-only promoted widget types can be hidden and restored without changing values', () => {
+    const { context } = setup(); const widget = { get type() { return 'number'; }, value: 8 };
+    context.setHidden(widget, true); assert.equal(widget.hidden, true); assert.equal(widget.value, 8);
+    context.setHidden(widget, false); assert.equal(widget.hidden, false); assert.equal(widget.type, 'number');
+});
+test('removed nodes ignore pending results and leave the refresh registry', async () => {
+    const { make, extension } = setup(); const node = make(rows(1), 'On'); node.onRemoved(); await settle();
+    const before = saved(node); await extension.refreshComboInNodes(); assert.deepEqual(saved(node), before);
+});
+
+test('v1 workflow widget/port repair matches the delivered corrected workflow and is idempotent', { skip: !process.env.DONUT_BROKEN_WORKFLOW || !process.env.DONUT_FIXED_WORKFLOW }, () => {
+    const { context } = setup();
+    const broken = JSON.parse(fs.readFileSync(process.env.DONUT_BROKEN_WORKFLOW));
+    const fixed = JSON.parse(fs.readFileSync(process.env.DONUT_FIXED_WORKFLOW));
+    assert.equal(context.repairStreamlinedWorkflow(broken), true);
+    const actual = broken.nodes.find(n => n.id === 1014), expected = fixed.nodes.find(n => n.id === 1014);
+    assert.equal(actual.inputs.length, 37); assert.equal(actual.widgets_values.length, 25);
+    assert.deepEqual(clean(actual.widgets_values), expected.widgets_values);
+    assert.deepEqual(clean(actual.widgets_values_named), expected.widgets_values_named);
+    assert.deepEqual(clean(actual.inputs.map(p => [p.name, p.link, p.widget?.name])), expected.inputs.map(p => [p.name, p.link, p.widget?.name ?? null]));
+    assert.deepEqual(clean(broken.links), fixed.links);
+    assert.equal(context.repairStreamlinedWorkflow(broken), false);
+});
+test('already-repaired workflows retain later user edits rather than reapplying stale named defaults', () => {
+    const { context } = setup(); const workflow = { extra: { donut_streamlining: { schema: 2 } }, nodes: [{ widgets_values: [16], widgets_values_named: { steps: 8 } }] };
+    assert.equal(context.repairStreamlinedWorkflow(workflow), false); assert.equal(workflow.nodes[0].widgets_values[0], 16);
+});
+
+test('nonfinite numeric edits restore the previous displayed and canonical value', async () => {
+    const { make } = setup(); const node = make(); await settle();
+    change(find(node, 'model_weight'), NaN); assert.equal(find(node, 'model_weight').value, .75);
+    assert.equal(saved(node)[0].model_weight, .75);
+});
+test('text previews are UI-only, collapsed initially, and reveal the resolved text without changing backend values', async () => {
+    const { make } = setup(); const node = make([], 'Off', 'DonutText'); await settle();
+    const preview = node.widgets.find(w => w.name === 'resolved_text');
+    assert.equal(preview.hidden, true); assert.equal(preview.serialize, false); assert.equal(preview.options.serialize, false);
+    node.onExecuted({ text: ['resolved'] }); assert.equal(preview.value, 'resolved');
+    node.widgets.find(w => w.name === 'Show / hide resolved text').callback(); assert.equal(preview.hidden, false);
+});
+test('UI lookup errors still expose backend execution preview data when available', async () => {
+    const { make } = setup(url => url.includes('/info?') ? { ok: false, status: 503 } : null);
+    const node = make(rows(1), 'On'); await settle();
+    node.onExecuted({ donut_loras: [{ id: 'row-0', lora_name: 'folder/model-0.safetensors', lora_hash: 'd'.repeat(64),
+        text: 'Cached trigger words', image: { filename: 'preview.jpg', type: 'temp', subfolder: '' } }] });
+    assert.ok(text(panel(node)).includes('Cached trigger words'));
+    assert.match(elements(panel(node), 'img')[0].src, /^\/api\/view\?/);
+});
+test('seed widgets keep separate serialized control names', () => {
+    const { make } = setup(); const node = make([], 'Off', 'DonutSeedPlan');
+    node.widgets = ['text_seed', 'control_after_generate', 'sampler_seed', 'control_after_generate', 'filename_seed', 'control_after_generate'].map(name => ({ name }));
+    node.onNodeCreated(); assert.deepEqual(node.widgets.map(w => w.name), ['text_seed', 'text_seed_control', 'sampler_seed', 'sampler_seed_control', 'filename_seed', 'filename_seed_control']);
+});
+test('grouped merge still hides and restores original per-block controls without losing values', () => {
+    const { make } = setup(); const node = make([], 'Off', 'DonutModelMergeKrea2');
+    node.widgets = [{ name: 'ratio_mode', value: 'Grouped' }, { name: 'blocks.0.', value: .3, type: 'number' }, { name: 'tmlp.', value: .8, type: 'number' }];
+    node.onNodeCreated(); assert.equal(node.widgets[1].hidden, true); assert.notEqual(node.widgets[2].hidden, true);
+    change(node.widgets[0], 'Per block'); assert.equal(node.widgets[1].hidden, false); assert.equal(node.widgets[1].value, .3);
 });
