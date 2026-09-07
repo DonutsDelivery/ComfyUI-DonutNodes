@@ -84,13 +84,11 @@ export function setHidden(widget, hide) {
     };
     widget.hidden = !!hide;
     if (hide) {
-        const descriptor = Object.getOwnPropertyDescriptor(widget, "type");
-        if (!descriptor?.get || descriptor.set) widget.type = "hidden";
+        // Keep the native widget class/type intact, including getter-only
+        // promoted views. Hidden controls are still valid serialized controls.
         widget.computeSize = () => [0, -4]; // Legacy canvas accounts for a 4px gap.
         widget.computeLayoutSize = () => ({ minHeight: 0, maxHeight: 0, minWidth: 0 });
     } else {
-        const descriptor = Object.getOwnPropertyDescriptor(widget, "type");
-        if (!descriptor?.get || descriptor.set) widget.type = widget._donutVisible.type;
         widget.computeSize = widget._donutVisible.computeSize;
         widget.computeLayoutSize = widget._donutVisible.computeLayoutSize;
     }
@@ -257,7 +255,9 @@ export function installNativeLoras(node, definition, { app, api, service }) {
                 if (value === row.lora_name) return;
                 row.lora_name = value; row.lora_hash = ""; details.delete(key);
                 commit(); render();
-            });
+            }, { values: unique([...catalog.loras, row.lora_name]) });
+            // addWidget validates combos synchronously. The initial array is
+            // required even though the live getter below supplies later updates.
             name.label = `LoRA ${index + 1}`;
             // Getter uses fresh catalog without replacing the selected/saved name.
             Object.defineProperty(name.options, "values", { configurable: true,
@@ -287,7 +287,10 @@ export function installNativeLoras(node, definition, { app, api, service }) {
                 row.block_vector = raw.includes(":") ? raw.slice(raw.indexOf(":") + 1) : "";
                 row.inherit_block_vector = false;
                 vector.value = row.block_vector; inherit.value = false; vector.disabled = false; commit();
-            });
+            }, { values: unique([
+                ...catalog.presets.filter(p => p === "None" || get("model_type") === "Auto" || p.startsWith(`${get("model_type")}-`)).map(titleOf),
+                titleOf(row.block_preset)
+            ]) });
             preset.label = "Block preset";
             Object.defineProperty(preset.options, "values", { configurable: true, get: () => unique([
                 ...catalog.presets.filter(p => p === "None" || get("model_type") === "Auto" || p.startsWith(`${get("model_type")}-`)).map(titleOf),
@@ -384,8 +387,19 @@ export function installNativeLoras(node, definition, { app, api, service }) {
             widget.callback = function(value) { callback?.apply(this, arguments); if (value !== undefined) widget.value = value; render(); };
         }
     }
-    const removed = node.onRemoved;
+    const removed = node.onRemoved, added = node.onAdded;
     node.onRemoved = function() { disposed = true; generation++; return removed?.apply(this, arguments); };
+    node.onAdded = function() {
+        const result = added?.apply(this, arguments);
+        // Moving a node into/out of a subgraph can detach and re-add the same
+        // instance. It must not remain permanently disposed after that move.
+        if (disposed) {
+            disposed = false; generation++;
+            for (const entry of details.values()) { entry.analysisLoading = false; entry.infoLoading = false; }
+            render();
+        }
+        return result;
+    };
     node._donutNativeLoras = { refresh, get rows() { return rows; } };
     restore(); void refresh();
 }

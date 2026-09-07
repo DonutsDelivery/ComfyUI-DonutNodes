@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { createLoraService, installNativeLoras, setHidden } from "./donut_native_lora.js";
-import { repairStreamlinedWorkflow } from "./donut_workflow_repair.js";
+import { repairStreamlinedWorkflow, installWorkflowSerializationGuard } from "./donut_workflow_repair.js";
 export { decodeRows, moveRow } from "./donut_native_lora.js";
 
 const service = createLoraService(api);
@@ -18,6 +18,7 @@ function connectedControls(node) {
 app.registerExtension({
     name: "Donut.WorkflowStreamlining",
     beforeConfigureGraph(graphData) { repairStreamlinedWorkflow(graphData); },
+    afterConfigureGraph() { installWorkflowSerializationGuard(app.graph); },
     loadedGraphNode(node) {
         if (!node.properties?.donut_stage_controls) return;
         const update = () => { connectedControls(node); fit(node); };
@@ -41,8 +42,9 @@ app.registerExtension({
             const result = created?.apply(this, arguments);
             if (["DonutDynamicLoRAStack", "DonutLoRALoader"].includes(name)) {
                 installNativeLoras(this, nodeData, { app, api, service }); loaders.add(this);
-                const removed = this.onRemoved;
+                const removed = this.onRemoved, added = this.onAdded;
                 this.onRemoved = function() { loaders.delete(this); return removed?.apply(this, arguments); };
+                this.onAdded = function() { loaders.add(this); return added?.apply(this, arguments); };
             }
             if (["DonutText", "DonutPromptConditioning"].includes(name)) {
                 const preview = ComfyWidgets.STRING(this, "resolved_text", ["STRING", { multiline: true }], app).widget;

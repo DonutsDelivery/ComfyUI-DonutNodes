@@ -58,9 +58,18 @@ function setup(handler = undefined) {
             constructor() {
                 this.widgets = []; this.inputs = []; this.properties = {}; this.size = [360, 900]; this.parent = [];
                 const values = ['KREA2', JSON.stringify(initial), '1,1,1', lookup, 'On', 'Use headroom', 2, 1, 'Experimental bypass'];
-                backendNames.forEach((name, i) => this.addWidget(name === 'slots_json' ? 'customtext' : 'combo', name, values[i], () => {}, {}));
+                backendNames.forEach((name, i) => {
+                    const type = name === 'slots_json' ? 'customtext' : name === 'global_block_vector' ? 'text'
+                        : ['max_fusion_boost', 'safe_limit'].includes(name) ? 'number' : 'combo';
+                    this.addWidget(type, name, values[i], () => {}, type === 'combo' ? { values: [values[i]] } : {});
+                });
             }
-            addWidget(type, name, value, callback, options) { const w = { type, name, value, callback, options }; this.widgets.push(w); return w; }
+            addWidget(type, name, value, callback, options) {
+                // ComfyUI_frontend v1.51.9 LGraphNode.ts checks this before adding
+                // the widget. The old permissive mock missed the production bug.
+                if (type === 'combo' && !options?.values) throw new Error("LiteGraph addWidget('combo',...) requires to pass values in options: { values:['red','blue'] }");
+                const w = { type, name, value, callback, options }; this.widgets.push(w); return w;
+            }
             addDOMWidget(name, type, element, options) { const w = { type, name, element, options }; this.widgets.push(w); return w; }
             removeWidget(widget) { widget.onRemove?.(); this.widgets.splice(this.widgets.indexOf(widget), 1); }
             computeSize() { return [this.size[0], 70 + this.widgets.reduce((sum, w) => sum + (w.hidden ? 0 : w.options?.getMinHeight?.() || 24), 0)]; }
@@ -254,4 +263,39 @@ test('grouped merge still hides and restores original per-block controls without
     node.widgets = [{ name: 'ratio_mode', value: 'Grouped' }, { name: 'blocks.0.', value: .3, type: 'number' }, { name: 'tmlp.', value: .8, type: 'number' }];
     node.onNodeCreated(); assert.equal(node.widgets[1].hidden, true); assert.notEqual(node.widgets[2].hidden, true);
     change(node.widgets[0], 'Per block'); assert.equal(node.widgets[1].hidden, false); assert.equal(node.widgets[1].value, .3);
+});
+
+test('Add LoRA immediately creates visible native rows before any catalog response', async () => {
+    const { make } = setup(); const node = make([]);
+    for (let i = 1; i <= 4; i++) {
+        node.widgets.find(w => w.name === '+ Add LoRA').callback();
+        const selected = node.widgets.filter(w => w.name.startsWith('donut_row:') && w.name.endsWith(':lora_name'));
+        assert.equal(selected.length, i); assert.equal(saved(node).length, i);
+        assert.ok(selected.every(w => !w.hidden && Array.isArray(w.options.values) && w.options.values.includes('None')));
+    }
+    await settle(); assert.equal(saved(node).length, 4);
+});
+test('prototype getter-only widget types also stay native when hidden', () => {
+    const { context } = setup();
+    class Widget { get type() { return 'combo'; } }
+    const widget = new Widget(); widget.value = 'beta';
+    context.setHidden(widget, true); context.setHidden(widget, false);
+    assert.equal(widget.type, 'combo'); assert.equal(widget.value, 'beta');
+});
+test('detach and re-add restores metadata lifecycle and Add LoRA functionality', async () => {
+    const { make, requests, extension } = setup(); const node = make(rows(1), 'Off'); await settle();
+    node.onRemoved(); node.onAdded();
+    change(node.widgets.find(w => w.name === 'civitai_lookup'), 'On'); await settle();
+    assert.ok(requests.some(u => u.includes('/info?')));
+    assert.ok(text(panel(node)).includes('Test model'));
+    node.widgets.find(w => w.name === '+ Add LoRA').callback(); assert.equal(saved(node).length, 2);
+    await extension.refreshComboInNodes(); assert.equal(saved(node).length, 2);
+});
+test('old PNG loader state with a trailing DOM helper reloads without losing rows', async () => {
+    const { make } = setup(); const original = rows(6), node = make([]);
+    node.onConfigure({ widgets_values: ['KREA2', JSON.stringify(original), '1,1,1', 'Off', 'On', 'Use headroom', 2, 1, 'Experimental bypass', ''],
+        widgets_values_named: { slots_json: JSON.stringify(original), donut_lora_editor: '' } });
+    await settle(); assert.deepEqual(saved(node), original);
+    const out = {}; node.onSerialize(out); assert.equal(out.widgets_values.length, 9);
+    assert.equal('donut_lora_editor' in out.widgets_values_named, false);
 });
