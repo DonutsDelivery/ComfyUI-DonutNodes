@@ -1,9 +1,14 @@
 # Runtime dependencies not supplied by ComfyUI itself.
+# Minimum binary-wheel generations with NumPy 2 support. Do not pin/downgrade
+# NumPy globally: ComfyUI and other node packs share this interpreter.
+# These are floors, not a guarantee for every later NumPy/Python version.
 # ComfyUI Manager installs this file automatically; manual installs must use
 # the same Python interpreter that launches ComfyUI.
-opencv-python-headless
-scipy
-matplotlib
+# OpenCV variants share cv2: keep only one. See docs/dependencies.md if another
+# node pack already installed opencv-python or a contrib variant.
+opencv-python-headless>=4.10.0.84
+scipy>=1.13.1
+matplotlib>=3.9.2
 psutil
 tqdm
 requests
