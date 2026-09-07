@@ -49,6 +49,10 @@ LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_UNCENSORFIX
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX_SHORT] = PRESET_UNCENSORFIX
 
 UNCENSORFIX_TARGET_COUNT = 33
+UNCENSORFIX_LORA_ONLY = "LoRA only"
+UNCENSORFIX_WITH_CONTROLS = "LoRA + fusion controls"
+UNCENSORFIX_CONTROL_MODES = (UNCENSORFIX_LORA_ONLY, UNCENSORFIX_WITH_CONTROLS)
+UNCENSORFIX_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
 _UNCENSORFIX_SOURCE_ID_PREFIX = "donut_uncensorfix_source_identity:"
 
 
@@ -66,17 +70,19 @@ def _uncensorfix_factors():
     return get_uncensorfix_factors()
 
 
-def _apply_uncensorfix(model, strength):
-    """Construct model patches from embedded tensors, without any LoRA loader."""
+def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
+    """Apply embedded factors using the selected Donut LoRA execution path."""
+    if execution_mode not in UNCENSORFIX_EXECUTION_MODES:
+        raise ValueError(f"Unknown UncensorFix execution mode: {execution_mode}")
     strength = float(strength)
     if not math.isfinite(strength):
         raise ValueError("UncensorFix strength must be finite")
     if strength == 0.0:
         return model, 0, "embedded (strength 0)"
 
-    # Use the same weight arithmetic as ComfyUI's ordinary patch route, but
-    # construct adapters directly. No load_lora, load_torch_file, key-map scan,
-    # safetensors parser, or external asset is involved.
+    # Native mode constructs the same adapters as Comfy's LoRA loader. Bypass
+    # mode hands an in-memory state dict to Donut Apply's shared execution
+    # helper. Neither mode reads a LoRA file or changes the cached factors.
     from comfy.weight_adapter.lora import LoRAAdapter
 
     factors = _uncensorfix_factors()
@@ -125,7 +131,12 @@ def _apply_uncensorfix(model, strength):
     patched = model.clone()
     loaded = set()
     if main_patches:
-        accepted = set(patched.add_patches(main_patches, strength_patch=strength))
+        if execution_mode == "Experimental bypass":
+            from .donut_uncensorfix_lora import apply_embedded_bypass
+            patched = apply_embedded_bypass(model, main_patches, strength)
+            accepted = set(main_patches)
+        else:
+            accepted = set(patched.add_patches(main_patches, strength_patch=strength))
         if accepted != set(main_patches):
             raise RuntimeError(
                 f"UncensorFix could not patch every target on main model: {len(accepted)}/{len(main_patches)} loaded"
@@ -136,8 +147,13 @@ def _apply_uncensorfix(model, strength):
         # Never mutate model2 or replace its existing patch lists. Its cloned
         # patch stack includes earlier LoRAs. The main model's runtime LoRA
         # injections, merge plans, and other additional models remain intact.
-        source = source_model.clone()
-        accepted = set(source.add_patches(source_patches, strength_patch=strength))
+        if execution_mode == "Experimental bypass":
+            from .donut_uncensorfix_lora import apply_embedded_bypass
+            source = apply_embedded_bypass(source_model, source_patches, strength)
+            accepted = set(source_patches)
+        else:
+            source = source_model.clone()
+            accepted = set(source.add_patches(source_patches, strength_patch=strength))
         if accepted != source_keys:
             raise RuntimeError(
                 f"UncensorFix could not patch every target on merge-bypass model2: {len(accepted)}/{len(source_keys)} loaded"
@@ -188,7 +204,9 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         "Krea 2 text-fusion controls with Simple/Advanced UI modes and short preset names. "
         "UncensorFix uses numerical factors embedded in Python; no external LoRA "
         "installation, file selection or download is required. Krea2 Experimental "
-        "merge-bypass targets are patched on their retained model2 source."
+        "merge-bypass targets are patched on their retained model2 source. "
+        "LoRA only ignores this node's stored fusion controls. Match execution_mode "
+        "and Donut Apply's text_weight for an equivalent LoRA comparison."
     )
 
     @classmethod
@@ -211,13 +229,36 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         # Append only: do not shift saved workflows' legacy widget positions.
         required["ui_mode"] = (list(UI_MODES), {
             "default": UI_MODE_ADVANCED,
-            "tooltip": "Simple shows mode, preset and tap_strength. Advanced restores the full controls.",
+            "tooltip": "Simple hides individual fusion controls. UncensorFix composition and execution remain explicit.",
         })
-        return {**schema, "required": required}
+        # Optional, appended widgets preserve old workflow widget indices.
+        optional = dict(schema.get("optional", {}))
+        optional["uncensorfix_controls"] = (list(UNCENSORFIX_CONTROL_MODES), {
+            "default": UNCENSORFIX_LORA_ONLY,
+            "tooltip": "UncensorFix only: LoRA only leaves conditioning and upstream controls untouched. "
+                       "Select LoRA + fusion controls to deliberately combine the Advanced settings.",
+        })
+        optional["execution_mode"] = (list(UNCENSORFIX_EXECUTION_MODES), {
+            "default": "Comfy patches",
+            "tooltip": "UncensorFix only: match Donut Apply LoRA Stack's execution_mode. "
+                       "Experimental bypass reuses its forward-adapter path and compatibility fallbacks. "
+                       "The two execution modes are not numerically interchangeable, especially with quantization.",
+        })
+        return {**schema, "required": required, "optional": optional}
 
-    def apply(self, *args, ui_mode=UI_MODE_ADVANCED, **kwargs):
+    def apply(
+        self, *args, ui_mode=UI_MODE_ADVANCED,
+        uncensorfix_controls=UNCENSORFIX_LORA_ONLY,
+        execution_mode="Comfy patches", **kwargs,
+    ):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
+        if args:
+            # Resolve ALL legacy positional inputs before inspecting preset or
+            # strength, not only conditioning routes in the Off branch.
+            from inspect import signature
+            kwargs = signature(super().apply).bind_partial(*args, **kwargs).arguments
+            args = ()
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
         if preset == PRESET_OFF:
             # Do not call the base node: hidden tap/projector/fusion settings
@@ -225,11 +266,6 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             # original objects, including upstream patches, injections and
             # conditioning metadata. Off only disables this node's changes.
             inputs = kwargs
-            if args:
-                # Preserve direct Python callers' legacy positional arguments
-                # without duplicating the base node's parameter order.
-                from inspect import signature
-                inputs = signature(super().apply).bind_partial(*args, **kwargs).arguments
             conditionings = (
                 inputs["conditioning_in_1"],
                 inputs.get("conditioning_in_2"),
@@ -245,13 +281,35 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             return (inputs["model"], *conditionings, diagnostics)
 
         if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
+            if uncensorfix_controls not in UNCENSORFIX_CONTROL_MODES:
+                raise ValueError(f"Unknown UncensorFix controls mode: {uncensorfix_controls}")
             strength = float(kwargs.get("tap_strength", 1.0))
-            delegated = dict(kwargs)
-            delegated["compatibility_preset"] = base.PRESET_MANUAL
-            result = list(super().apply(*args, **delegated))
-            patched_model, loaded_count, source_details = _apply_uncensorfix(result[0], strength)
+            if uncensorfix_controls == UNCENSORFIX_LORA_ONLY:
+                # Enforce parity server-side, including API workflows and
+                # stale/hidden widget values. Do not depend on JS resetting
+                # controls and do not clear any upstream wrappers or patches.
+                conditionings = tuple(kwargs.get(f"conditioning_in_{i}") for i in range(1, 5))
+                diagnostics = (
+                    f"preset_label={base.PRESET_MANUAL}; preset_is_ui_only=true\n"
+                    "fusion_control=lora_only; conditioning=unchanged\n"
+                    f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
+                    "external_files_loaded=none"
+                )
+                result = [kwargs["model"], *conditionings, diagnostics]
+            else:
+                delegated = dict(kwargs)
+                delegated["compatibility_preset"] = base.PRESET_MANUAL
+                result = list(super().apply(*args, **delegated))
+            patched_model, loaded_count, source_details = _apply_uncensorfix(
+                result[0], strength, execution_mode=execution_mode,
+            )
             result[0] = patched_model
             result[-1] = _rewrite_uncensorfix_diagnostics(result[-1], strength, loaded_count, source_details)
+            result[-1] += (
+                f"\nuncensorfix_controls={uncensorfix_controls}; "
+                f"uncensorfix_execution_mode={execution_mode}; "
+                f"reference_text_weight={strength:g}"
+            )
             return tuple(result)
 
         legacy_preset = SIMPLE_PRESET_TO_LEGACY.get(preset, preset)
