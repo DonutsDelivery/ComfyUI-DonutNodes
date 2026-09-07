@@ -8,14 +8,29 @@ file picker, safetensors parser, LoRA-file loader, or runtime download.
 ## Use
 
 Select **UncensorFix**, then adjust `tap_strength`. Both Simple and Advanced mode
-keep UncensorFix selected during edits. Select Custom or another preset to turn
-it off. Strength zero skips the embedded patch and does not decode its data.
+keep UncensorFix selected during edits. Select **Off** for pass-through, or select another preset to change effects. Strength zero skips the embedded patch and does not decode its data.
 The existing short names, node ID and legacy widget order are retained.
 
 Selecting UncensorFix disables extra tap/projector profiles and selects standard
 fusion. Leave them that way for a comparison with ordinary LoRA application.
 Enabling extra Advanced controls intentionally combines their effects with the
 embedded UncensorFix patch. Do not also apply UncensorFix elsewhere in the chain.
+
+## Off preset
+
+**Off** disables this Fusion Control node's processing, independently of any
+stored tap, projector, enhancer or UncensorFix settings. The incoming MODEL and
+all four conditioning routes are returned as the exact same objects, including
+metadata and unused optional slots. No embedded weights are decoded, no model
+is cloned or patched, and no fusion wrapper or budget is added.
+
+Off does **not** remove upstream LoRAs, merges, runtime injections or UncensorFix
+applied by a different node. It only skips the changes this node would add.
+Stored control values are kept, and editing them or strength while Off is
+selected does not silently reactivate the node. Select an active preset to
+resume, or Custom to use the stored manual settings. Off is available in both
+Simple and Advanced modes; the existing Custom default and widget order stay
+unchanged. Diagnostics report `preset_label=Off` and `fusion_control=off`.
 
 ## Representation and execution
 
@@ -85,11 +100,11 @@ python test_uncensorfix_merge_bypass.py -v
 node --test tests/teacherfix_ui.test.mjs
 ```
 
-The Python suite has 20 CPU tests of the actual embedded data, including checksum,
+The preset Python suite has 26 CPU tests of the actual embedded data, including checksum,
 shape, rank/alpha, corruption handling, cloning, strength propagation, target
 validation, unchanged UI schema, and operation with safetensors, comfy.lora,
 comfy.utils and folder_paths imports blocked. ComfyUI model/base/adapter interfaces
-are test doubles. The 22 JavaScript tests execute the actual preset-label mutation
+are test doubles. The 30 JavaScript tests execute the actual preset-label mutation
 callback and both frontend extensions in both registration orders. They include
 legacy-label migration and Simple/Advanced strength edits in an isolated VM, not a full browser.
 
@@ -97,6 +112,11 @@ A separate local comparison against the private original checked all 99 tensor
 and alpha values and 66 full CPU weight/linear-output comparisons (33 targets at
 strengths 0.75 and 1.0) against the ordinary LoRA reference formula. All were
 bitwise equal. This was not a full ComfyUI/GPU image-generation A/B test.
+
+The Off regressions check exact model/conditioning identity, preservation of
+upstream patches and bypass forwards, no base fusion processing or embedded-data
+access, saved settings, switching modes/presets, and rapid selection while old
+strength callbacks are queued. The merge-bypass suite has 22 CPU tests.
 
 ## Distribution
 

@@ -501,6 +501,17 @@ class MergeBypassTests(unittest.TestCase):
         self.assertFalse(source.patches)
         self.assertFalse(merged.patches)
 
+    def test_off_preserves_existing_merge_and_bypass_lora_forwards(self):
+        upstream = self.add_bypass(self.apply(self.merged(), .75))
+        before = self.outputs(upstream)
+        result = self.node.DonutKrea2FusionControl().apply(
+            model=upstream, conditioning_in_1=object(), compatibility_preset="Off",
+            tap_strength=3., fusion_strength=2., projector_strength=2.)
+        self.assertIs(result[0], upstream)
+        after = self.outputs(result[0])
+        for key in self.keys:
+            self.assertTrue(torch.equal(before[key], after[key]))
+
     def test_zero_strength_keeps_identity_and_does_not_inspect_bypass(self):
         merged = self.merged()
         merged.attachments.clear()  # Invalid metadata must not matter at zero.

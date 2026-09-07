@@ -27,7 +27,7 @@ BASE_NAMES = {
     "PRESET_DONUT_BALANCED": "DONUT settings: RMS-balanced classic",
     "PRESET_DONUT_BALANCED_ENHANCER": "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
 }
-SHORT_NAMES = ["Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
+SHORT_NAMES = ["Off", "Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
                "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
                "Balanced", "Balanced + Enhancer", "UncensorFix"]
 LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
@@ -169,6 +169,7 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
         required = self.module.DonutKrea2FusionControl.INPUT_TYPES()["required"]
         self.assertEqual(list(required), LEGACY_WIDGETS + ["ui_mode"])
         self.assertEqual(required["compatibility_preset"][0], SHORT_NAMES)
+        self.assertEqual(required["compatibility_preset"][1]["default"], "Custom")
         self.assertEqual(required["ui_mode"][1]["default"], "Advanced")
         self.assertEqual(required["tap_strength"][1]["max"], 10.0)
         self.assertEqual(list(self.module.NODE_CLASS_MAPPINGS), ["DonutKrea2FusionControl"])
@@ -256,6 +257,86 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
         with mock.patch.object(FakeModel, "add_patches", return_value=[f"wrong.{i}" for i in range(33)]):
             with self.assertRaisesRegex(RuntimeError, "could not patch every target"):
                 self.module._apply_uncensorfix(FakeModel(self.factors), 1.0)
+
+    def test_off_returns_all_inputs_by_identity_in_both_modes(self):
+        model = object()  # No cloning, state_dict or patch APIs required.
+        routes = ([[object(), {"nested": [1, 2]}]], [], None, [[object(), {}]])
+        for mode in ("Simple", "Advanced"):
+            with self.subTest(mode=mode):
+                result = self.module.DonutKrea2FusionControl().apply(
+                    model=model, compatibility_preset="Off", ui_mode=mode,
+                    **{f"conditioning_in_{i}": value for i, value in enumerate(routes, 1)})
+                self.assertEqual(len(result), 6)
+                for actual, expected in zip(result[:-1], (model, *routes)):
+                    self.assertIs(actual, expected)
+                self.assertIn("preset_label=Off; preset_is_ui_only=false", result[-1])
+                self.assertIn("fusion_control=off", result[-1])
+                self.assertIn("conditioning_routes=3/4", result[-1])
+                self.assertIn("uncensorfix_targets=0", result[-1])
+
+    def test_off_does_not_run_hidden_controls_or_decode_embedded_weights(self):
+        with (
+            mock.patch.object(self.module.base.DonutKrea2FusionControl, "apply",
+                              side_effect=AssertionError("base fusion executed")),
+            mock.patch.object(self.module, "_uncensorfix_factors",
+                              side_effect=AssertionError("embedded data decoded")),
+            mock.patch.object(self.module, "_apply_uncensorfix",
+                              side_effect=AssertionError("embedded patches applied")),
+        ):
+            model, conditioning = object(), object()
+            result = self.module.DonutKrea2FusionControl().apply(
+                model=model, conditioning_in_1=conditioning, compatibility_preset="Off",
+                tap_method=BASE_NAMES["PRESET_REBALANCE"], tap_profile="custom",
+                per_layer_weights="invalid dormant profile", tap_strength=3.,
+                projector_method="Krea2FilterBypass 3vector diff", projector_strength=2.,
+                fusion_method="capitan01R Krea2T-Enhancer operation", fusion_strength=2.)
+            self.assertIs(result[0], model)
+            self.assertIs(result[1], conditioning)
+            self.assertEqual(result[2:5], (None, None, None))
+
+    def test_off_is_safe_without_any_optional_conditioning(self):
+        result = self.module.DonutKrea2FusionControl().apply(
+            model=object(), conditioning_in_1=object(), compatibility_preset="Off")
+        self.assertEqual(result[2:5], (None, None, None))
+        self.assertIn("conditioning_routes=1/4", result[-1])
+
+    def test_off_preserves_upstream_model_state_without_mutation(self):
+        model = FakeModel(())
+        model.patches = {"existing": [object()]}
+        model.injections = {"runtime": [object()]}
+        model.additional_models = {"source": [object()]}
+        model.attachments = {"keep": object()}
+        model.model_options = {"transformer_options": {"upstream": object()}}
+        before = {key: value for key, value in vars(model).items()}
+        with mock.patch.object(model, "clone", side_effect=AssertionError("cloned")):
+            result = self.module.DonutKrea2FusionControl().apply(
+                model=model, conditioning_in_1=object(), compatibility_preset="Off")
+        self.assertIs(result[0], model)
+        for key, value in before.items():
+            self.assertIs(getattr(model, key), value)
+
+    def test_off_supports_legacy_positional_routes_without_running_base(self):
+        def base_apply(self, model, conditioning_in_1, ignored_control,
+                       conditioning_in_2=None, conditioning_in_3=None,
+                       conditioning_in_4=None, compatibility_preset="Custom settings"):
+            raise AssertionError("base called")
+        inputs = (object(), object(), "unused", object(), None, object())
+        with mock.patch.object(self.module.base.DonutKrea2FusionControl, "apply", base_apply):
+            result = self.module.DonutKrea2FusionControl().apply(
+                *inputs, compatibility_preset="Off")
+        for actual, expected in zip(result[:-1], (inputs[0], inputs[1], *inputs[3:])):
+            self.assertIs(actual, expected)
+
+    def test_switching_to_off_does_not_mutate_prior_uncensorfix_output(self):
+        model, cond = FakeModel(self.factors), object()
+        node = self.module.DonutKrea2FusionControl()
+        enabled = node.apply(model=model, conditioning_in_1=cond,
+                             compatibility_preset="UncensorFix", tap_strength=.75)
+        disabled = node.apply(model=model, conditioning_in_1=cond,
+                              compatibility_preset="Off", tap_strength=.75)
+        self.assertIs(disabled[0], model)
+        self.assertFalse(model.patches)
+        self.assertEqual(len(enabled[0].patches), 33)
 
     def test_invalid_ui_mode_rejected(self):
         with self.assertRaisesRegex(ValueError, "UI mode"):

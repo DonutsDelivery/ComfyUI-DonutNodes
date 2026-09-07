@@ -2,7 +2,8 @@
 
 The existing DonutKrea2FusionControl node ID is retained. UncensorFix uses numerical
 factors embedded in Python source. It never reads safetensors, searches LoRA
-folders, or downloads weights. All other presets delegate to the base node.
+folders, or downloads weights. Off is a pure pass-through; other presets delegate
+to the base node.
 """
 
 import math
@@ -15,6 +16,7 @@ UI_MODE_SIMPLE = "Simple"
 UI_MODE_ADVANCED = "Advanced"
 UI_MODES = (UI_MODE_SIMPLE, UI_MODE_ADVANCED)
 
+PRESET_OFF = "Off"
 PRESET_CUSTOM = "Custom"
 PRESET_BYPASS_2 = "Bypass 2"
 PRESET_BYPASS_3 = "Bypass 3"
@@ -41,7 +43,7 @@ SIMPLE_PRESET_TO_LEGACY = {
     PRESET_BALANCED: base.PRESET_DONUT_BALANCED,
     PRESET_BALANCED_ENHANCER: base.PRESET_DONUT_BALANCED_ENHANCER,
 }
-SIMPLE_PRESETS = tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_UNCENSORFIX,)
+SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_UNCENSORFIX,)
 LEGACY_PRESET_TO_SIMPLE = {legacy: simple for simple, legacy in SIMPLE_PRESET_TO_LEGACY.items()}
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_UNCENSORFIX
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX_SHORT] = PRESET_UNCENSORFIX
@@ -196,7 +198,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         required["compatibility_preset"] = _preset_combo_spec(
             required["compatibility_preset"],
             "Select a preset. UncensorFix uses embedded weights and stays selected when "
-            "its controls are edited. Select Custom or another preset to turn it off.",
+            "its controls are edited. Off passes the input model and conditioning through "
+            "unchanged, preserving upstream LoRAs and stored control values.",
         )
         spec = required["tap_strength"]
         settings = dict(spec[1]) if len(spec) > 1 and isinstance(spec[1], dict) else {}
@@ -216,6 +219,31 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
+        if preset == PRESET_OFF:
+            # Do not call the base node: hidden tap/projector/fusion settings
+            # from the last active preset can still be non-neutral. Return the
+            # original objects, including upstream patches, injections and
+            # conditioning metadata. Off only disables this node's changes.
+            inputs = kwargs
+            if args:
+                # Preserve direct Python callers' legacy positional arguments
+                # without duplicating the base node's parameter order.
+                from inspect import signature
+                inputs = signature(super().apply).bind_partial(*args, **kwargs).arguments
+            conditionings = (
+                inputs["conditioning_in_1"],
+                inputs.get("conditioning_in_2"),
+                inputs.get("conditioning_in_3"),
+                inputs.get("conditioning_in_4"),
+            )
+            diagnostics = (
+                "preset_label=Off; preset_is_ui_only=false\n"
+                "fusion_control=off; uncensorfix_targets=0\n"
+                f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
+                "external_files_loaded=none"
+            )
+            return (inputs["model"], *conditionings, diagnostics)
+
         if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
             strength = float(kwargs.get("tap_strength", 1.0))
             delegated = dict(kwargs)
