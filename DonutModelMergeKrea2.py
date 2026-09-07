@@ -10,6 +10,7 @@ materialized linear forward instead of evaluating both full model layers.
 from __future__ import annotations
 
 import math
+import re
 import uuid
 import weakref
 from typing import Any
@@ -322,10 +323,92 @@ def _make_dynamic_bypass_injection(plans):
     return PatcherInjection(inject=inject, eject=eject)
 
 
+def _identity_merge_weight(weight, **kwargs):
+    return weight
+
+
+def _virtual_weight_keys(model, state):
+    """Identify export-only keys, not ordinary buffers or missing parameters."""
+    virtual = set()
+    exports = {}
+    for key in state:
+        path, separator, name = key.rpartition(".")
+        if not separator:
+            continue
+        module = model
+        try:
+            for part in path.split("."):
+                module = getattr(module, part)
+        except AttributeError:
+            continue  # The actual weight getter must report this broken path.
+        if hasattr(module, name):
+            continue  # Real attributes, including legacy scales, are not skipped.
+        if path not in exports:
+            weight = getattr(module, "weight", None)
+            serialize = getattr(weight, "state_dict", None)
+            convert = getattr(module, "convert_weight", None)
+            proven = set()
+            if callable(serialize) and callable(convert):
+                payload = serialize(f"{path}.weight")
+                if isinstance(payload, dict) and f"{path}.weight" in payload:
+                    # Comfy stores the scale in the tensor layout, and exports
+                    # it beside weight. Keep that live tensor and its converter.
+                    proven.update(payload)
+                    if getattr(module, "quant_format", None) is not None:
+                        # The module emits this marker separately from weight.
+                        proven.add(f"{path}.comfy_quant")
+            exports[path] = proven
+        if key in exports[path]:
+            virtual.add(key)
+    return virtual
+
+
+def _get_merge_key_patches(patcher, filter_prefix=None):
+    """Preserve host patch/conversion semantics; recover only virtual-key errors."""
+    try:
+        return patcher.get_key_patches(filter_prefix)
+    except AttributeError as error:
+        missing = getattr(error, "name", None)
+        if not missing:
+            match = re.search(r"object has no attribute '([^']+)'$", str(error))
+            missing = match.group(1) if match else None
+        if not missing or not callable(getattr(patcher, "model_state_dict", None)):
+            raise
+        state = patcher.model_state_dict()
+        if filter_prefix is not None:
+            state = {key: value for key, value in state.items() if key.startswith(filter_prefix)}
+        virtual = _virtual_weight_keys(patcher.model, state)
+        if not any(key.rpartition(".")[2] == missing for key in virtual):
+            raise
+        # Silently dropping an explicit patch/backup would lose user changes.
+        for key in virtual:
+            if any(key in getattr(patcher, field, {}) for field in ("patches", "backup", "hook_backup")):
+                raise RuntimeError(f"Cannot merge an explicit patch/backup on export-only metadata: {key}") from error
+
+    from comfy.model_patcher import get_key_weight
+
+    patches = {}
+    for key in state:
+        if key in virtual:
+            continue
+        # Do not use state[key]: packed/exported tensors can differ from the
+        # live logical weight. Unknown missing attributes still raise here.
+        weight, _, convert = get_key_weight(patcher.model, key)
+        backup = patcher.backup.get(key)
+        if backup is not None:
+            weight = backup.weight
+        hook_backup = patcher.hook_backup.get(key)
+        if hook_backup is not None:
+            weight = hook_backup[0]
+        patches[key] = [(weight, convert if convert is not None else _identity_merge_weight)]
+        patches[key].extend(patcher.patches.get(key, ()))
+    return patches
+
+
 def _regular_merge(model1, model2, ratios):
     """Mirror ComfyUI's ModelMergeBlocks patch orientation exactly."""
     merged = model1.clone()
-    patches = model2.get_key_patches(_DIFFUSION_PREFIX)
+    patches = _get_merge_key_patches(model2, _DIFFUSION_PREFIX)
     for key, patch in patches.items():
         ratio = _ratio_for_key(key, ratios)
         merged.add_patches({key: patch}, 1.0 - ratio, ratio)
@@ -441,7 +524,7 @@ class DonutModelMergeKrea2:
 
         merged = model1.clone()
         source = model2.clone()
-        patches = model2.get_key_patches(_DIFFUSION_PREFIX)
+        patches = _get_merge_key_patches(model2, _DIFFUSION_PREFIX)
         plans, bypassed_keys = _build_bypass_plans(
             merged,
             source,
