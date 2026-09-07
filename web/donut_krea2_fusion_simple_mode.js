@@ -359,6 +359,10 @@ app.registerExtension({
       if (presetWidget) {
         const previous = presetWidget.callback;
         presetWidget.callback = function (value) {
+          // A queued strength callback from an earlier selection must not
+          // restore that preset after the user explicitly selects Off/Custom.
+          const selectionVersion = (node._donutKrea2PresetSelectionVersion ?? 0) + 1;
+          node._donutKrea2PresetSelectionVersion = selectionVersion;
           const callbackResult = previous?.apply(this, arguments);
           const simplified = simplifyPresetName(value);
           applySimplePreset(node, simplified);
@@ -366,6 +370,7 @@ app.registerExtension({
           if (widget(node, "ui_mode")?.value === SIMPLE) {
             queueMicrotask(() => {
               if (widget(node, "ui_mode")?.value !== SIMPLE) return;
+              if (node._donutKrea2PresetSelectionVersion !== selectionVersion) return;
               syncSimpleStrength(node, simplified);
               updateModeVisibility(node);
             });
@@ -379,10 +384,12 @@ app.registerExtension({
         const previous = tapStrengthWidget.callback;
         tapStrengthWidget.callback = function (value) {
           const presetBefore = simplifyPresetName(presetWidget?.value);
+          const selectionVersion = node._donutKrea2PresetSelectionVersion ?? 0;
           const callbackResult = previous?.apply(this, arguments);
           if (widget(node, "ui_mode")?.value === SIMPLE && presetBefore && presetBefore !== CUSTOM) {
             queueMicrotask(() => {
               if (widget(node, "ui_mode")?.value !== SIMPLE) return;
+              if ((node._donutKrea2PresetSelectionVersion ?? 0) !== selectionVersion) return;
               if (presetWidget) presetWidget.value = presetBefore;
               syncSimpleStrength(node, presetBefore);
               updateModeVisibility(node);

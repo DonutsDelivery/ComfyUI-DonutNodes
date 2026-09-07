@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const NODE_NAME = "DonutKrea2FusionControl";
 const CUSTOM = "Custom";
+const OFF = "Off";
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
@@ -296,7 +297,10 @@ app.registerExtension({
           const uncensorFixActive = presetWidget?.value === "UncensorFix"
             || presetWidget?.value === "TeacherFix"
             || presetWidget?.value === "DONUT settings: Krea2 C33 TeacherFix EMA5000";
-          if (!node._donutApplyingKrea2Preset && presetWidget && !uncensorFixActive) {
+          // Off must stay off when dormant settings/strength are edited;
+          // otherwise the automatic Custom label would enable them again.
+          const offActive = presetWidget?.value === OFF;
+          if (!node._donutApplyingKrea2Preset && presetWidget && !uncensorFixActive && !offActive) {
             presetWidget.value = CUSTOM;
           }
           updateVisibility(node);

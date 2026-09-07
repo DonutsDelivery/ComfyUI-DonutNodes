@@ -161,3 +161,57 @@ for (const reverse of [false, true]) {
     }
   }
 }
+
+// Off is a real runtime switch, not a numeric preset. Keep dormant settings
+// intact and never re-enable them as a side effect of an automatic label edit.
+for (const reverse of [false, true]) {
+  for (const mode of ["Simple", "Advanced"]) {
+    test(`Off pass-through selection: ${mode}, reverse=${reverse}`, () => {
+      const { node, flush } = makeCombinedNode("UncensorFix", mode, reverse);
+      edit(node, "compatibility_preset", "Rebalance + Enhancer");
+      flush();
+      const previousValues = settings.map(name => widget(node, name).value);
+      edit(node, "compatibility_preset", "Off");
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "Off");
+      assert.deepEqual(settings.map(name => widget(node, name).value), previousValues);
+      for (const name of settings) {
+        edit(node, name, name.endsWith("profile") ? "classic" : 1);
+        assert.equal(widget(node, "compatibility_preset").value, "Off", name);
+        flush();
+        assert.equal(widget(node, "compatibility_preset").value, "Off", name);
+      }
+      const savedValues = settings.map(name => widget(node, name).value);
+      node.onConfigure();
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "Off");
+      assert.deepEqual(settings.map(name => widget(node, name).value), savedValues);
+      edit(node, "compatibility_preset", "UncensorFix");
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+      assert.equal(widget(node, "tap_profile").value, "off");
+      edit(node, "tap_strength", .75);
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+      edit(node, "compatibility_preset", "Off");
+      flush();
+      edit(node, "compatibility_preset", "Custom");
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "Custom");
+    });
+
+    test(`explicit selection wins over queued strength callbacks: ${mode}, reverse=${reverse}`, () => {
+      const { node, flush } = makeCombinedNode("UncensorFix", mode, reverse);
+      for (const [from, to] of [["UncensorFix", "Off"], ["Bypass 2", "Off"],
+        ["Off", "Custom"], ["Off", "UncensorFix"]]) {
+        edit(node, "compatibility_preset", from);
+        flush();
+        edit(node, "tap_strength", .75);
+        // Intentionally do not flush the old strength callback before selection.
+        edit(node, "compatibility_preset", to);
+        flush();
+        assert.equal(widget(node, "compatibility_preset").value, to);
+      }
+    });
+  }
+}
