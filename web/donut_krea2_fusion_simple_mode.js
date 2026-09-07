@@ -4,7 +4,7 @@ const NODE_NAME = "DonutKrea2FusionControl";
 const SIMPLE = "Simple";
 const ADVANCED = "Advanced";
 const CUSTOM = "Custom";
-const TEACHERFIX = "TeacherFix";
+const UNCENSORFIX = "UncensorFix";
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
@@ -25,7 +25,8 @@ const LEGACY_TO_SIMPLE = {
   "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
   "DONUT settings: RMS-balanced classic": "Balanced",
   "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
-  "DONUT settings: Krea2 C33 TeacherFix EMA5000": TEACHERFIX,
+  "DONUT settings: Krea2 C33 TeacherFix EMA5000": UNCENSORFIX,
+  "TeacherFix": UNCENSORFIX,
 };
 
 const SIMPLE_PRESETS = {
@@ -155,7 +156,7 @@ const SIMPLE_PRESETS = {
     fusion_method: FUSION_ENHANCER,
     fusion_strength: 1.0,
   },
-  [TEACHERFIX]: {
+  [UNCENSORFIX]: {
     tap_method: TAP_DONUT,
     tap_profile: "off",
     tap_strength: 1.0,
@@ -304,7 +305,7 @@ function updateModeVisibility(node) {
       visible.add("tap_normalization");
     }
   }
-  if (preset === TEACHERFIX) visible.add("tap_strength");
+  if (preset === UNCENSORFIX) visible.add("tap_strength");
 
   if (projectorMethod === PROJECTOR_DONUT) {
     visible.add("projector_profile");

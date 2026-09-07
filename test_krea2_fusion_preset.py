@@ -29,7 +29,7 @@ BASE_NAMES = {
 }
 SHORT_NAMES = ["Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
                "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
-               "Balanced", "Balanced + Enhancer", "TeacherFix"]
+               "Balanced", "Balanced + Enhancer", "UncensorFix"]
 LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
                   "tap_profile", "per_layer_weights", "tap_strength", "tap_formula",
                   "tap_normalization", "projector_method", "projector_profile",
@@ -66,7 +66,7 @@ class FakeModel:
         return list(patches)
 
 
-class EmbeddedTeacherFixTests(unittest.TestCase):
+class EmbeddedUncensorFixTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         name = "_donut_embedded_testpkg"
@@ -111,8 +111,8 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location(name + ".DonutKrea2FusionPreset", ROOT / "DonutKrea2FusionPreset.py")
         cls.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.module)
-        cls.weights = __import__(name + ".teacherfix_weights", fromlist=["*"])
-        cls.factors = cls.weights.get_teacherfix_factors()
+        cls.weights = __import__(name + ".uncensorfix_weights", fromlist=["*"])
+        cls.factors = cls.weights.get_uncensorfix_factors()
 
     def test_all_33_embedded_targets_and_exact_payload(self):
         self.assertEqual(len(self.factors), 33)
@@ -136,20 +136,20 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
         raw = self.weights._decode_payload(self.weights._PAYLOAD)
         self.assertNotIn(b"source_checkpoint", raw)
         self.assertNotIn(b"__metadata__", raw)
-        source = (ROOT / "teacherfix_weights.py").read_text()
+        source = (ROOT / "uncensorfix_weights.py").read_text()
         self.assertNotIn("krea2_c33_teacherfix_ema5000.safetensors", source)
         self.assertNotIn("source_checkpoint", source)
 
     def test_runtime_needs_no_safetensors_or_lora_loader(self):
         # Those module imports are blocked for the entire test class.
-        result, count, name = self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+        result, count, name = self.module._apply_uncensorfix(FakeModel(self.factors), 1.0)
         self.assertEqual(count, 33)
         self.assertEqual(name, "embedded")
         self.assertEqual(len(result.patches), 33)
 
     def test_decode_is_cached(self):
         with mock.patch.object(self.weights, "_decode_payload", side_effect=AssertionError("decoded twice")):
-            self.assertIs(self.factors, self.weights.get_teacherfix_factors())
+            self.assertIs(self.factors, self.weights.get_uncensorfix_factors())
 
     def test_corrupt_payload_fails(self):
         with self.assertRaisesRegex(RuntimeError, "corrupt|SHA-256"):
@@ -175,21 +175,21 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
 
     def test_zero_strength_never_decodes_or_inspects_model(self):
         original = object()
-        with mock.patch.object(self.module, "_teacherfix_factors", side_effect=AssertionError("data accessed")):
-            result, count, _ = self.module._apply_teacherfix(original, 0.0)
+        with mock.patch.object(self.module, "_uncensorfix_factors", side_effect=AssertionError("data accessed")):
+            result, count, _ = self.module._apply_uncensorfix(original, 0.0)
         self.assertIs(result, original)
         self.assertEqual(count, 0)
 
     def test_nonfinite_strength_rejected(self):
         for value in (float("nan"), float("inf"), -float("inf")):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                self.module._apply_teacherfix(object(), value)
+                self.module._apply_uncensorfix(object(), value)
 
     def test_all_factors_alphas_and_strengths_reach_patch_path(self):
         for strength in (-0.5, 0.75, 1.0, 2.0):
             original = FakeModel(self.factors)
             original.patches["unrelated.weight"] = ("diff", ())
-            result, count, _ = self.module._apply_teacherfix(original, strength)
+            result, count, _ = self.module._apply_uncensorfix(original, strength)
             self.assertIsNot(result, original)
             self.assertEqual(count, 33)
             self.assertEqual(result.strength, strength)
@@ -206,7 +206,7 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
                 self.assertNotEqual(values[1].data_ptr(), down.data_ptr())
 
     def test_short_legacy_labels_both_modes_and_diagnostics(self):
-        for preset in ("TeacherFix", self.module.LEGACY_TEACHERFIX):
+        for preset in ("UncensorFix", "TeacherFix", self.module.LEGACY_TEACHERFIX):
             for mode in ("Simple", "Advanced"):
                 cond = object()
                 result = self.module.DonutKrea2FusionControl().apply(
@@ -215,12 +215,13 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
                 self.assertEqual(len(result[0].patches), 33)
                 self.assertEqual(result[0].strength, .75)
                 self.assertIs(result[1], cond)
-                self.assertIn("teacherfix_source=embedded", result[-1])
-                self.assertIn("teacherfix_targets=33", result[-1])
+                self.assertIn("preset_label=UncensorFix;", result[-1])
+                self.assertIn("uncensorfix_source=embedded", result[-1])
+                self.assertIn("uncensorfix_targets=33", result[-1])
                 self.assertIn("external_files_loaded=none", result[-1])
 
     def test_other_presets_never_decode_weights(self):
-        with mock.patch.object(self.module, "_teacherfix_factors", side_effect=AssertionError("data accessed")):
+        with mock.patch.object(self.module, "_uncensorfix_factors", side_effect=AssertionError("data accessed")):
             for short, legacy in self.module.SIMPLE_PRESET_TO_LEGACY.items():
                 original = object()
                 result = self.module.DonutKrea2FusionControl().apply(
@@ -233,28 +234,28 @@ class EmbeddedTeacherFixTests(unittest.TestCase):
         model.state.pop(next(iter(model.state)))
         with mock.patch.object(model, "clone", side_effect=AssertionError("clone too soon")):
             with self.assertRaisesRegex(RuntimeError, "missing or wrong shape"):
-                self.module._apply_teacherfix(model, 1.0)
+                self.module._apply_uncensorfix(model, 1.0)
 
     def test_wrong_model_shape_rejected(self):
         model = FakeModel(self.factors)
         model.state[next(iter(model.state))] = types.SimpleNamespace(shape=(2, 3))
         with self.assertRaisesRegex(RuntimeError, "wrong shape"):
-            self.module._apply_teacherfix(model, 1.0)
+            self.module._apply_uncensorfix(model, 1.0)
 
     def test_incomplete_embedded_target_set_rejected(self):
-        with mock.patch.object(self.module, "_teacherfix_factors", return_value=self.factors[:-1]):
+        with mock.patch.object(self.module, "_uncensorfix_factors", return_value=self.factors[:-1]):
             with self.assertRaisesRegex(RuntimeError, "exactly 33"):
-                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+                self.module._apply_uncensorfix(FakeModel(self.factors), 1.0)
 
     def test_partial_patch_acceptance_rejected(self):
         with mock.patch.object(FakeModel, "add_patches", return_value=[]):
             with self.assertRaisesRegex(RuntimeError, "0/33"):
-                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+                self.module._apply_uncensorfix(FakeModel(self.factors), 1.0)
 
     def test_same_count_wrong_accepted_keys_rejected(self):
         with mock.patch.object(FakeModel, "add_patches", return_value=[f"wrong.{i}" for i in range(33)]):
             with self.assertRaisesRegex(RuntimeError, "could not patch every target"):
-                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+                self.module._apply_uncensorfix(FakeModel(self.factors), 1.0)
 
     def test_invalid_ui_mode_rejected(self):
         with self.assertRaisesRegex(ValueError, "UI mode"):

@@ -40,7 +40,7 @@ function edit(node, name, value) {
 }
 
 for (const mode of ["Simple", "Advanced"]) {
-  for (const preset of ["TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"]) {
+  for (const preset of ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"]) {
     test(`${mode}: ${preset} survives strength edits synchronously`, () => {
       const node = makeNode(preset, mode);
       for (const value of [0, .75, 1, 2]) {
@@ -52,11 +52,11 @@ for (const mode of ["Simple", "Advanced"]) {
   }
 }
 
-test("TeacherFix stays active while other Advanced controls are edited", () => {
-  const node = makeNode("TeacherFix", "Advanced");
+test("UncensorFix stays active while other Advanced controls are edited", () => {
+  const node = makeNode("UncensorFix", "Advanced");
   for (const name of settings) {
     edit(node, name, name.endsWith("profile") ? "off" : 1);
-    assert.equal(widget(node, "compatibility_preset").value, "TeacherFix", name);
+    assert.equal(widget(node, "compatibility_preset").value, "UncensorFix", name);
   }
 });
 
@@ -66,17 +66,98 @@ test("ordinary COPY-style presets still become Custom when edited", () => {
   assert.equal(widget(node, "compatibility_preset").value, "Custom");
 });
 
-test("explicitly selecting Custom disables TeacherFix rather than restoring it", () => {
-  const node = makeNode("TeacherFix", "Advanced");
+test("explicitly selecting Custom disables UncensorFix rather than restoring it", () => {
+  const node = makeNode("UncensorFix", "Advanced");
   edit(node, "compatibility_preset", "Custom");
   edit(node, "tap_strength", .75);
   assert.equal(widget(node, "compatibility_preset").value, "Custom");
 });
 
-test("applying a different preset does not keep TeacherFix selected", () => {
-  const node = makeNode("TeacherFix", "Advanced");
+test("applying a different preset does not keep UncensorFix selected", () => {
+  const node = makeNode("UncensorFix", "Advanced");
   const preset = "COPY settings: Krea2FilterBypass 2vector";
   edit(node, "compatibility_preset", preset);
   assert.equal(widget(node, "compatibility_preset").value, preset);
   assert.equal(widget(node, "projector_method").value, "Krea2FilterBypass 2vector diff");
 });
+
+// Exercise both real extensions together so a rename cannot leave the preset
+// table, legacy-workflow migration and strength callback out of sync.
+const modeSource = fs.readFileSync(new URL("../web/donut_krea2_fusion_simple_mode.js", import.meta.url), "utf8")
+  .replace(/^import .*;\n/m, "");
+
+function makeCombinedNode(preset, mode, reverse) {
+  const extensions = [];
+  const tasks = [];
+  const context = vm.createContext({
+    app: { registerExtension(extension) { extensions.push(extension); } },
+    queueMicrotask(fn) { tasks.push(fn); },
+  });
+  for (const script of reverse ? [modeSource, source] : [source, modeSource]) {
+    vm.runInContext(`(() => {\n${script}\n})()`, context);
+  }
+  class Node {
+    constructor() {
+      this.size = [400, 400];
+      this.widgets = [...settings, "compatibility_preset", "ui_mode"].map(name => ({
+        name, type: "number", value: 1, computeSize: () => [100, 20],
+      }));
+      widget(this, "compatibility_preset").value = preset;
+      widget(this, "ui_mode").value = mode;
+    }
+    computeSize() { return [400, 400]; }
+    setSize(value) { this.size = value; }
+  }
+  for (const extension of extensions) {
+    extension.beforeRegisterNodeDef(Node, { name: "DonutKrea2FusionControl" });
+  }
+  const flush = () => {
+    let remaining = 1000;
+    while (tasks.length) {
+      assert.ok(remaining-- > 0, "callbacks must settle");
+      tasks.shift()();
+    }
+  };
+  const node = new Node();
+  node.onNodeCreated();
+  flush();
+  return { node, flush };
+}
+
+for (const reverse of [false, true]) {
+  for (const mode of ["Simple", "Advanced"]) {
+    for (const oldName of ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"]) {
+      test(`combined extensions: ${mode}, reverse=${reverse}, saved=${oldName}`, () => {
+        const { node, flush } = makeCombinedNode(oldName, mode, reverse);
+        node.onConfigure();
+        flush();
+        assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+        edit(node, "compatibility_preset", "UncensorFix");
+        flush();
+        assert.equal(widget(node, "tap_profile").value, "off");
+        assert.equal(widget(node, "projector_profile").value, "off");
+        assert.equal(widget(node, "fusion_method").value, "Standard Krea2 fusion");
+        edit(node, "tap_strength", .75);
+        assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+        flush();
+        assert.equal(widget(node, "tap_strength").value, .75);
+        assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+        assert.equal(widget(node, "tap_strength").hidden, false);
+        if (mode === "Simple") {
+          for (const name of settings.filter(name => name !== "tap_strength")) {
+            assert.equal(widget(node, name).hidden, true, name);
+          }
+        }
+        edit(node, "compatibility_preset", "Custom");
+        flush();
+        edit(node, "tap_strength", .5);
+        flush();
+        assert.equal(widget(node, "compatibility_preset").value, "Custom");
+        edit(node, "compatibility_preset", "Bypass 2");
+        flush();
+        assert.equal(widget(node, "compatibility_preset").value, "Bypass 2");
+        assert.equal(widget(node, "projector_method").value, "Krea2FilterBypass 2vector diff");
+      });
+    }
+  }
+}

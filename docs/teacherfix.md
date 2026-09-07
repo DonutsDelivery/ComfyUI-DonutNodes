@@ -1,21 +1,21 @@
-# Embedded TeacherFix preset
+# Embedded UncensorFix preset
 
-TeacherFix lives in the existing Donut Krea2 Fusion Control node. Its numerical
-factor tensors are embedded in `teacherfix_weights.py`. The original safetensors
+UncensorFix lives in the existing Donut Krea2 Fusion Control node. Its numerical
+factor tensors are embedded in `uncensorfix_weights.py`. The original safetensors
 file and its metadata are not included. There is no separate asset, file lookup,
 file picker, safetensors parser, LoRA-file loader, or runtime download.
 
 ## Use
 
-Select **TeacherFix**, then adjust `tap_strength`. Both Simple and Advanced mode
-keep TeacherFix selected during edits. Select Custom or another preset to turn
+Select **UncensorFix**, then adjust `tap_strength`. Both Simple and Advanced mode
+keep UncensorFix selected during edits. Select Custom or another preset to turn
 it off. Strength zero skips the embedded patch and does not decode its data.
 The existing short names, node ID and legacy widget order are retained.
 
-Selecting TeacherFix disables extra tap/projector profiles and selects standard
+Selecting UncensorFix disables extra tap/projector profiles and selects standard
 fusion. Leave them that way for a comparison with ordinary LoRA application.
 Enabling extra Advanced controls intentionally combines their effects with the
-embedded TeacherFix patch. Do not also apply TeacherFix elsewhere in the chain.
+embedded UncensorFix patch. Do not also apply UncensorFix elsewhere in the chain.
 
 ## Representation and execution
 
@@ -50,8 +50,9 @@ The Python suite has 20 CPU tests of the actual embedded data, including checksu
 shape, rank/alpha, corruption handling, cloning, strength propagation, target
 validation, unchanged UI schema, and operation with safetensors, comfy.lora,
 comfy.utils and folder_paths imports blocked. ComfyUI model/base/adapter interfaces
-are test doubles. The 8 JavaScript tests execute the actual preset-label mutation
-callback in an isolated VM, not a full browser.
+are test doubles. The 22 JavaScript tests execute the actual preset-label mutation
+callback and both frontend extensions in both registration orders. They include
+legacy-label migration and Simple/Advanced strength edits in an isolated VM, not a full browser.
 
 A separate local comparison against the private original checked all 99 tensor
 and alpha values and 66 full CPU weight/linear-output comparisons (33 targets at
@@ -60,6 +61,13 @@ bitwise equal. This was not a full ComfyUI/GPU image-generation A/B test.
 
 ## Distribution
 
-Ship `teacherfix_weights.py` alongside `DonutKrea2FusionPreset.py`, not an
+Ship `uncensorfix_weights.py` alongside `DonutKrea2FusionPreset.py`, not an
 `assets/*.safetensors` file. The complete Embedded Update ZIP contains the module
 and needs no original weight file. This replaces the earlier bundled-file ZIP.
+
+## Rename compatibility
+
+The visible preset is **UncensorFix** and its data module is `uncensorfix_weights.py`.
+Saved workflows using either previous TeacherFix label are normalized to UncensorFix;
+the numerical data is unchanged. The existing documentation and test filenames are
+retained to avoid breaking links and test commands.

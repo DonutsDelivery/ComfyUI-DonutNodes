@@ -289,13 +289,14 @@ app.registerExtension({
             const profile = widget(node, "projector_profile");
             if (profile) profile.value = "custom";
           }
-          // TeacherFix is an active bundled weight patch, not just a COPY
+          // UncensorFix is an active embedded weight patch, not just a COPY
           // label. Renaming it to Custom would silently disable its weights.
           // Keep it selected during edits in either mode; the user can still
           // explicitly select Custom or any other preset to turn it off.
-          const teacherFixActive = presetWidget?.value === "TeacherFix"
+          const uncensorFixActive = presetWidget?.value === "UncensorFix"
+            || presetWidget?.value === "TeacherFix"
             || presetWidget?.value === "DONUT settings: Krea2 C33 TeacherFix EMA5000";
-          if (!node._donutApplyingKrea2Preset && presetWidget && !teacherFixActive) {
+          if (!node._donutApplyingKrea2Preset && presetWidget && !uncensorFixActive) {
             presetWidget.value = CUSTOM;
           }
           updateVisibility(node);
