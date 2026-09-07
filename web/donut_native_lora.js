@@ -1,3 +1,5 @@
+import { createLoraToolbar, renderLoraInformation } from "./donut_lora_ui.js";
+
 // Native ComfyUI controls; slots_json remains the ONLY serialized row state.
 // No datalist, HTML select or hand-built dropdown menu.
 export function decodeRows(value) {
@@ -107,7 +109,7 @@ export function installNativeLoras(node, definition, { app, api, service }) {
         presets: unique(["None", ...(options.donut_presets || [])]) };
     let rows = [], ui = [], disposed = false, invalid = false, listError = "";
     let generation = 0, catalogLoading = true;
-    const panels = new Map(), details = new Map(), expanded = new Set();
+    const panels = new Map(), details = new Map(), expanded = new Set(), panelViews = new Map();
     const get = name => backend.find(w => w.name === name)?.value;
     const lookupOn = () => get("civitai_lookup") === "On";
     const dirty = () => { node.setDirtyCanvas?.(true, true); app.graph?.change?.(); };
@@ -132,6 +134,7 @@ export function installNativeLoras(node, definition, { app, api, service }) {
         return element;
     };
     function clearUI() {
+        for (const panel of panels.values()) panel.dispose?.();
         for (const widget of ui) {
             if (node.removeWidget) node.removeWidget(widget);
             else { widget.onRemove?.(); const i = node.widgets.indexOf(widget); if (i >= 0) node.widgets.splice(i, 1); }
@@ -145,72 +148,43 @@ export function installNativeLoras(node, definition, { app, api, service }) {
         const info = details.get(String(row.id));
         return info?.name === row.lora_name ? info : undefined;
     }
+    function changeRows(change) {
+        const graph = node.graph || app.graph;
+        graph?.beforeChange?.();
+        try { change(); commit(); render(); }
+        finally { graph?.afterChange?.(); }
+    }
+    function rowAction(row, action) {
+        // Resolve identity at click time. Reorder/refresh must never make a stale
+        // index remove the neighbour, including two slots with the same filename.
+        const index = rows.indexOf(row), key = String(row.id);
+        if (index < 0 || disposed || invalid) return;
+        if (action === "Retry metadata") { requestDetails(row, true); return; }
+        if (action === "Move up" || action === "Move down") {
+            const to = index + (action === "Move up" ? -1 : 1);
+            if (to < 0 || to >= rows.length) return;
+            changeRows(() => { rows = moveRow(rows, index, to); });
+        } else if (action === "Remove") {
+            changeRows(() => { rows.splice(index, 1); details.delete(key); expanded.delete(key); panelViews.delete(key); });
+        } else if (action === "Use suggested model weight") {
+            const weight = validInfo(row)?.info?.civitai?.recommended_weight;
+            if (typeof weight !== "number" || !Number.isFinite(weight) || Math.abs(weight) > 1000) return;
+            changeRows(() => { row.model_weight = weight; }); // CLIP/text fusion stays unchanged.
+        }
+    }
     function updatePanel(row) {
         const panel = panels.get(String(row.id));
         if (!panel) return;
-        const { root, widget } = panel;
-        root.replaceChildren();
-        const data = validInfo(row) || {};
-        root.append(el("strong", "Detected weights"));
-        const analysis = data.analysis;
-        if (analysis?.supported) {
-            root.append(el("div", `${analysis.tensor_count} tensors · ${analysis.components?.length || 0} components`));
-            for (const component of analysis.components || []) {
-                const groups = (component.groups || []).map(g => `${g.name}: ${g.indices.join(", ")}`).join("; ");
-                root.append(el("div", `${component.name} (${component.modules} modules)${groups ? " · " + groups : ""}`));
-            }
-        } else root.append(el("div", analysis?.error || data.analysisError || "Inspecting local file…"));
-        root.append(el("div", `Your strengths: model ${row.model_weight} · CLIP/text fusion ${row.clip_weight}`));
-        const info = data.info?.civitai;
-        root.append(el("strong", lookupOn() ? "CivitAI" : "CivitAI lookup is off"));
-        if (info) {
-            root.append(el("div", `${info.model_name || ""}${info.version_name ? " · " + info.version_name : ""}`));
-            root.append(el("div", `${info.base_model || ""}${info.creator_username ? " · " + info.creator_username : ""}`));
-            const weight = info.recommended_weight;
-            if (typeof weight === "number" && Number.isFinite(weight)) {
-                root.append(el("div", `Suggested weight: ${weight} (CivitAI example/cache hint; not applied automatically)`));
-            }
-            if (info.trained_words?.length) root.append(el("div", `Triggers: ${info.trained_words.join(", ")}`));
-            // Remote descriptions are text, never executable HTML.
-            if (info.description) {
-                const more = el("details"), summary = el("summary", "Description");
-                more.append(summary, el("div", String(info.description).replace(/<[^>]*>/g, "")));
-                root.append(more);
-            }
-        } else if (lookupOn()) root.append(el("div", data.info?.error || data.infoError || "Looking up hash and previews…"));
-        if (!info && data.execution?.text) root.append(el("div", data.execution.text));
-        const hash = data.info?.hash || row.lora_hash;
-        if (hexHash(hash)) root.append(el("small", `Hash: ${hash}`));
-        if (info || (lookupOn() && hexHash(hash))) {
-            const link = el("a", info ? "Open on CivitAI ↗" : "Search hash on CivitAI ↗");
-            // Construct links from IDs/hashes; never trust an arbitrary metadata URL.
-            const id = Number(info?.model_id), version = Number(info?.model_version_id);
-            link.href = Number.isSafeInteger(id) && id > 0 ? `https://civitai.com/models/${id}${Number.isSafeInteger(version) && version > 0 ? "?modelVersionId=" + version : ""}`
-                : `https://civitai.com/search/models?query=${encodeURIComponent(hexHash(hash) ? hash : row.lora_name)}`;
-            link.target = "_blank"; link.rel = "noopener noreferrer";
-            root.append(link);
-        }
-        let previewURL;
-        if (hexHash(hash) && (data.info?.has_collage || data.info?.preview_count > 0)) {
-            previewURL = api.apiURL(`/donut/loras/preview?${new URLSearchParams({ hash, type: data.info.has_collage ? "collage" : "0" })}`);
-        } else if (data.execution?.image?.filename) {
-            const image = data.execution.image;
-            previewURL = api.apiURL(`/view?${new URLSearchParams({ filename: image.filename, subfolder: image.subfolder || "", type: image.type || "temp" })}`);
-        }
-        if (previewURL) {
-            const link = el("a"), image = el("img");
-            link.href = previewURL; link.target = "_blank"; link.rel = "noopener noreferrer";
-            image.src = previewURL; image.alt = "LoRA preview (click to open)"; image.loading = "lazy";
-            Object.assign(image.style, { display: "block", maxWidth: "100%", maxHeight: "150px", objectFit: "contain" });
-            image.addEventListener("error", () => { link.replaceChildren(el("span", "Preview unavailable; retry lookup from row actions.")); });
-            link.append(image); root.append(link);
-        } else if (info) root.append(el("div", "No cached preview image available."));
-        if (data.infoError || data.info?.error) root.append(el("small", "Use Row actions → Retry metadata to try again."));
-        panel.height = previewURL ? 250 : info ? 150 : 85;
-        widget.options.getMinHeight = widget.options.getMaxHeight = () => panel.height;
-        widget.options.getHeight = () => panel.height;
-        setHidden(widget, !enabled(row) || !hasFile(row));
-        fit();
+        panel.observer?.disconnect();
+        const result = renderLoraInformation(panel.root, row, validInfo(row) || {}, {
+            api, lookupOn: lookupOn(), view: panel.view,
+            onAction: action => rowAction(row, action), onResize: () => panel.measure()
+        });
+        panel.content = result.content;
+        panel.height = result.preferredHeight;
+        panel.observer?.observe(panel.content);
+        setHidden(panel.widget, !enabled(row) || !hasFile(row));
+        panel.measure(); fit();
     }
     function requestDetails(row, force = false) {
         if (!enabled(row) || !hasFile(row) || disposed) return;
@@ -236,10 +210,9 @@ export function installNativeLoras(node, definition, { app, api, service }) {
     function render() {
         clearUI();
         const add = make("button", "+ Add LoRA", null, () => {
-            if (invalid) return;
-            rows.push({ id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, enabled: true,
-                lora_name: "None", model_weight: 1, clip_weight: 1, block_preset: "None", block_vector: "", inherit_block_vector: false, lora_hash: "" });
-            commit(); render();
+            if (invalid || disposed) return;
+            changeRows(() => rows.push({ id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, enabled: true,
+                lora_name: "None", model_weight: 1, clip_weight: 1, block_preset: "None", block_vector: "", inherit_block_vector: false, lora_hash: "" }));
         });
         add.disabled = invalid;
         make("button", listError || (catalogLoading ? "Loading installed LoRAs…" : `Refresh installed LoRAs (${catalog.loras.filter(n => n !== "None").length})`), null, () => { void refresh(true); });
@@ -251,6 +224,12 @@ export function installNativeLoras(node, definition, { app, api, service }) {
         rows.forEach((row, index) => {
             const key = String(row.id);
             const prefix = `donut_row:${key}:`;
+            const toolbar = createLoraToolbar(index, rows.length, action => rowAction(row, action));
+            const actions = node.addDOMWidget(prefix + "actions", "div", toolbar, {
+                serialize: false, margin: 0, getMinHeight: () => 43, getMaxHeight: () => 43, getHeight: () => 43
+            });
+            actions.serialize = false; ui.push(actions);
+            actions.computeSize = () => [280, 43];
             const name = make("combo", prefix + "lora_name", row.lora_name || "None", value => {
                 if (value === row.lora_name) return;
                 row.lora_name = value; row.lora_hash = ""; details.delete(key);
@@ -303,27 +282,36 @@ export function installNativeLoras(node, definition, { app, api, service }) {
             const vector = make("text", prefix + "block_vector", row.block_vector || "", value => { row.block_vector = value; commit(); });
             vector.label = "Block vector"; vector.disabled = !!row.inherit_block_vector;
             const root = el("div");
-            Object.assign(root.style, { overflow: "auto", boxSizing: "border-box", padding: "6px", font: "12px sans-serif", whiteSpace: "normal", overflowWrap: "anywhere" });
             root.setAttribute("aria-label", `LoRA ${index + 1} information`);
-            const panel = { root, height: 85 };
+            if (!panelViews.has(key)) panelViews.set(key, {});
+            const panel = { root, height: 125, view: panelViews.get(key), content: null, frame: null };
             const dom = node.addDOMWidget(prefix + "information", "div", root, {
-                serialize: false, getMinHeight: () => panel.height, getMaxHeight: () => panel.height, getHeight: () => panel.height
+                serialize: false, margin: 0,
+                getMinHeight: () => panel.height, getMaxHeight: () => panel.height, getHeight: () => panel.height
             });
             dom.serialize = false; ui.push(dom); panel.widget = dom; panels.set(key, panel);
             dom.computeSize = () => [280, panel.height];
-            const action = make("combo", prefix + "actions", "Row actions", value => {
-                action.value = "Row actions";
-                if (value === "Move up" || value === "Move down") rows = moveRow(rows, index, index + (value === "Move up" ? -1 : 1));
-                else if (value === "Remove") { rows.splice(index, 1); details.delete(key); expanded.delete(key); }
-                else if (value === "Retry metadata") { requestDetails(row, true); return; }
-                else if (value === "Use suggested model weight") {
-                    const weight = validInfo(row)?.info?.civitai?.recommended_weight;
-                    if (typeof weight !== "number" || !Number.isFinite(weight) || Math.abs(weight) > 1000) return;
-                    row.model_weight = weight; // CLIP/text-fusion strength is deliberately unchanged.
-                } else return;
-                commit(); render();
-            }, { values: ["Row actions", "Move up", "Move down", "Remove", "Retry metadata", "Use suggested model weight"] });
-            action.label = `LoRA ${index + 1} actions`;
+            const measure = () => {
+                panel.frame = null;
+                if (disposed || panels.get(key) !== panel || !panel.content?.isConnected) return;
+                const natural = panel.content.scrollHeight;
+                if (!natural) return; // Hidden/collapsed nodes cannot be measured yet.
+                const height = Math.max(56, Math.min(360, Math.ceil(natural) + 10));
+                if (height !== panel.height) { panel.height = height; fit(); }
+            };
+            panel.measure = () => {
+                if (panel.frame != null) return;
+                if (typeof requestAnimationFrame === "function") panel.frame = requestAnimationFrame(measure);
+                else measure();
+            };
+            if (typeof ResizeObserver === "function") panel.observer = new ResizeObserver(panel.measure);
+            panel.dispose = () => {
+                panel.observer?.disconnect();
+                if (panel.frame != null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(panel.frame);
+                panel.frame = null;
+            };
+            const removedPanel = dom.onRemove;
+            dom.onRemove = function() { panel.dispose(); removedPanel?.apply(this, arguments); };
             function visibility() {
                 dependent.forEach(widget => setHidden(widget, !enabled(row)));
                 [preset, inherit, vector].forEach(widget => setHidden(widget, !enabled(row) || !expanded.has(key)));

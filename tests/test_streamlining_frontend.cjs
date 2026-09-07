@@ -12,6 +12,7 @@ class Element {
     replaceChildren(...children) { this.children = children; }
     setAttribute(name, value) { this[name] = value; }
     addEventListener(name, fn) { this.events[name] = fn; }
+    contains(child) { return this === child || this.children.some(c => c.contains(child)); }
 }
 const text = root => root.textContent + root.children.map(text).join(' ');
 const elements = (root, tag) => [root, ...root.children.flatMap(c => elements(c))].filter(e => !tag || e.tag === tag);
@@ -47,7 +48,7 @@ function setup(handler = undefined) {
         document: { createElement: tag => new Element(tag) },
         ComfyWidgets: { STRING(node, name) { const w = node.addWidget('customtext', name, '', () => {}, {}); w.inputEl = {}; return { widget: w }; } }
     });
-    for (const file of ['donut_native_lora.js', 'donut_workflow_repair.js', 'donut_workflow.js']) {
+    for (const file of ['donut_lora_ui.js', 'donut_native_lora.js', 'donut_workflow_repair.js', 'donut_workflow.js']) {
         const source = fs.readFileSync(path.join(__dirname, '../web', file), 'utf8')
             .replace(/^import .*;\n/gm, '').replace(/^export \{.*\} from .*;\n/gm, '').replace(/export function /g, 'function ');
         vm.runInContext(source, context);
@@ -89,6 +90,16 @@ const find = (node, suffix, id = 'row-0') => node.widgets.find(w => w.name === `
 const change = (widget, value) => { widget.value = value; widget.callback(value); };
 const saved = node => JSON.parse(node.widgets.find(w => w.name === 'slots_json').value);
 const panel = (node, id) => find(node, 'information', id).element;
+const click = (root, label) => {
+    const button = elements(root, 'button').find(b => b.textContent === label);
+    assert.ok(button, `Visible button ${label}`);
+    button.events.click({ preventDefault() {}, stopPropagation() {} });
+};
+const rowAction = (node, action, id = 'row-0') => {
+    const label = { 'Move up': '↑', 'Move down': '↓' }[action] || action;
+    const widget = find(node, ['Remove', 'Move up', 'Move down'].includes(action) ? 'actions' : 'information', id);
+    click(widget.element, label);
+};
 
 test('native combo lists installed files even when unknown STRING metadata was stripped', async () => {
     const { make } = setup(); const node = make(); await settle();
@@ -121,12 +132,12 @@ test('disabled rows do not trigger local analysis or CivitAI lookup; Off prevent
 test('lookup shows links, detected components, recommendations, triggers and bounded local previews before queueing', async () => {
     const { make } = setup(); const node = make(rows(1), 'On'); await settle();
     const root = panel(node); const content = text(root);
-    for (const expected of ['Detected weights', '8 tensors', 'blocks: 3, 4', 'Suggested weight: 0.65', 'Test model', 'Triggers: trigger']) assert.ok(content.includes(expected), expected);
+    for (const expected of ['Detected weights', '8 tensors', 'blocks: 3–4', 'Suggested weight: 0.65', 'Test model', 'Triggers: trigger']) assert.ok(content.includes(expected), expected);
     const links = elements(root, 'a'); assert.ok(links.some(a => a.href === 'https://civitai.com/models/123?modelVersionId=456'));
     assert.ok(links.every(a => a.rel === 'noopener noreferrer'));
     assert.equal(elements(root, 'script').length, 0);
-    const image = elements(root, 'img')[0]; assert.equal(image.style.maxHeight, '150px');
-    assert.match(image.src, /^\/api\/donut\/loras\/preview\?/); assert.equal(find(node, 'information').options.getMaxHeight(), 250);
+    const image = elements(root, 'img')[0]; assert.equal(image.style.height, '112px');
+    assert.match(image.src, /^\/api\/donut\/loras\/preview\?/); assert.ok(find(node, 'information').options.getMaxHeight() <= 360);
 });
 test('preset combo labels contain no long vectors and selecting a preset edits only its intended fields', async () => {
     const { make } = setup(); const node = make(); await settle();
@@ -137,16 +148,16 @@ test('preset combo labels contain no long vectors and selecting a preset edits o
 });
 test('suggested weight is never applied silently and explicit action does not touch zero CLIP strength', async () => {
     const { make } = setup(); const node = make(rows(1), 'On'); await settle();
-    assert.equal(saved(node)[0].model_weight, .75); change(find(node, 'actions'), 'Use suggested model weight');
+    assert.equal(saved(node)[0].model_weight, .75); rowAction(node, 'Use suggested model weight');
     assert.equal(saved(node)[0].model_weight, .65); assert.equal(saved(node)[0].clip_weight, 0);
 });
 test('add, reorder and remove preserve complete rows and have no six-row ceiling', async () => {
     const { make } = setup(); const node = make(rows(6)); await settle();
     for (let i = 0; i < 4; i++) node.widgets.find(w => w.name === '+ Add LoRA').callback();
     assert.equal(saved(node).length, 10);
-    change(find(node, 'actions', 'row-2'), 'Move up'); assert.equal(saved(node)[1].id, 'row-2');
+    rowAction(node, 'Move up', 'row-2'); assert.equal(saved(node)[1].id, 'row-2');
     assert.deepEqual(saved(node)[1].custom, { preserved: 2 });
-    change(find(node, 'actions', 'row-2'), 'Remove'); assert.equal(saved(node).length, 9);
+    rowAction(node, 'Remove', 'row-2'); assert.equal(saved(node).length, 9);
 });
 test('workflow and API serializers exclude every row/helper widget; only canonical JSON carries row state', async () => {
     const { make } = setup(); const node = make(rows(6)); await settle();
@@ -298,4 +309,89 @@ test('old PNG loader state with a trailing DOM helper reloads without losing row
     await settle(); assert.deepEqual(saved(node), original);
     const out = {}; node.onSerialize(out); assert.equal(out.widgets_values.length, 9);
     assert.equal('donut_lora_editor' in out.widgets_values_named, false);
+});
+
+test('every row has visible Remove and reorder buttons before its native picker, even while disabled', async () => {
+    const { make } = setup(); const node = make(rows(6)); await settle();
+    for (const row of saved(node)) {
+        const actions = find(node, 'actions', row.id), picker = find(node, 'lora_name', row.id);
+        assert.notEqual(actions.type, 'combo'); assert.ok(!actions.hidden);
+        assert.ok(node.widgets.indexOf(actions) < node.widgets.indexOf(picker));
+        assert.deepEqual(elements(actions.element, 'button').map(b => b.textContent), ['↑', '↓', 'Remove']);
+        assert.ok(elements(actions.element, 'button').find(b => b.textContent === 'Remove').title.includes('keeps the file'));
+    }
+    assert.equal(node.widgets.some(w => w.type === 'combo' && w.options.values?.includes('Row actions')), false);
+    const before = saved(node);
+    rowAction(node, 'Remove', 'row-1');
+    assert.deepEqual(saved(node), before.filter(row => row.id !== 'row-1'));
+});
+test('remove the only row, serialize/reload the empty stack, then add a visible row again', async () => {
+    const { make } = setup(); const node = make(rows(1)); await settle();
+    rowAction(node, 'Remove'); assert.deepEqual(saved(node), []);
+    assert.equal(node.widgets.filter(w => w.name.startsWith('donut_row:')).length, 0);
+    const out = {}; node.onSerialize(out); const copy = make(); copy.onConfigure(out); await settle();
+    assert.deepEqual(saved(copy), []);
+    copy.widgets.find(w => w.name === '+ Add LoRA').callback();
+    assert.equal(saved(copy).length, 1);
+    assert.ok(copy.widgets.some(w => w.name.endsWith(':actions') && !w.hidden));
+});
+test('remove targets row identity after reorder, not a cached position or filename', async () => {
+    const { make } = setup(); const list = rows(3).map(r => ({ ...r, lora_name: 'same.safetensors' }));
+    const node = make(list); await settle();
+    const oldRemove = elements(find(node, 'actions', 'row-2').element, 'button').find(b => b.textContent === 'Remove');
+    rowAction(node, 'Move up', 'row-2');
+    oldRemove.events.click({ preventDefault() {}, stopPropagation() {} });
+    assert.deepEqual(saved(node).map(r => r.id), ['row-0', 'row-1']);
+    oldRemove.events.click({ preventDefault() {}, stopPropagation() {} }); // Deleted-row callback is a no-op.
+    assert.equal(saved(node).length, 2);
+});
+test('first/last reorder arrows are disabled and do not modify canonical state', async () => {
+    const { make } = setup(); const node = make(rows(2)); await settle(); const before = saved(node);
+    assert.equal(elements(find(node, 'actions').element, 'button')[0].disabled, true);
+    assert.equal(elements(find(node, 'actions', 'row-1').element, 'button')[1].disabled, true);
+    rowAction(node, 'Move up'); rowAction(node, 'Move down', 'row-1');
+    assert.deepEqual(saved(node), before);
+});
+test('row changes bracket graph undo hooks; restoring the snapshot restores all removed fields', async () => {
+    const { make } = setup(); const node = make(rows(3)); await settle(); let snapshot, after = 0;
+    const before = saved(node);
+    node.graph = { beforeChange() { snapshot = {}; node.onSerialize(snapshot); }, afterChange() { after++; } };
+    rowAction(node, 'Remove', 'row-1'); assert.equal(after, 1);
+    assert.deepEqual(JSON.parse(snapshot.widgets_values_named.slots_json), before);
+    node.onConfigure(snapshot); await settle(); assert.deepEqual(saved(node), before);
+});
+test('late metadata cannot restore a removed LoRA or reinsert its information panel', async () => {
+    let resolve;
+    const { make } = setup(url => url.includes('/info?') ? new Promise(r => { resolve = r; }) : null);
+    const node = make(rows(1), 'On'); await settle(); rowAction(node, 'Remove');
+    resolve({ ok: true, json: async () => ({ hash: 'b'.repeat(10), civitai: { model_name: 'Deleted' } }) });
+    await settle(); assert.deepEqual(saved(node), []);
+    assert.equal(node.widgets.filter(w => w.name.startsWith('donut_row:')).length, 0);
+});
+test('long block lists compact losslessly without hiding gaps', () => {
+    const { context } = setup();
+    assert.equal(context.compactLoraIndices(Array.from({ length: 28 }, (_, i) => i)), '0–27');
+    assert.equal(context.compactLoraIndices([7, 1, 0, 2, 4, 7, 6]), '0–2, 4, 6–7');
+    assert.equal(context.compactLoraIndices([]), '');
+});
+test('metadata hierarchy defaults to a compact block summary and separate expanded CivitAI card', async () => {
+    const { make } = setup(); const node = make(rows(1), 'On'); await settle();
+    const root = panel(node), sections = elements(root, 'details');
+    assert.equal(sections[0].open, false); assert.equal(sections[1].open, true); assert.equal(sections[2].open, false);
+    assert.equal(elements(root, 'img')[0].style.objectFit, 'contain');
+    const hashElement = elements(sections[2]).find(e => e.textContent.startsWith('Hash:'));
+    assert.ok(hashElement); assert.equal(hashElement.tag, 'div');
+    assert.equal(elements(root, 'a').find(e => e.textContent.includes('CivitAI')).style.display, 'block');
+});
+test('expanded metadata sections survive strength updates and a catalog rerender', async () => {
+    const { make } = setup(); const node = make(rows(1), 'On'); await settle();
+    const weights = elements(panel(node), 'details')[0]; weights.open = true; weights.events.toggle();
+    change(find(node, 'model_weight'), .9); assert.equal(elements(panel(node), 'details')[0].open, true);
+    await node._donutNativeLoras.refresh(); assert.equal(elements(panel(node), 'details')[0].open, true);
+});
+test('toolbar click stops propagation so Remove does not start a canvas drag', async () => {
+    const { make } = setup(); const node = make(rows(1)); await settle(); let stopped = false;
+    const remove = elements(find(node, 'actions').element, 'button')[2];
+    remove.events.click({ preventDefault() {}, stopPropagation() { stopped = true; } });
+    assert.equal(stopped, true); assert.deepEqual(saved(node), []);
 });
