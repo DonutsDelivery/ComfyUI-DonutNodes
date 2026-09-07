@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 import math
-import cv2
 import folder_paths
 import logging
 
@@ -307,6 +306,10 @@ def make_3d_mask(mask):
 
 def dilate_mask(mask: torch.Tensor, dilation_factor: float) -> torch.Tensor:
     """Dilate a mask using a square kernel with a given dilation factor."""
+    # LoRA/block-weight loading also imports this module, but does not use cv2.
+    from ..donut_dependencies import require_cv2
+    cv2 = require_cv2("Mask dilation/erosion")
+
     kernel_size = int(dilation_factor * 2) + 1
     kernel = np.ones((abs(kernel_size), abs(kernel_size)), np.uint8)
 
