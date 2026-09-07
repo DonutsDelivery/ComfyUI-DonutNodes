@@ -1,4 +1,9 @@
-import ast
+"""Tests of real embedded tensors and patch plumbing with minimal Comfy doubles.
+
+No original safetensors file is needed. These are CPU unit tests, not a full
+ComfyUI/GPU image-generation test.
+"""
+import hashlib
 import importlib.util
 import sys
 import types
@@ -6,245 +11,256 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import torch
 
 ROOT = Path(__file__).resolve().parent
-EXPECTED_SHA256 = "db3c2b7612828120e7ef9cc8fe77124c6fd8de2e38f150599e62abd9695f6beb"
-EXPECTED_SIZE = 3_470_548
-EXPECTED_TARGETS = 33
+EXPECTED_PAYLOAD_SHA = "f3c817bd957e6d47883346237b5e067697f0b9e1c9909bd06353da455949aacf"
+BASE_NAMES = {
+    "PRESET_MANUAL": "Custom settings",
+    "PRESET_BYPASS_2": "COPY settings: Krea2FilterBypass 2vector",
+    "PRESET_BYPASS_3": "COPY settings: Krea2FilterBypass 3vector",
+    "PRESET_REBALANCE": "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1",
+    "PRESET_ENHANCER": "COPY settings: capitan01R Krea2T-Enhancer defaults",
+    "PRESET_REBALANCE_ENHANCER": "HYBRID settings: Rebalance + Krea2T-Enhancer",
+    "PRESET_REBALANCE_BYPASS_2": "HYBRID settings: Rebalance + Krea2FilterBypass 2vector",
+    "PRESET_REBALANCE_BYPASS_3": "HYBRID settings: Rebalance + Krea2FilterBypass 3vector",
+    "PRESET_DONUT_BALANCED": "DONUT settings: RMS-balanced classic",
+    "PRESET_DONUT_BALANCED_ENHANCER": "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
+}
+SHORT_NAMES = ["Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
+               "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
+               "Balanced", "Balanced + Enhancer", "TeacherFix"]
+LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
+                  "tap_profile", "per_layer_weights", "tap_strength", "tap_formula",
+                  "tap_normalization", "projector_method", "projector_profile",
+                  "projector_layer_weights", "projector_strength", "projector_formula",
+                  "projector_normalization", "fusion_method", "fusion_strength"]
 
 
-def _load_module():
-    package_name = "donut_krea2_fusion_preset_testpkg"
-    package = types.ModuleType(package_name)
-    package.__path__ = [str(ROOT)]
-    sys.modules[package_name] = package
-
-    base = types.ModuleType(f"{package_name}.DonutKrea2FusionControl")
-    base.PRESET_MANUAL = "Custom settings"
-    base.PRESET_BYPASS_2 = "COPY settings: Krea2FilterBypass 2vector"
-    base.PRESET_BYPASS_3 = "COPY settings: Krea2FilterBypass 3vector"
-    base.PRESET_REBALANCE = "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1"
-    base.PRESET_ENHANCER = "COPY settings: capitan01R Krea2T-Enhancer defaults"
-    base.PRESET_REBALANCE_ENHANCER = "HYBRID settings: Rebalance + Krea2T-Enhancer"
-    base.PRESET_REBALANCE_BYPASS_2 = "HYBRID settings: Rebalance + Krea2FilterBypass 2vector"
-    base.PRESET_REBALANCE_BYPASS_3 = "HYBRID settings: Rebalance + Krea2FilterBypass 3vector"
-    base.PRESET_DONUT_BALANCED = "DONUT settings: RMS-balanced classic"
-    base.PRESET_DONUT_BALANCED_ENHANCER = "DONUT settings: RMS-balanced classic + Krea2T-Enhancer"
-
-    class BaseNode:
-        @classmethod
-        def INPUT_TYPES(cls):
-            return {
-                "required": {
-                    "model": ("MODEL",),
-                    "conditioning_in_1": ("CONDITIONING",),
-                    "compatibility_preset": ([base.PRESET_MANUAL, base.PRESET_DONUT_BALANCED], {
-                        "default": base.PRESET_MANUAL,
-                    }),
-                    "tap_method": (["Donut 12-tap gains"],),
-                    "tap_profile": (["off"],),
-                    "per_layer_weights": ("STRING", {}),
-                    "tap_strength": ("FLOAT", {"default": 1.0}),
-                    "tap_formula": (["scale_around_1"],),
-                    "tap_normalization": (["none"],),
-                    "projector_method": (["Donut projector-input gains"],),
-                    "projector_profile": (["off"],),
-                    "projector_layer_weights": ("STRING", {}),
-                    "projector_strength": ("FLOAT", {"default": 1.0}),
-                    "projector_formula": (["scale_around_1"],),
-                    "projector_normalization": (["none"],),
-                    "fusion_method": (["Standard Krea2 fusion"],),
-                    "fusion_strength": ("FLOAT", {"default": 1.0}),
-                },
-                "optional": {},
-            }
-
-        def apply(self, **kwargs):
-            preset = kwargs.get("compatibility_preset", base.PRESET_MANUAL)
-            return (
-                kwargs["model"],
-                kwargs["conditioning_in_1"],
-                None,
-                None,
-                None,
-                f"preset_label={preset}; preset_is_ui_only=true\n"
-                "external_files_loaded=none",
-            )
-
-    base.DonutKrea2FusionControl = BaseNode
-    state = {
-        f"diffusion_model.txtfusion.fake_{index}.lora_down.weight": object()
-        for index in range(EXPECTED_TARGETS)
-    }
-
-    class FakeUtils:
-        @staticmethod
-        def load_torch_file(path, safe_load=True):
-            return dict(state)
-
-    class FakeLora:
-        @staticmethod
-        def model_lora_keys_unet(model):
-            return {"fake": "fake"}
-
-        @staticmethod
-        def load_lora(lora, key_map, log_missing=False):
-            return {
-                f"diffusion_model.txtfusion.fake_{index}.weight": ("lora", ())
-                for index in range(EXPECTED_TARGETS)
-            }
-
-    base.comfy = types.SimpleNamespace(utils=FakeUtils, lora=FakeLora)
-    sys.modules[base.__name__] = base
-    setattr(package, "DonutKrea2FusionControl", base)
-
-    fake_folder_paths = types.ModuleType("folder_paths")
-    fake_folder_paths.get_filename_list = lambda category: [
-        "other.safetensors",
-        "renamed_teacherfix.safetensors",
-    ]
-    fake_folder_paths.get_full_path = lambda category, name: f"/fake/{name}"
-
-    spec = importlib.util.spec_from_file_location(
-        f"{package_name}.DonutKrea2FusionPreset",
-        ROOT / "DonutKrea2FusionPreset.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module, fake_folder_paths
+class FakeAdapter:
+    def __init__(self, loaded_keys, weights):
+        self.loaded_keys = loaded_keys
+        self.weights = weights
 
 
-class TeacherFixPresetTests(unittest.TestCase):
-    def test_source_constants_and_ui_schema_are_stable(self):
-        source = (ROOT / "DonutKrea2FusionPreset.py").read_text()
-        ast.parse(source)
-        self.assertIn(f'TEACHERFIX_SHA256 = "{EXPECTED_SHA256}"', source)
-        self.assertIn(f"TEACHERFIX_SIZE_BYTES = {EXPECTED_SIZE:_}", source)
-        self.assertIn(f"TEACHERFIX_TARGET_COUNT = {EXPECTED_TARGETS}", source)
+class FakeModel:
+    def __init__(self, factors):
+        self.state = {key: types.SimpleNamespace(shape=(up.shape[0], down.shape[1]))
+                      for key, up, down, _ in factors}
+        self.model = self
+        self.patches = {}
+        self.strength = None
 
-        module, _ = _load_module()
-        schema = module.DonutKrea2FusionControl.INPUT_TYPES()
-        required = schema["required"]
-        self.assertEqual(list(required)[-1], "ui_mode")
+    def state_dict(self):
+        return self.state
+
+    def clone(self):
+        clone = FakeModel(())
+        clone.state = dict(self.state)
+        clone.patches = dict(self.patches)
+        return clone
+
+    def add_patches(self, patches, strength_patch=1.0):
+        self.patches.update(patches)
+        self.strength = strength_patch
+        return list(patches)
+
+
+class EmbeddedTeacherFixTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        name = "_donut_embedded_testpkg"
+        package = types.ModuleType(name)
+        package.__path__ = [str(ROOT)]
+        base = types.ModuleType(name + ".DonutKrea2FusionControl")
+        for key, value in BASE_NAMES.items():
+            setattr(base, key, value)
+        base.calls = []
+
+        class BaseNode:
+            @classmethod
+            def INPUT_TYPES(cls):
+                required = {key: ("STRING", {}) for key in LEGACY_WIDGETS}
+                required["compatibility_preset"] = (list(BASE_NAMES.values()), {"default": base.PRESET_MANUAL})
+                required["tap_strength"] = ("FLOAT", {"default": 1.0, "min": -10.0, "max": 10.0, "step": .05})
+                return {"required": required, "optional": {"conditioning_in_2": ("CONDITIONING",)}}
+
+            def apply(self, **kwargs):
+                base.calls.append(kwargs)
+                return (kwargs["model"], kwargs["conditioning_in_1"], None, None, None,
+                        f"preset_label={kwargs['compatibility_preset']}; preset_is_ui_only=true\n"
+                        "external_files_loaded=none")
+
+        base.DonutKrea2FusionControl = BaseNode
+        package.DonutKrea2FusionControl = base
+        comfy = types.ModuleType("comfy")
+        comfy.__path__ = []
+        adapter_package = types.ModuleType("comfy.weight_adapter")
+        adapter_package.__path__ = []
+        adapter_module = types.ModuleType("comfy.weight_adapter.lora")
+        adapter_module.LoRAAdapter = FakeAdapter
+        cls.modules = mock.patch.dict(sys.modules, {
+            name: package, base.__name__: base,
+            "comfy": comfy, "comfy.weight_adapter": adapter_package,
+            "comfy.weight_adapter.lora": adapter_module,
+            "folder_paths": None, "comfy.lora": None, "comfy.utils": None,
+            "safetensors": None, "safetensors.torch": None,
+        })
+        cls.modules.start()
+        cls.addClassCleanup(cls.modules.stop)
+        spec = importlib.util.spec_from_file_location(name + ".DonutKrea2FusionPreset", ROOT / "DonutKrea2FusionPreset.py")
+        cls.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.module)
+        cls.weights = __import__(name + ".teacherfix_weights", fromlist=["*"])
+        cls.factors = cls.weights.get_teacherfix_factors()
+
+    def test_all_33_embedded_targets_and_exact_payload(self):
+        self.assertEqual(len(self.factors), 33)
+        payload = b"".join(tensor.numpy().astype("<f4", copy=False).tobytes()
+                           for _, up, down, _ in self.factors for tensor in (up, down))
+        self.assertEqual(len(payload), 3_457_232)
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), EXPECTED_PAYLOAD_SHA)
+
+    def test_rank_alpha_dtype_scope_and_finiteness(self):
+        for key, up, down, alpha in self.factors:
+            self.assertTrue(key.startswith("diffusion_model.txtfusion."))
+            self.assertEqual(up.dtype, torch.float32)
+            self.assertEqual(down.dtype, torch.float32)
+            self.assertEqual(up.shape[1], 4)
+            self.assertEqual(down.shape[0], 4)
+            self.assertEqual(alpha, 4.0)
+            self.assertTrue(torch.isfinite(up).all())
+            self.assertTrue(torch.isfinite(down).all())
+
+    def test_no_original_container_or_metadata(self):
+        raw = self.weights._decode_payload(self.weights._PAYLOAD)
+        self.assertNotIn(b"source_checkpoint", raw)
+        self.assertNotIn(b"__metadata__", raw)
+        source = (ROOT / "teacherfix_weights.py").read_text()
+        self.assertNotIn("krea2_c33_teacherfix_ema5000.safetensors", source)
+        self.assertNotIn("source_checkpoint", source)
+
+    def test_runtime_needs_no_safetensors_or_lora_loader(self):
+        # Those module imports are blocked for the entire test class.
+        result, count, name = self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+        self.assertEqual(count, 33)
+        self.assertEqual(name, "embedded")
+        self.assertEqual(len(result.patches), 33)
+
+    def test_decode_is_cached(self):
+        with mock.patch.object(self.weights, "_decode_payload", side_effect=AssertionError("decoded twice")):
+            self.assertIs(self.factors, self.weights.get_teacherfix_factors())
+
+    def test_corrupt_payload_fails(self):
+        with self.assertRaisesRegex(RuntimeError, "corrupt|SHA-256"):
+            self.weights._decode_payload("not a valid payload")
+
+    def test_wrong_checksum_fails(self):
+        with mock.patch.object(self.weights, "PAYLOAD_SHA256", "0" * 64):
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                self.weights._decode_payload(self.weights._PAYLOAD)
+
+    def test_wrong_size_fails(self):
+        with mock.patch.object(self.weights, "PAYLOAD_SIZE_BYTES", 64):
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                self.weights._decode_payload(self.weights._PAYLOAD)
+
+    def test_schema_short_names_and_node_id_preserved(self):
+        required = self.module.DonutKrea2FusionControl.INPUT_TYPES()["required"]
+        self.assertEqual(list(required), LEGACY_WIDGETS + ["ui_mode"])
+        self.assertEqual(required["compatibility_preset"][0], SHORT_NAMES)
         self.assertEqual(required["ui_mode"][1]["default"], "Advanced")
-        self.assertEqual(required["compatibility_preset"][1]["default"], "Custom")
-        self.assertEqual(
-            required["compatibility_preset"][0],
-            [
-                "Custom",
-                "Bypass 2",
-                "Bypass 3",
-                "Rebalance",
-                "Enhancer",
-                "Rebalance + Enhancer",
-                "Rebalance + Bypass 2",
-                "Rebalance + Bypass 3",
-                "Balanced",
-                "Balanced + Enhancer",
-                "TeacherFix",
-            ],
-        )
+        self.assertEqual(required["tap_strength"][1]["max"], 10.0)
+        self.assertEqual(list(self.module.NODE_CLASS_MAPPINGS), ["DonutKrea2FusionControl"])
 
-    def test_exact_file_is_discovered_by_size_and_hash_even_when_renamed(self):
-        module, fake_folder_paths = _load_module()
-        with (
-            mock.patch.dict(sys.modules, {"folder_paths": fake_folder_paths}),
-            mock.patch.object(module.os.path, "isfile", return_value=True),
-            mock.patch.object(module.os.path, "getsize", side_effect=lambda path: (
-                EXPECTED_SIZE if "renamed_teacherfix" in path else 123
-            )),
-            mock.patch.object(module, "_sha256_file", return_value=EXPECTED_SHA256),
-        ):
-            name, path = module._find_teacherfix_file()
-        self.assertEqual(name, "renamed_teacherfix.safetensors")
-        self.assertEqual(path, "/fake/renamed_teacherfix.safetensors")
+    def test_zero_strength_never_decodes_or_inspects_model(self):
+        original = object()
+        with mock.patch.object(self.module, "_teacherfix_factors", side_effect=AssertionError("data accessed")):
+            result, count, _ = self.module._apply_teacherfix(original, 0.0)
+        self.assertIs(result, original)
+        self.assertEqual(count, 0)
 
-    def test_simplified_names_delegate_to_existing_presets(self):
-        module, _ = _load_module()
-        self.assertEqual(
-            module.SIMPLE_PRESET_TO_LEGACY["Bypass 2"],
-            "COPY settings: Krea2FilterBypass 2vector",
-        )
-        self.assertEqual(
-            module.SIMPLE_PRESET_TO_LEGACY["Balanced + Enhancer"],
-            "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
-        )
+    def test_nonfinite_strength_rejected(self):
+        for value in (float("nan"), float("inf"), -float("inf")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.module._apply_teacherfix(object(), value)
 
-    def test_teacherfix_strength_patches_all_33_targets(self):
-        module, _ = _load_module()
-        module._TEACHERFIX_CACHE = (
-            {
-                f"diffusion_model.txtfusion.fake_{index}.lora_down.weight": object()
-                for index in range(EXPECTED_TARGETS)
-            },
-            "renamed_teacherfix.safetensors",
-        )
+    def test_all_factors_alphas_and_strengths_reach_patch_path(self):
+        for strength in (-0.5, 0.75, 1.0, 2.0):
+            original = FakeModel(self.factors)
+            original.patches["unrelated.weight"] = ("diff", ())
+            result, count, _ = self.module._apply_teacherfix(original, strength)
+            self.assertIsNot(result, original)
+            self.assertEqual(count, 33)
+            self.assertEqual(result.strength, strength)
+            self.assertEqual(len(original.patches), 1)
+            self.assertIn("unrelated.weight", result.patches)
+            for key, up, down, alpha in self.factors:
+                values = result.patches[key].weights
+                self.assertEqual(len(values), 6)
+                self.assertTrue(torch.equal(values[0], up))
+                self.assertTrue(torch.equal(values[1], down))
+                self.assertEqual(values[2], alpha)
+                self.assertEqual(values[3:], (None, None, None))
+                self.assertNotEqual(values[0].data_ptr(), up.data_ptr())
+                self.assertNotEqual(values[1].data_ptr(), down.data_ptr())
 
-        class FakeModel:
-            def __init__(self):
-                self.model = object()
-                self.loaded = {}
+    def test_short_legacy_labels_both_modes_and_diagnostics(self):
+        for preset in ("TeacherFix", self.module.LEGACY_TEACHERFIX):
+            for mode in ("Simple", "Advanced"):
+                cond = object()
+                result = self.module.DonutKrea2FusionControl().apply(
+                    model=FakeModel(self.factors), conditioning_in_1=cond,
+                    compatibility_preset=preset, tap_strength=.75, ui_mode=mode)
+                self.assertEqual(len(result[0].patches), 33)
+                self.assertEqual(result[0].strength, .75)
+                self.assertIs(result[1], cond)
+                self.assertIn("teacherfix_source=embedded", result[-1])
+                self.assertIn("teacherfix_targets=33", result[-1])
+                self.assertIn("external_files_loaded=none", result[-1])
 
-            def clone(self):
-                clone = FakeModel()
-                clone.loaded = dict(self.loaded)
-                return clone
+    def test_other_presets_never_decode_weights(self):
+        with mock.patch.object(self.module, "_teacherfix_factors", side_effect=AssertionError("data accessed")):
+            for short, legacy in self.module.SIMPLE_PRESET_TO_LEGACY.items():
+                original = object()
+                result = self.module.DonutKrea2FusionControl().apply(
+                    model=original, conditioning_in_1=object(), compatibility_preset=short)
+                self.assertIs(result[0], original)
+                self.assertEqual(self.module.base.calls[-1]["compatibility_preset"], legacy)
 
-            def add_patches(self, patches, strength_patch=1.0):
-                self.loaded.update({key: strength_patch for key in patches})
-                return list(patches)
+    def test_missing_model_target_rejected_before_clone(self):
+        model = FakeModel(self.factors)
+        model.state.pop(next(iter(model.state)))
+        with mock.patch.object(model, "clone", side_effect=AssertionError("clone too soon")):
+            with self.assertRaisesRegex(RuntimeError, "missing or wrong shape"):
+                self.module._apply_teacherfix(model, 1.0)
 
-        conditioning = object()
-        result = module.DonutKrea2FusionControl().apply(
-            model=FakeModel(),
-            conditioning_in_1=conditioning,
-            compatibility_preset=module.PRESET_TEACHERFIX,
-            tap_method="Donut 12-tap gains",
-            tap_profile="off",
-            per_layer_weights="1",
-            tap_strength=0.75,
-            tap_formula="scale_around_1",
-            tap_normalization="none",
-            projector_method="Donut projector-input gains",
-            projector_profile="off",
-            projector_layer_weights="1",
-            projector_strength=1.0,
-            projector_formula="scale_around_1",
-            projector_normalization="none",
-            fusion_method="Standard Krea2 fusion",
-            fusion_strength=1.0,
-            ui_mode="Simple",
-        )
+    def test_wrong_model_shape_rejected(self):
+        model = FakeModel(self.factors)
+        model.state[next(iter(model.state))] = types.SimpleNamespace(shape=(2, 3))
+        with self.assertRaisesRegex(RuntimeError, "wrong shape"):
+            self.module._apply_teacherfix(model, 1.0)
 
-        self.assertEqual(len(result[0].loaded), EXPECTED_TARGETS)
-        self.assertEqual(set(result[0].loaded.values()), {0.75})
-        self.assertIs(result[1], conditioning)
-        self.assertIn("preset_label=TeacherFix", result[-1])
-        self.assertIn("preset_is_ui_only=false", result[-1])
-        self.assertIn("renamed_teacherfix.safetensors", result[-1])
+    def test_incomplete_embedded_target_set_rejected(self):
+        with mock.patch.object(self.module, "_teacherfix_factors", return_value=self.factors[:-1]):
+            with self.assertRaisesRegex(RuntimeError, "exactly 33"):
+                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
 
-    def test_pre_rename_teacherfix_label_is_still_accepted(self):
-        module, _ = _load_module()
-        self.assertEqual(
-            module.LEGACY_PRESET_TO_SIMPLE[module.LEGACY_TEACHERFIX],
-            "TeacherFix",
-        )
+    def test_partial_patch_acceptance_rejected(self):
+        with mock.patch.object(FakeModel, "add_patches", return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, "0/33"):
+                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
 
-    def test_frontend_has_compact_simple_and_full_advanced_modes(self):
-        js = (ROOT / "web" / "donut_krea2_fusion_simple_mode.js").read_text()
-        self.assertIn('const SIMPLE = "Simple";', js)
-        self.assertIn('const ADVANCED = "Advanced";', js)
-        self.assertIn('const CUSTOM = "Custom";', js)
-        self.assertIn('const TEACHERFIX = "TeacherFix";', js)
-        self.assertIn('"Bypass 2"', js)
-        self.assertIn('"Balanced + Enhancer"', js)
-        self.assertIn('name === "tap_strength"', js)
-        self.assertIn("SIMPLE_PROJECTOR_STRENGTH", js)
-        self.assertIn("SIMPLE_FUSION_STRENGTH", js)
-        self.assertIn("LEGACY_TO_SIMPLE", js)
-        self.assertIn("queueMicrotask", js)
+    def test_same_count_wrong_accepted_keys_rejected(self):
+        with mock.patch.object(FakeModel, "add_patches", return_value=[f"wrong.{i}" for i in range(33)]):
+            with self.assertRaisesRegex(RuntimeError, "could not patch every target"):
+                self.module._apply_teacherfix(FakeModel(self.factors), 1.0)
+
+    def test_invalid_ui_mode_rejected(self):
+        with self.assertRaisesRegex(ValueError, "UI mode"):
+            self.module.DonutKrea2FusionControl().apply(ui_mode="wrong")
 
 
 if __name__ == "__main__":
+    torch.set_num_threads(1)
     unittest.main()
