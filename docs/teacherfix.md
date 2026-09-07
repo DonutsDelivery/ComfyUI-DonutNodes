@@ -35,7 +35,45 @@ and be accepted by `add_patches`. The input model is cloned, and fresh factor
 copies isolate the cached embedded tensors from downstream mutation.
 
 This requires the ComfyUI LoRAAdapter API used by current Krea2-capable versions.
-It is the ordinary weight-patch path, not Experimental bypass execution.
+Its factors still use ordinary weight-patch arithmetic. It now supports an
+upstream **Donut Model Merge Krea2 → Experimental bypass** automatically; it does
+not add a separate activation-side execution mode or a new node.
+
+## Experimental model-merge bypass
+
+Connect the merged MODEL (including any existing LoRA stack) to Fusion Control,
+select UncensorFix, and send Fusion Control's MODEL output to the sampler. No
+extra mode switch is needed in Fusion Control.
+
+Exact model2 swaps in the upstream merge execute retained model2 layers. For
+these targets, UncensorFix appends its adapters to a **clone of that source
+patcher**. Unswapped and partially blended targets stay on the main patcher.
+There is no patch applied to an unused model1 copy of a swapped target, and no
+extra copy of UncensorFix is added through a forward hook.
+
+Existing main/source patch stacks and runtime LoRA injections are preserved.
+Only the output model references the newly patched source. Source-only changes
+also invalidate the outer model's clone cache so a later run does not retain
+the old swap forward. The existing save/extract helpers see the same source
+patch stack, so the routed changes remain available for serialization.
+
+For a full 33-target text-fusion swap the diagnostics include:
+
+```text
+uncensorfix_source=embedded
+uncensorfix_bypass_source_targets=33
+uncensorfix_model_targets=0
+uncensorfix_targets=33
+```
+
+Mixed merges report the corresponding counts. Missing source/plan metadata or
+wrong target shapes raise an error instead of silently patching inactive
+weights. The original embedded data, strengths, and Simple/Advanced UI do not
+change. UncensorFix strength zero still performs no decoding or patching.
+
+Apply UncensorFix **after** a model merge to affect the resulting merged model.
+A later model merge can intentionally replace weights, including adapters
+applied before that merge. This fix does not override those merge semantics.
 
 ## Validation
 
@@ -43,6 +81,7 @@ Run from the node-pack root:
 
 ```sh
 python test_krea2_fusion_preset.py -v
+python test_uncensorfix_merge_bypass.py -v
 node --test tests/teacherfix_ui.test.mjs
 ```
 
@@ -71,3 +110,9 @@ The visible preset is **UncensorFix** and its data module is `uncensorfix_weight
 Saved workflows using either previous TeacherFix label are normalized to UncensorFix;
 the numerical data is unchanged. The existing documentation and test filenames are
 retained to avoid breaking links and test commands.
+
+The merge-bypass regression suite uses small CPU linear layers with the actual
+Donut merge-plan resolver and swap-injection implementation. ComfyUI's patcher,
+adapter, and injection-manager interfaces are test doubles. It checks forward
+outputs and save-state routing, not just accepted patch counts. It is not a
+full ComfyUI/GPU or quantized-checkpoint image-generation test.

@@ -6,6 +6,7 @@ folders, or downloads weights. All other presets delegate to the base node.
 """
 
 import math
+import uuid
 
 from . import DonutKrea2FusionControl as base
 
@@ -46,6 +47,7 @@ LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_UNCENSORFIX
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX_SHORT] = PRESET_UNCENSORFIX
 
 UNCENSORFIX_TARGET_COUNT = 33
+_UNCENSORFIX_SOURCE_ID_PREFIX = "donut_uncensorfix_source_identity:"
 
 
 def _preset_combo_spec(spec, tooltip=None):
@@ -80,40 +82,99 @@ def _apply_uncensorfix(model, strength):
     if len(factors) != UNCENSORFIX_TARGET_COUNT or len(expected) != UNCENSORFIX_TARGET_COUNT:
         raise RuntimeError("UncensorFix requires exactly 33 unique embedded targets")
 
+    # Hard model2 swaps execute a retained source model, not the main model's
+    # patched weights. Resolve the same plan used by Donut save/extraction.
+    # In particular, do not test the truth value of the composable injection
+    # list: it deliberately reports False while containing live swap hooks.
+    from .donut_krea2_merge_serialization import (
+        KREA2_MERGE_INJECTION_KEY,
+        KREA2_MERGE_SOURCE_KEY,
+        get_krea2_merge_bypass_info,
+    )
+
+    merge_info = get_krea2_merge_bypass_info(model)
+    source_model, source_keys = None, set()
+    if merge_info is not None:
+        if KREA2_MERGE_INJECTION_KEY not in getattr(model, "injections", {}):
+            raise RuntimeError("UncensorFix found Krea2 swap plans without their runtime injection")
+        source_model, plans, _ = merge_info
+        source_keys = expected.intersection(key for _, key, _ in plans)
+
     model_state = model.model.state_dict()
+    source_state = source_model.model.state_dict() if source_keys else {}
     for key, up, down, alpha in factors:
-        weight = model_state.get(key)
+        state = source_state if key in source_keys else model_state
+        weight = state.get(key)
         if weight is None or tuple(weight.shape) != (up.shape[0], down.shape[1]):
+            owner = "merge-bypass model2" if key in source_keys else "main model"
             raise RuntimeError(
-                f"UncensorFix target missing or wrong shape: {key}. "
+                f"UncensorFix target missing or wrong shape on {owner}: {key}. "
                 "The input MODEL must be a compatible Krea 2 model."
             )
-    del model_state
+    del model_state, source_state
 
     # Fresh adapters/tensor copies isolate cached factors from other patches.
     patches = {
         key: LoRAAdapter(set(), (up.clone(), down.clone(), alpha, None, None, None))
         for key, up, down, alpha in factors
     }
+    main_patches = {key: patch for key, patch in patches.items() if key not in source_keys}
+    source_patches = {key: patches[key] for key in sorted(source_keys)}
     patched = model.clone()
-    loaded = patched.add_patches(patches, strength_patch=strength)
-    if set(loaded) != expected:
+    loaded = set()
+    if main_patches:
+        accepted = set(patched.add_patches(main_patches, strength_patch=strength))
+        if accepted != set(main_patches):
+            raise RuntimeError(
+                f"UncensorFix could not patch every target on main model: {len(accepted)}/{len(main_patches)} loaded"
+            )
+        loaded.update(accepted)
+
+    if source_patches:
+        # Never mutate model2 or replace its existing patch lists. Its cloned
+        # patch stack includes earlier LoRAs. The main model's runtime LoRA
+        # injections, merge plans, and other additional models remain intact.
+        source = source_model.clone()
+        accepted = set(source.add_patches(source_patches, strength_patch=strength))
+        if accepted != source_keys:
+            raise RuntimeError(
+                f"UncensorFix could not patch every target on merge-bypass model2: {len(accepted)}/{len(source_keys)} loaded"
+            )
+        loaded.update(accepted)
+        patched.set_additional_models(KREA2_MERGE_SOURCE_KEY, [source])
+
+        # ModelPatcher.clone_has_same_weights does not compare the contents of
+        # additional_models. It can also return True for two empty main patch
+        # stacks before checking patches_uuid. A fresh attachment KEY forces
+        # the outer swap injection to reload and resolve this cloned source.
+        patched.set_attachments(
+            _UNCENSORFIX_SOURCE_ID_PREFIX + uuid.uuid4().hex, tuple(sorted(source_keys))
+        )
+        patched.patches_uuid = uuid.uuid4()
+
+    if loaded != expected:
         raise RuntimeError(f"UncensorFix could not patch every target: {len(loaded)}/33 loaded")
-    return patched, len(loaded), "embedded"
+    source_details = "embedded"
+    if source_keys:
+        source_details += (
+            f"; uncensorfix_bypass_source_targets={len(source_keys)}"
+            f"; uncensorfix_model_targets={len(main_patches)}"
+        )
+    return patched, len(loaded), source_details
 
 
 def _rewrite_preset_diagnostics(diagnostics, legacy_name, simple_name):
     return str(diagnostics).replace(f"preset_label={legacy_name}", f"preset_label={simple_name}", 1)
 
 
-def _rewrite_uncensorfix_diagnostics(diagnostics, strength, loaded_count, relative_name):
+def _rewrite_uncensorfix_diagnostics(diagnostics, strength, loaded_count, source_details):
     diagnostics = str(diagnostics).replace(
         f"preset_label={base.PRESET_MANUAL}; preset_is_ui_only=true",
         f"preset_label={PRESET_UNCENSORFIX}; preset_is_ui_only=false", 1,
     )
     return diagnostics.replace(
         "external_files_loaded=none",
-        f"uncensorfix_source=embedded; uncensorfix_strength={float(strength):g}; "
+        f"uncensorfix_source={source_details}; uncensorfix_strength={float(strength):g}; "
         f"uncensorfix_targets={loaded_count}; external_files_loaded=none", 1,
     )
 
@@ -124,7 +185,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
     DESCRIPTION = (
         "Krea 2 text-fusion controls with Simple/Advanced UI modes and short preset names. "
         "UncensorFix uses numerical factors embedded in Python; no external LoRA "
-        "installation, file selection or download is required."
+        "installation, file selection or download is required. Krea2 Experimental "
+        "merge-bypass targets are patched on their retained model2 source."
     )
 
     @classmethod
@@ -159,9 +221,9 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             delegated = dict(kwargs)
             delegated["compatibility_preset"] = base.PRESET_MANUAL
             result = list(super().apply(*args, **delegated))
-            patched_model, loaded_count, relative_name = _apply_uncensorfix(result[0], strength)
+            patched_model, loaded_count, source_details = _apply_uncensorfix(result[0], strength)
             result[0] = patched_model
-            result[-1] = _rewrite_uncensorfix_diagnostics(result[-1], strength, loaded_count, relative_name)
+            result[-1] = _rewrite_uncensorfix_diagnostics(result[-1], strength, loaded_count, source_details)
             return tuple(result)
 
         legacy_preset = SIMPLE_PRESET_TO_LEGACY.get(preset, preset)
