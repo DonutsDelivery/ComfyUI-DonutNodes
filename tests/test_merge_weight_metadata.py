@@ -32,18 +32,26 @@ def get_key_weight(root, key):
     return getattr(op, name), getattr(op, "set_" + name, None), getattr(op, "convert_" + name, None)
 
 
+class QuantizedTensor(torch.Tensor):
+    """Tensor-subclass layout fixture; storage is real FP8, scale is a sidecar."""
+    @staticmethod
+    def __new__(cls, value):
+        return torch.Tensor._make_subclass(cls, value, False)
+
+    def state_dict(self, prefix):
+        return {prefix: self.as_subclass(torch.Tensor).detach(), prefix + "_scale": torch.tensor(.5),
+                **{prefix + suffix: torch.tensor(1.) for suffix in getattr(self, "extra", ())}}
+
+
 class SyntheticLinear(torch.nn.Linear):
     """FP8 storage plus scale exported beside weight, not a module attribute."""
     def __init__(self, value=6.0, extra=()):
         super().__init__(2, 2, bias=True)
         self.quant_format = "float8_e4m3fn"
         self.extra = extra
-        self.weight = torch.nn.Parameter(torch.full((2, 2), value * 2).to(torch.float8_e4m3fn), requires_grad=False)
+        self.weight = torch.nn.Parameter(QuantizedTensor(torch.full((2, 2), value * 2).to(torch.float8_e4m3fn)), requires_grad=False)
         self.bias = torch.nn.Parameter(torch.full((2,), value), requires_grad=False)
-        self.weight.state_dict = lambda prefix: {
-            prefix: self.weight.detach(), prefix + "_scale": torch.tensor(.5),
-            **{prefix + suffix: torch.tensor(1.) for suffix in self.extra},
-        }
+        self.weight.extra = extra
 
     def _save_to_state_dict(self, destination, prefix, keep_vars):
         destination.update(self.weight.state_dict(prefix + "weight"))
@@ -51,7 +59,7 @@ class SyntheticLinear(torch.nn.Linear):
         destination[prefix + "comfy_quant"] = torch.tensor(list(b'{"format":"float8_e4m3fn"}'), dtype=torch.uint8)
 
     def convert_weight(self, weight, **kwargs):
-        return weight.float() * .5 if weight.dtype == torch.float8_e4m3fn else weight
+        return weight.float().as_subclass(torch.Tensor) * .5 if isinstance(weight, QuantizedTensor) else weight
 
     def forward(self, x):
         return torch.nn.functional.linear(x, self.convert_weight(self.weight), self.bias)
@@ -144,12 +152,13 @@ class MergeTests(unittest.TestCase):
         package = types.ModuleType("_donut_metadata_tests"); package.__path__ = [str(ROOT)]
         comfy = types.ModuleType("comfy"); comfy.__path__ = []
         core = types.ModuleType("comfy.model_patcher"); core.get_key_weight = get_key_weight
+        quant = types.ModuleType("comfy.quant_ops"); quant.QuantizedTensor = QuantizedTensor
         adapters = types.ModuleType("comfy.weight_adapter")
         adapters.WeightAdapterBase = object; adapters.BypassInjectionManager = Manager
         extensions = types.ModuleType("comfy.patcher_extension"); extensions.PatcherInjection = Injection
-        comfy.model_patcher = core; comfy.weight_adapter = adapters; comfy.patcher_extension = extensions
+        comfy.model_patcher = core; comfy.weight_adapter = adapters; comfy.patcher_extension = extensions; comfy.quant_ops = quant
         cls.modules = patch.dict(sys.modules, {package.__name__: package, "comfy": comfy,
-            "comfy.model_patcher": core, "comfy.weight_adapter": adapters, "comfy.patcher_extension": extensions})
+            "comfy.model_patcher": core, "comfy.quant_ops": quant, "comfy.weight_adapter": adapters, "comfy.patcher_extension": extensions})
         cls.modules.start()
         cls.merge = importlib.import_module(package.__name__ + ".DonutModelMergeKrea2")
         cls.weights = cls.merge
@@ -218,7 +227,7 @@ class MergeTests(unittest.TestCase):
             with self.subTest(field=field):
                 source = Patcher(model(synthetic=True))
                 getattr(source, field)[PREFIX + "first.weight_scale"] = object()
-                with self.assertRaisesRegex(RuntimeError, "export-only metadata"):
+                with self.assertRaisesRegex(RuntimeError, "export-only.*metadata"):
                     self.weights._get_merge_key_patches(source, PREFIX)
 
     def test_10_backup_precedence_and_source_patch_identity(self):
@@ -317,14 +326,18 @@ class MergeTests(unittest.TestCase):
         torch.testing.assert_close(materialize(result, PREFIX + "blocks.0.weight"), torch.full((2, 2), 6.))
         torch.testing.assert_close(materialize(result, PREFIX + "txtfusion.projector.weight"), torch.full((2, 2), 2.))
 
-    def test_20_metadata_cannot_replace_weight_without_a_converter(self):
-        root = model(); op = SyntheticLinear(); op.convert_weight = None; root.diffusion_model.first = op
-        with self.assertRaisesRegex(AttributeError, "weight_scale"):
-            self.weights._get_merge_key_patches(Patcher(root), PREFIX)
+    def test_20_same_named_error_on_unrelated_owner_is_not_swallowed(self):
+        source = Patcher(model(synthetic=True))
+        error = AttributeError("unrelated", name="weight_scale", obj=object())
+        def fail(prefix): raise error
+        source.get_key_patches = fail
+        with self.assertRaises(AttributeError) as caught:
+            self.weights._get_merge_key_patches(source, PREFIX)
+        self.assertIs(caught.exception, error)
 
 
     def test_21_previous_getter_path_crashes_in_both_modes(self):
-        with patch.object(self.merge, "_get_merge_key_patches", lambda p, prefix: p.get_key_patches(prefix)):
+        with patch.object(self.merge, "_get_merge_key_patches", lambda p, prefix=PREFIX: p.get_key_patches(prefix)):
             for mode in ("Comfy patches", "Experimental bypass"):
                 with self.subTest(mode=mode), self.assertRaisesRegex(AttributeError, "weight_scale"):
                     self.merge.DonutModelMergeKrea2().merge(Patcher(model()), Patcher(model(synthetic=True)), mode, **{"first.": 0.})
