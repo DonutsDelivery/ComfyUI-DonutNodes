@@ -322,10 +322,87 @@ def _make_dynamic_bypass_injection(plans):
     return PatcherInjection(inject=inject, eject=eject)
 
 
+def _get_merge_key_patches(model):
+    """Keep native patch records, excluding only proven serialization-only keys.
+
+    Comfy's mixed-precision state_dict can export weight_scale/comfy_quant even
+    though neither is an attribute of Linear. The scale belongs to the live
+    QuantizedTensor, which convert_weight handles. get_key_patches in some
+    Comfy versions instead tries getattr(Linear, "weight_scale") and fails.
+    Plain BF16/FP16/FP8 tensors continue through the unmodified native path.
+    """
+    try:
+        return model.get_key_patches(_DIFFUSION_PREFIX)
+    except AttributeError as original_error:
+        # Do not mask arbitrary broken modules or fabricate unit scales. Require
+        # the exact runtime tensor type and its own exported keys as evidence.
+        try:
+            from comfy.quant_ops import QuantizedTensor
+        except ImportError:
+            raise original_error
+        state = model.model_state_dict(_DIFFUSION_PREFIX)
+        virtual = set()
+        for weight_key in state:
+            module = _module_for_weight_key(model.model, weight_key)
+            if module is None:
+                continue
+            weight = getattr(module, "weight", None)
+            if not isinstance(weight, QuantizedTensor):
+                continue
+            export = getattr(weight, "state_dict", None)
+            if not callable(export) or not callable(getattr(module, "convert_weight", None)):
+                continue
+            candidates = set(export(weight_key)) - {weight_key}
+            module_path = weight_key[:-7]
+            if getattr(module, "quant_format", None) is not None:
+                candidates.add(f"{module_path}.comfy_quant")
+            for candidate in candidates.intersection(state):
+                owner_path, _, attribute = candidate.rpartition(".")
+                if owner_path == module_path and not hasattr(module, attribute):
+                    virtual.add(candidate)
+        if not virtual:
+            raise
+        for field in ("patches", "backup", "hook_backup"):
+            conflicts = virtual.intersection(getattr(model, field, {}) or {})
+            if conflicts:
+                raise RuntimeError(
+                    f"Cannot merge serialization-only keys with {field} entries: "
+                    + ", ".join(sorted(conflicts))
+                )
+
+        # A private reader clone delegates to Comfy's implementation so patch
+        # order, backups, hook backups and weight conversion are not re-created
+        # here. Never edit the input model, tensor scales or global Comfy APIs.
+        reader = model.clone()
+        if reader is model:
+            raise RuntimeError("Merge compatibility reader requires an independent patcher clone")
+        native_state_dict = reader.model_state_dict
+        had_override = "model_state_dict" in reader.__dict__
+        old_override = reader.__dict__.get("model_state_dict")
+
+        def live_state_dict(filter_prefix=None):
+            return {
+                key: value for key, value in native_state_dict(filter_prefix).items()
+                if key not in virtual
+            }
+
+        reader.model_state_dict = live_state_dict
+        try:
+            result = reader.get_key_patches(_DIFFUSION_PREFIX)
+            if virtual.intersection(result):
+                raise RuntimeError("Source patcher ignored the live-weight state filter")
+            return result
+        finally:
+            if had_override:
+                reader.model_state_dict = old_override
+            else:
+                del reader.model_state_dict
+
+
 def _regular_merge(model1, model2, ratios):
     """Mirror ComfyUI's ModelMergeBlocks patch orientation exactly."""
     merged = model1.clone()
-    patches = model2.get_key_patches(_DIFFUSION_PREFIX)
+    patches = _get_merge_key_patches(model2)
     for key, patch in patches.items():
         ratio = _ratio_for_key(key, ratios)
         merged.add_patches({key: patch}, 1.0 - ratio, ratio)
@@ -441,7 +518,7 @@ class DonutModelMergeKrea2:
 
         merged = model1.clone()
         source = model2.clone()
-        patches = model2.get_key_patches(_DIFFUSION_PREFIX)
+        patches = _get_merge_key_patches(model2)
         plans, bypassed_keys = _build_bypass_plans(
             merged,
             source,

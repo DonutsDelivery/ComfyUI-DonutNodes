@@ -10,8 +10,13 @@ class DonutModelMergeKrea2Grouped(_Base):
         result = deepcopy(_Base.INPUT_TYPES())
         result.setdefault("optional", {}).update({
             "ratio_mode": (["Per block", "Grouped"], {"default": "Per block"}),
-            "body_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
-            "fusion_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            "body_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                "tooltip": "1 keeps model1; 0 uses model2. Covers first, blocks 0-27 and last. "
+                           "tmlp, txtmlp and tproj keep their separate per-block values."}),
+            "fusion_ratio": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01,
+                "tooltip": "1 keeps model1; 0 uses model2 for all five txtfusion groups. "
+                           "Fineporn body + Turbo fusion: Fineporn to model1, Turbo to model2, "
+                           "body 1, fusion 0, and tmlp/txtmlp/tproj 1."}),
         })
         return result
     FUNCTION = "merge_grouped"
