@@ -18,7 +18,7 @@ IMPORT_FAILURES.clear()
 # unrelated model/conditioning nodes (or the diagnostic node) from loading.
 import_component(__name__, "shared.server_routes")
 
-# Keep the original registration order. The two overrides are deliberate:
+# Keep the original registration order. The overrides are deliberate:
 # failed overrides must NOT quietly expose an older, incompatible node class.
 _NODE_MODULES = (
     "DonutDetailer", "DonutDetailer2", "DonutDetailer4", "DonutDetailer5",
@@ -34,10 +34,15 @@ _NODE_MODULES = (
     "DonutPromptInjection", "DonutZitConditioningRebalance", "DonutZitLayerBlendEncode",
     "DonutKrea2ImageConditioning", "DonutKrea2FusionControl", "DonutKrea2FusionPreset",
     "DonutImageAdjust",
+    "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",
+    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge",
 )
 _REQUIRED_OVERRIDES = {
     "DonutSafeApplyLoRAStack": ("DonutApplyLoRAStack",),
     "DonutKrea2FusionPreset": ("DonutKrea2FusionControl",),
+    "donut_upscale_stage": ("DonutTiledUpscale",),
+    "donut_prompt_injection_recursive": ("DonutPromptInjection",),
+    "donut_grouped_merge": ("DonutModelMergeKrea2",),
 }
 for _module in _NODE_MODULES:
     import_component(
