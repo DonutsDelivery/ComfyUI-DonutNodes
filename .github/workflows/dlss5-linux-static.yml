@@ -1,0 +1,44 @@
+name: DLSS 5 Linux bridge static checks
+
+on:
+  push:
+    branches:
+      - "feat/linux-dlss5-experimental"
+    paths:
+      - "DonutDLSS5Linux.py"
+      - "donut_dlss5_linux.py"
+      - "DonutWeightVectorScale.py"
+      - "tests/test_donut_dlss5_linux.py"
+      - ".github/workflows/dlss5-linux-static.yml"
+  pull_request:
+    paths:
+      - "DonutDLSS5Linux.py"
+      - "donut_dlss5_linux.py"
+      - "DonutWeightVectorScale.py"
+      - "tests/test_donut_dlss5_linux.py"
+      - ".github/workflows/dlss5-linux-static.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Create isolated test environment
+        run: |
+          python3 -m venv .venv-dlss5
+          .venv-dlss5/bin/python -m pip install --upgrade pip
+          .venv-dlss5/bin/python -m pip install numpy pytest
+      - name: Compile bridge files
+        run: |
+          .venv-dlss5/bin/python -m py_compile \
+            donut_dlss5_linux.py \
+            DonutDLSS5Linux.py \
+            DonutWeightVectorScale.py \
+            tests/test_donut_dlss5_linux.py
+      - name: Run protocol tests
+        run: .venv-dlss5/bin/python -m pytest -q tests/test_donut_dlss5_linux.py
