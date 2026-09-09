@@ -10,4 +10,14 @@ twice.
 
 ## Validation
 
-Pending release validation.
+Focused tensor tests cover RMS-balanced, Rebalance, neutral pass-through, and
+double-application protection. The Fusion/Workflow Panel UI suites also pass.
+
+Published successfully at 2026-09-09T22:10:24Z using Comfy CLI 1.15.0 from a
+fresh Registry-specific staging directory.
+
+Exact-version check at 2026-09-09T22:10:50Z: NodeVersionStatusPending with no
+status reason. The published 159-entry ZIP has SHA-256
+`6d797911392e15b10a8ffc3f7a0911faea1fcba06d9a9e265c3cf61f9ea06eca`, matching
+the validated staging archive byte-for-byte. Upload is verified; Registry
+approval remains unverified.
