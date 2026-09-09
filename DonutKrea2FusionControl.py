@@ -235,6 +235,37 @@ def _nova452_rebalance_structure(structure, multiplier, profile):
     return structure
 
 
+
+_TAP_METADATA_KEY = "donut_krea2_applied_taps"
+
+
+def _tap_signature(config):
+    return (config["tap_method"], tuple(config["tap_gains"]),
+            config["tap_normalization"], config.get("tap_multiplier"),
+            tuple(config.get("tap_profile_values", ())))
+
+
+def prepare_nag_conditioning(model, conditioning):
+    """Apply the model's upstream tap transform to NAG's separate text input."""
+    config = getattr(model, "model_options", {}).get("transformer_options", {}).get(FUSION_BUDGET_KEY)
+    if not config or _is_neutral(config["tap_gains"]) or conditioning is None:
+        return conditioning
+    signature = _tap_signature(config)
+    output = []
+    for cond, metadata in conditioning:
+        if metadata.get(_TAP_METADATA_KEY) == signature:
+            output.append([cond, metadata])
+            continue
+        if config["tap_method"] == TAP_METHOD_REBALANCE:
+            transformed = _nova452_rebalance_structure(
+                [[cond, metadata]], config["tap_multiplier"], config["tap_profile_values"])
+        else:
+            transformed = _rebalance_conditioning(
+                [[cond, metadata]], config["tap_gains"], config["tap_normalization"])
+        value, meta = transformed[0]
+        output.append([value, dict(meta, **{_TAP_METADATA_KEY: signature})])
+    return output
+
 def _run_txtfusion_parts(txtfusion, value, mask=None, transformer_options=None):
     transformer_options = transformer_options or {}
     batch, sequence, taps, dimension = value.shape
@@ -647,12 +678,23 @@ class DonutKrea2FusionControl:
                     "tap_method": tap_method,
                     "tap_gains": tuple(float(value) for value in tap_gains),
                     "tap_normalization": tap_normalization,
+                    "tap_multiplier": float(tap_strength) if tap_method == TAP_METHOD_REBALANCE else None,
+                    "tap_profile_values": tuple(tap_profile_values) if tap_method == TAP_METHOD_REBALANCE else (),
                     "projector_method": projector_method,
                     "projector_gains": tuple(float(value) for value in projector_gains),
                     "projector_normalization": projector_normalization,
                     "fusion_method": fusion_method,
                     "fusion_strength": float(fusion_strength),
                 },
+            )
+
+        if not _is_neutral(tap_gains):
+            config = output_model.model_options["transformer_options"][FUSION_BUDGET_KEY]
+            signature = _tap_signature(config)
+            output_conditionings = tuple(
+                None if values is None else [
+                    [cond, dict(meta, **{_TAP_METADATA_KEY: signature})] for cond, meta in values
+                ] for values in output_conditionings
             )
 
         diagnostics = (

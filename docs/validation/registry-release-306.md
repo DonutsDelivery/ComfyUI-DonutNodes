@@ -22,3 +22,7 @@ resolution failed; registry approval remains unverified.
 
 Follow-up 2026-09-09T11:48:29Z: NodeVersionStatusPending, empty status_reason.
 Sandbox DNS failed; the read-only check succeeded outside the sandbox.
+
+Exact-version follow-up 2026-09-09T12:02:29Z: NodeVersionStatusActive with
+status reason "Passed automated checks". Version 3.0.6 is approved and
+available through normal Registry discovery.

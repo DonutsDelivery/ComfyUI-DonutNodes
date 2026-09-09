@@ -36,11 +36,14 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   };
   add("tap_method", "Donut 12-tap gains");
   const profile = add("tap_profile", "classic");
+  const normalization = add("tap_normalization", "none");
+  const weights = add("per_layer_weights", Array(12).fill("1.0").join(","));
   const method = add("fusion_method", "Standard Krea2 fusion");
+  const composition = add("uncensorfix_controls", "Fusion + UncensorFix weights");
   const preset = add("compatibility_preset", "Custom");
   const projectorStrength = add("projector_strength", 1);
   const innerStrength = add("tap_strength", 1, value => { projectorStrength.value = value; });
-  preset.options.values = ["Custom", "UncensorFix"];
+  preset.options.values = ["Custom", "UncensorFix", "Balanced", "Balanced + Enhancer"];
   profile.options.values = ["off", "classic"];
   method.options.values = ["Standard Krea2 fusion"];
 
@@ -96,4 +99,22 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   assert.equal(outerStrength.value, 0.65);
   assert.equal(innerStrength.value, 0.65);
   assert.equal(projectorStrength.value, 0.65, "outer strength invokes dependent inner callback");
+
+  selector.value = "Balanced";
+  selector.events.change();
+  deferred.splice(0).forEach(callback => callback());
+  assert.equal(profile.value, "classic");
+  assert.equal(normalization.value, "tensor_rms");
+  assert.equal(weights.value, "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0");
+  assert.equal(method.value, "Standard Krea2 fusion");
+  assert.equal(composition.value, "Fusion only");
+
+  selector.value = "Balanced + Enhancer";
+  selector.events.change();
+  deferred.splice(0).forEach(callback => callback());
+  assert.equal(profile.value, "classic");
+  assert.equal(normalization.value, "tensor_rms");
+  assert.equal(weights.value, "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0");
+  assert.equal(method.value, "capitan01R Krea2T-Enhancer operation");
+  assert.equal(composition.value, "Fusion only");
 });

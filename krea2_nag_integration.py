@@ -3,6 +3,11 @@
 import nodes
 import comfy.patcher_extension
 
+try:
+    from .DonutKrea2FusionControl import prepare_nag_conditioning
+except ImportError:
+    from DonutKrea2FusionControl import prepare_nag_conditioning
+
 
 def nag_input_types():
     return {
@@ -50,7 +55,7 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
                       vae=vae, source_image=source_image, source_image_b=source_image_b,
                       target_latent=target_latent)
     return node_class().patch(
-        model=model, nag_negative=negative if nag_negative is None else nag_negative,
+        model=model, nag_negative=prepare_nag_conditioning(model, negative if nag_negative is None else nag_negative),
         phi=nag_phi, tau=nag_tau, alpha=nag_alpha,
         sigma_start=nag_sigma_start, sigma_end=nag_sigma_end, **kwargs,
     )[0]

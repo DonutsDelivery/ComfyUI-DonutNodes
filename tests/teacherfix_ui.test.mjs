@@ -162,6 +162,27 @@ for (const reverse of [false, true]) {
   }
 }
 
+for (const reverse of [false, true]) {
+  for (const mode of ["Simple", "Advanced"]) {
+    test(`RMS-balanced presets replace prior settings: ${mode}, reverse=${reverse}`, () => {
+      const { node, flush } = makeCombinedNode("Enhancer", mode, reverse);
+      edit(node, "compatibility_preset", "Balanced");
+      flush();
+      assert.equal(widget(node, "tap_method").value, "Donut 12-tap gains");
+      assert.equal(widget(node, "tap_profile").value, "classic");
+      assert.equal(widget(node, "tap_normalization").value, "tensor_rms");
+      assert.equal(widget(node, "fusion_method").value, "Standard Krea2 fusion");
+
+      edit(node, "compatibility_preset", "Balanced + Enhancer");
+      flush();
+      assert.equal(widget(node, "tap_method").value, "Donut 12-tap gains");
+      assert.equal(widget(node, "tap_profile").value, "classic");
+      assert.equal(widget(node, "tap_normalization").value, "tensor_rms");
+      assert.equal(widget(node, "fusion_method").value, "capitan01R Krea2T-Enhancer operation");
+    });
+  }
+}
+
 // Off is a real runtime switch, not a numeric preset. Keep dormant settings
 // intact and never re-enable them as a side effect of an automatic label edit.
 for (const reverse of [false, true]) {
