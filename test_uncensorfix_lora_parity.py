@@ -355,8 +355,16 @@ class UncensorFixParityTests(unittest.TestCase):
         schema = self.module.DonutKrea2FusionControl.INPUT_TYPES()
         self.assertEqual(list(schema["required"])[-1], "ui_mode")
         self.assertEqual(list(schema["optional"])[-2:], ["uncensorfix_controls", "execution_mode"])
-        self.assertEqual(schema["optional"]["uncensorfix_controls"][1]["default"], "LoRA only")
+        self.assertEqual(schema["optional"]["uncensorfix_controls"][1]["default"], "Fusion only")
         self.assertEqual(list(self.module.NODE_CLASS_MAPPINGS), ["DonutKrea2FusionControl"])
+
+    def test_composition_controls_lora_independently_of_preset(self):
+        for preset in ("Balanced", "Custom", "UncensorFix", "Off"):
+            with self.subTest(preset=preset):
+                result = self.apply(compatibility_preset=preset, uncensorfix_controls="Fusion + LoRA")
+                self.assertEqual(len(result[0].patches), 33)
+                result = self.apply(compatibility_preset=preset, uncensorfix_controls="Fusion only")
+                self.assertEqual(len(result[0].patches), 0)
 
     def test_partial_merge_routes_both_modes_without_mutating_model2(self):
         for mode in ("Comfy patches", "Experimental bypass"):

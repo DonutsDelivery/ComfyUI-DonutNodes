@@ -52,6 +52,8 @@ UNCENSORFIX_TARGET_COUNT = 33
 UNCENSORFIX_LORA_ONLY = "LoRA only"
 UNCENSORFIX_WITH_CONTROLS = "LoRA + fusion controls"
 UNCENSORFIX_CONTROL_MODES = (UNCENSORFIX_LORA_ONLY, UNCENSORFIX_WITH_CONTROLS)
+FUSION_ONLY = "Fusion only"
+FUSION_WITH_LORA = "Fusion + LoRA"
 UNCENSORFIX_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
 _UNCENSORFIX_SOURCE_ID_PREFIX = "donut_uncensorfix_source_identity:"
 
@@ -233,10 +235,10 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         })
         # Optional, appended widgets preserve old workflow widget indices.
         optional = dict(schema.get("optional", {}))
-        optional["uncensorfix_controls"] = (list(UNCENSORFIX_CONTROL_MODES), {
-            "default": UNCENSORFIX_LORA_ONLY,
-            "tooltip": "UncensorFix only: LoRA only leaves conditioning and upstream controls untouched. "
-                       "Select LoRA + fusion controls to deliberately combine the Advanced settings.",
+        optional["uncensorfix_controls"] = ([FUSION_ONLY, FUSION_WITH_LORA, *UNCENSORFIX_CONTROL_MODES], {
+            "default": FUSION_ONLY,
+            "tooltip": "Fusion only applies the visible fusion settings. Fusion + LoRA also applies "
+                       "embedded UncensorFix weights with any preset. Old LoRA modes remain for saved workflows.",
         })
         optional["execution_mode"] = (list(UNCENSORFIX_EXECUTION_MODES), {
             "default": "Comfy patches",
@@ -260,6 +262,20 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             kwargs = signature(super().apply).bind_partial(*args, **kwargs).arguments
             args = ()
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
+        if uncensorfix_controls in (FUSION_ONLY, FUSION_WITH_LORA):
+            # New controls are authoritative: the preset label cannot enable
+            # or disable either operation. Legacy workflows use the old path.
+            delegated = dict(kwargs)
+            delegated["compatibility_preset"] = base.PRESET_MANUAL
+            result = list(super().apply(**delegated))
+            result[-1] = _rewrite_preset_diagnostics(result[-1], base.PRESET_MANUAL, preset)
+            if uncensorfix_controls == FUSION_WITH_LORA:
+                strength = float(kwargs.get("tap_strength", 1.0))
+                result[0], count, source = _apply_uncensorfix(result[0], strength, execution_mode)
+                result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
+                               f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
+            result[-1] += f"\nuncensorfix_controls={uncensorfix_controls}"
+            return tuple(result)
         if preset == PRESET_OFF:
             # Do not call the base node: hidden tap/projector/fusion settings
             # from the last active preset can still be non-neutral. Return the

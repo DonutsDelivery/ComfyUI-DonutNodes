@@ -260,7 +260,7 @@ function syncSimpleStrength(node, presetName = widget(node, "compatibility_prese
 
 function applySimplePreset(node, name) {
   name = simplifyPresetName(name);
-  const values = SIMPLE_PRESETS[name];
+  const values = name === "Off" && widget(node, "uncensorfix_controls") ? SIMPLE_PRESETS[UNCENSORFIX] : SIMPLE_PRESETS[name];
   if (!values) return;
 
   node._donutApplyingKrea2Preset = true;
@@ -274,6 +274,8 @@ function applySimplePreset(node, name) {
   } finally {
     node._donutApplyingKrea2Preset = false;
   }
+  const composition = widget(node, "uncensorfix_controls");
+  if (composition) composition.value = name === UNCENSORFIX ? "Fusion + LoRA" : "Fusion only";
 }
 
 function updateModeVisibility(node) {

@@ -42,7 +42,7 @@ for (const [legacy, current] of Object.entries({
 })) FUSION_PRESETS[legacy] = FUSION_PRESETS[current];
 
 function applyFusionPreset(node, preset) {
-    const values = FUSION_PRESETS[preset];
+    const values = preset === "Off" ? FUSION_PRESETS.UncensorFix : FUSION_PRESETS[preset];
     if (!values || !node.widgets?.some(widget => widget.name === "tap_method")) return;
     node._donutApplyingKrea2Preset = true;
     try {
@@ -62,6 +62,8 @@ function applyFusionPreset(node, preset) {
             ? "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0" : neutral,
         projector_layer_weights: neutral,
         compatibility_preset: preset,
+        uncensorfix_controls: ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset)
+            ? "Fusion + LoRA" : "Fusion only",
     })) {
         const widget = node.widgets.find(item => item.name === name);
         if (widget) widget.value = value;
