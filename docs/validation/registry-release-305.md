@@ -25,3 +25,10 @@ Europe/Copenhagen (10:05 UTC), automation check-donutnodes-3-0-5-after-noon-revi
 The user clarified noon, not midnight. No review checks before that time and no
 five-minute polling. Report that requested check even if Pending, then delete
 the one-time automation. Upload success does not establish registry approval.
+
+## Approval — 2026-09-09T10:04:20Z
+
+Exact version 3.0.5 verified as NodeVersionStatusActive with status reason
+"Passed automated checks" through the versions API with include_status_reason=true.
+The published download URL remains https://cdn.comfy.org/donutsdelivery/donutnodes/3.0.5/node.zip.
+The registry release is approved and available through normal discovery.

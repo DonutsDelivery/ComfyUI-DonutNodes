@@ -8,6 +8,65 @@ import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
 import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=15";
 
 const service = createLoraService(api);
+const FUSION_PRESET = (tapMethod, tapProfile, tapNormalization, projectorMethod, fusionMethod) => ({
+    tap_method: tapMethod, tap_profile: tapProfile, tap_strength: 1,
+    tap_formula: "scale_around_1", tap_normalization: tapNormalization,
+    projector_method: projectorMethod, projector_profile: "off", projector_strength: 1,
+    projector_formula: "scale_around_1", projector_normalization: "none",
+    fusion_method: fusionMethod, fusion_strength: 1,
+});
+const FUSION_PRESETS = {
+    "Bypass 2": FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Krea2FilterBypass 2vector diff", "Standard Krea2 fusion"),
+    "Bypass 3": FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Krea2FilterBypass 3vector diff", "Standard Krea2 fusion"),
+    Rebalance: FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Donut projector-input gains", "Standard Krea2 fusion"),
+    Enhancer: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
+    "Rebalance + Enhancer": FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
+    "Rebalance + Bypass 2": FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Krea2FilterBypass 2vector diff", "Standard Krea2 fusion"),
+    "Rebalance + Bypass 3": FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Krea2FilterBypass 3vector diff", "Standard Krea2 fusion"),
+    Balanced: FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
+    "Balanced + Enhancer": FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
+    UncensorFix: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
+};
+for (const [legacy, current] of Object.entries({
+    "COPY settings: Krea2FilterBypass 2vector": "Bypass 2",
+    "COPY settings: Krea2FilterBypass 3vector": "Bypass 3",
+    "COPY settings: nova452 ConditioningKrea2Rebalance profile @ tap strength 1": "Rebalance",
+    "COPY settings: capitan01R Krea2T-Enhancer defaults": "Enhancer",
+    "HYBRID settings: Rebalance + Krea2T-Enhancer": "Rebalance + Enhancer",
+    "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": "Rebalance + Bypass 2",
+    "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
+    "DONUT settings: RMS-balanced classic": "Balanced",
+    "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
+    TeacherFix: "UncensorFix",
+    "DONUT settings: Krea2 C33 TeacherFix EMA5000": "UncensorFix",
+})) FUSION_PRESETS[legacy] = FUSION_PRESETS[current];
+
+function applyFusionPreset(node, preset) {
+    const values = FUSION_PRESETS[preset];
+    if (!values || !node.widgets?.some(widget => widget.name === "tap_method")) return;
+    node._donutApplyingKrea2Preset = true;
+    try {
+        for (const [name, value] of Object.entries(values)) {
+            const widget = node.widgets.find(item => item.name === name);
+            if (!widget) continue;
+            widget.value = value;
+            widget.callback?.(value, app.canvas, node);
+        }
+    } finally {
+        node._donutApplyingKrea2Preset = false;
+    }
+    // Converted/linked widgets may have no profile callback installed.
+    const neutral = Array(12).fill("1.0").join(",");
+    for (const [name, value] of Object.entries({
+        per_layer_weights: values.tap_profile === "classic"
+            ? "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0" : neutral,
+        projector_layer_weights: neutral,
+        compatibility_preset: preset,
+    })) {
+        const widget = node.widgets.find(item => item.name === name);
+        if (widget) widget.value = value;
+    }
+}
 const element = (tag, text) => {
     const result = document.createElement(tag);
     if (text !== undefined) result.textContent = text;
@@ -21,10 +80,11 @@ function resolve(path) {
     }
     return node;
 }
-function commit(node, widget, value) {
+function commitWidget(node, widget, value) {
     node.graph.beforeChange();
     widget.value = value;
     widget.callback?.(value, app.canvas, node);
+    if (widget.name === "compatibility_preset") applyFusionPreset(node, value);
     node.graph.afterChange();
     node.setDirtyCanvas(true, true);
 }
@@ -33,6 +93,45 @@ function install(node, appOnly = false) {
     const root = element("div");
     root.className = "donut-app-controls" + (appOnly ? " donut-app-only" : " donut-section-controls");
     const refreshers = [];
+    function commit(target, widget, value) {
+        commitWidget(target, widget, value);
+        if (!["compatibility_preset", "tap_strength"].includes(widget.name)) return;
+        // v4 exposes the preset on the outer subgraph, while the advanced
+        // controls address its inner Fusion node. The outer widget does not
+        // run the inner node's preset callback. Resolve the actual Fusion
+        // controls from this panel's configuration, including saved workflows.
+        const controls = node.properties?.donut_app_controls?.groups?.flatMap(group => group.controls || []) || [];
+        const source = controls.find(item => item.widget === widget.name && resolve(item.path) === target);
+        if (!source) return;
+        const destinations = new Set(controls.filter(item => item.widget === "tap_method"
+            && item.path.length > source.path.length
+            && source.path.every((id, index) => id === item.path[index]))
+            .map(item => resolve(item.path)).filter(Boolean));
+        for (const destination of destinations) {
+            destination.graph.beforeChange();
+            if (widget.name === "compatibility_preset") applyFusionPreset(destination, value);
+            else {
+                const innerStrength = destination.widgets?.find(item => item.name === "tap_strength");
+                if (innerStrength) {
+                    innerStrength.value = value;
+                    innerStrength.callback?.(value, app.canvas, destination);
+                }
+            }
+            destination.graph.afterChange();
+            destination.setDirtyCanvas(true, true);
+        }
+        if (widget.name === "compatibility_preset" && destinations.size && FUSION_PRESETS[value]) {
+            const strength = target.widgets?.find(item => item.name === "tap_strength");
+            if (strength) commitWidget(target, strength, 1);
+        }
+    }
+    // Preset widgets change several sibling widgets through their callbacks.
+    // The workflow panel owns separate HTML inputs for those siblings, so it
+    // must refresh them immediately instead of waiting for its visibility
+    // observer/polling interval to run.
+    function refreshControls() {
+        refreshers.forEach(refresh => refresh());
+    }
     function field(parent, path, name, title, choices, weightOptions, ui, modeControl) {
         const target = resolve(path);
         if (modeControl === "bypass") {
@@ -105,6 +204,11 @@ function install(node, appOnly = false) {
         input.addEventListener(Array.isArray(values) || boolean ? "change" : "input", () => {
             if (numeric && (!input.value || !Number.isFinite(Number(input.value)))) { refresh(); return; }
             commit(target, widget, boolean ? input.checked : numeric ? Number(input.value) : input.value);
+            refreshControls();
+            // A few native callbacks defer dependent-widget updates. Refresh
+            // once more after that microtask so the panel always mirrors the
+            // node's final values.
+            queueMicrotask(refreshControls);
         });
         label.append(caption, input); parent.append(label);
         if (ui?.prompt) {

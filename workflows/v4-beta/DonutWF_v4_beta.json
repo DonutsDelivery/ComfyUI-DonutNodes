@@ -1146,14 +1146,6 @@
                 {
                   "path": [
                     1138,
-                    487
-                  ],
-                  "mode": "bypass",
-                  "title": "Enable AuraFlow sampling"
-                },
-                {
-                  "path": [
-                    1138,
                     1125
                   ],
                   "widget": "Text",
@@ -2634,6 +2626,14 @@
               "title": "AuraFlow sampling",
               "advanced": false,
               "controls": [
+                {
+                  "path": [
+                    1138,
+                    487
+                  ],
+                  "mode": "bypass",
+                  "title": "Enable AuraFlow sampling"
+                },
                 {
                   "path": [
                     1138,
