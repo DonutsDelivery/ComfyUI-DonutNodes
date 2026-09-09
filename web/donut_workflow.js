@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { createLoraService, installNativeLoras, setHidden } from "./donut_native_lora.js";
-import { repairStreamlinedWorkflow, installWorkflowSerializationGuard } from "./donut_workflow_repair.js";
+import { repairStreamlinedWorkflow, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=2";
 export { decodeRows, moveRow } from "./donut_native_lora.js";
 
 const service = createLoraService(api);

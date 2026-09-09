@@ -199,21 +199,23 @@ def krea2_edit_forward(model, x, timesteps, context, source_latent,
     height, width = x.shape[-2:]
     patch_height, patch_width = height // patch, width // patch
 
-    source = _to_4d(source_latent).to(device=x.device, dtype=x.dtype)
-    if source.shape[-2:] != (original_height, original_width):
-        source = F.interpolate(
-            source.float(), size=(original_height, original_width), mode="bilinear",
-        ).to(x.dtype)
-    source = comfy.ldm.common_dit.pad_to_patch_size(source, (patch, patch))
-
     context = model._unpack_context(context)
     if context.shape[0] != batch:
         raise ValueError(
             f"Krea2 edit conditioning batch must match runtime batch {batch}, got {context.shape[0]}."
         )
     target_image = model.first(_patchify(x, patch))
-    source_image = model.first(_patchify(source, patch))
-    source_image = _match_source_batch(source_image, batch, target_batch)
+    sources = source_latent if isinstance(source_latent, (list, tuple)) else [source_latent]
+    source_images = []
+    for source in sources:
+        source = _to_4d(source).to(device=x.device, dtype=x.dtype)
+        if source.shape[-2:] != (original_height, original_width):
+            source = F.interpolate(
+                source.float(), size=(original_height, original_width), mode="bilinear",
+            ).to(x.dtype)
+        source = comfy.ldm.common_dit.pad_to_patch_size(source, (patch, patch))
+        source_image = model.first(_patchify(source, patch))
+        source_images.append(_match_source_batch(source_image, batch, target_batch))
 
     active_t = model.tmlp(
         timestep_embedding(timesteps, model.tdim).unsqueeze(1).to(target_image.dtype)
@@ -223,16 +225,17 @@ def krea2_edit_forward(model, x, timesteps, context, source_latent,
     context = model.txtfusion(context, mask=None, transformer_options=transformer_options)
     context = model.txtmlp(context)
     text_length = context.shape[1]
-    source_length = source_image.shape[1]
+    source_length = sum(source.shape[1] for source in source_images)
     target_length = target_image.shape[1]
-    combined = torch.cat((context, source_image, target_image), dim=1)
+    combined = torch.cat([context, *source_images, target_image], dim=1)
 
     device = combined.device
-    positions = torch.cat((
+    positions = torch.cat([
         torch.zeros(batch, text_length, 3, device=device, dtype=torch.float32),
-        _imgids(batch, 1, patch_height, patch_width, device),
+        *[_imgids(batch, frame, patch_height, patch_width, device)
+          for frame in range(1, len(source_images) + 1)],
         _imgids(batch, 0, patch_height, patch_width, device),
-    ), dim=1)
+    ], dim=1)
     freqs = model.pe_embedder(positions)
 
     for block in model.blocks:
@@ -275,7 +278,10 @@ class _Krea2EditWrapper:
         self.target_batch = target_batch
 
     def to(self, device_or_dtype):
-        return type(self)(self.source_samples.to(device_or_dtype), self.target_batch)
+        sources = self.source_samples
+        moved = ([source.to(device_or_dtype) for source in sources]
+                 if isinstance(sources, (list, tuple)) else sources.to(device_or_dtype))
+        return type(self)(moved, self.target_batch)
 
     def __call__(self, executor, x, timesteps, context, attention_mask=None,
                  ref_latents=None, transformer_options=None, **kwargs):
@@ -312,18 +318,21 @@ def _remove_edit_wrapper(model, key):
 
 
 def patch_krea2_edit_model(model, source_latent, target_batch=None):
-    """Apply Donut's clean-reference Krea2 edit patch to one model clone."""
+    """Patch one model with a LATENT or ordered [scene, subject] LATENT list."""
     if not _is_krea2_model(model):
         raise RuntimeError("Krea2 edit mode requires a Krea 2 diffusion model.")
-    source_samples = model.model.process_latent_in(source_latent["samples"])
-    source_batch = _to_4d(source_samples).shape[0]
+    latents = source_latent if isinstance(source_latent, (list, tuple)) else [source_latent]
+    sources = [model.model.process_latent_in(latent["samples"]) for latent in latents]
     if target_batch is None:
         target_batch = 1
     target_batch = int(target_batch)
-    if source_batch != 1:
-        raise ValueError(
-            f"Krea2 edit supports one source image broadcast across the target batch, got {source_batch}."
-        )
+    for source in sources:
+        source_batch = _to_4d(source).shape[0]
+        if source_batch != 1:
+            raise ValueError(
+                f"Krea2 edit supports one image per reference broadcast across the target batch, got {source_batch}."
+            )
+    source_samples = sources if isinstance(source_latent, (list, tuple)) else sources[0]
 
     patched = model.clone()
     _remove_edit_wrapper(patched, _EDIT_WRAPPER_KEY)
@@ -384,21 +393,20 @@ def validate_krea2_edit_target(target_latent, source_image, mode, denoise,
         raise ValueError("DonutSampler edit_mode requires a positive finite latent downscale ratio.")
     target_width = round(int(samples.shape[-1]) * downscale_ratio)
     target_height = round(int(samples.shape[-2]) * downscale_ratio)
-    if target_width * target_height > 2 * 1024 * 1024:
-        raise ValueError(
-            "DonutSampler edit_mode supports targets up to 2 MiP; upscale larger outputs afterward."
-        )
     return samples, target_width, target_height
 
 
 def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
                        negative_prompt="", grounding_px=768,
-                       target_width=None, target_height=None, target_batch=None):
+                       target_width=None, target_height=None, target_batch=None,
+                       source_image_b=None):
     """Build target-matched VAE source tokens and natural 1-MiP grounding.
 
     Grounded semantic conditioning remains delegated to the installed
     ComfyUI-Krea2Edit node. Donut owns the appearance-token model patch so its
     target, batch, and clean-reference semantics stay consistent.
+    With source_image_b, the returned source latent is an ordered [scene, subject]
+    list, also accepted by patch_krea2_edit_model for subsequent model phases.
     """
     if clip is None:
         raise ValueError("Krea2 edit mode requires a CLIP input")
@@ -423,6 +431,18 @@ def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
         )
     source_latent = nodes.VAEEncode().encode(vae, patch_image)[0]
 
+    grounding_options = {}
+    if source_image_b is not None:
+        if source_image_b.ndim != 4 or source_image_b.shape[0] != 1:
+            raise ValueError("Krea2 edit requires one image in source_image_b, broadcast across the target batch.")
+        conditioning_image_b = scale_image_to_megapixels(source_image_b)
+        patch_image_b = conditioning_image_b
+        if target_width is not None and target_height is not None:
+            patch_image_b = resize_center_crop(source_image_b, target_width, target_height)
+        source_latent_b = nodes.VAEEncode().encode(vae, patch_image_b)[0]
+        source_latent = [source_latent, source_latent_b]
+        grounding_options["image_b"] = conditioning_image_b
+
     grounded_node = nodes.NODE_CLASS_MAPPINGS["Krea2EditGroundedEncode"]()
 
     patched_model = patch_krea2_edit_model(
@@ -430,9 +450,11 @@ def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
     )
     positive = grounded_node.encode(
         clip, positive_prompt, image=conditioning_image, grounding_px=grounding_px,
+        **grounding_options,
     )[0]
     negative = grounded_node.encode(
         clip, negative_prompt, image=conditioning_image, grounding_px=grounding_px,
+        **grounding_options,
     )[0]
 
     return patched_model, positive, negative, source_latent, conditioning_image

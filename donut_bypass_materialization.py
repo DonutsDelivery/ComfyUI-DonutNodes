@@ -142,6 +142,7 @@ def install_bypass_recording_patch():
         result = original(model, applications)
         discovered = _discover_components_from_injections(result)
         if discovered:
+            result.remove_attachments(BYPASS_ATTACHMENT_KEY)
             attach_bypass_components(result, discovered)
         return result
 

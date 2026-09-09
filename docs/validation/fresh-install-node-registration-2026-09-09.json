@@ -1,0 +1,50 @@
+{
+  "server": "http://127.0.0.1:8189",
+  "workflow": "/home/user/DonutWF_v3_versions/DonutWF_v3_censored.json",
+  "workflow_sha256": "993690dd8da3a8b4aea03a5861811e6507d82055ec67c19f69c52e1d8c416f88",
+  "registered": {
+    "DonutFaceDetailer": true,
+    "DonutEditStudio": true,
+    "UltralyticsDetectorProvider": true,
+    "SAMLoader": true,
+    "Image Save": true
+  },
+  "installer_sha256": "bb4e0173a82df023143280e00bc8c6b6d6a1dc7b554a2c6c419b464ba2924dce",
+  "frontend_only_types": [
+    "19b7a5a1-741a-43bc-a0c4-c130d81d0c0a",
+    "5186050a-13ae-4d2e-bfd6-359e1311b90e",
+    "DonutLatestPreview",
+    "DonutModelDownloads",
+    "DonutWorkflowPanel",
+    "Note",
+    "bb3f06a1-a0c6-496d-b024-ca94ecf046f3"
+  ],
+  "missing_backend_types": [],
+  "packages": {
+    "opencv-python-headless": "5.0.0.93",
+    "opencv-python": "5.0.0.93",
+    "numpy": "2.5.3",
+    "comfyui-manager": "4.2.2"
+  },
+  "pip_check": "No broken requirements found",
+  "opencv_conversion_probe": {
+    "shape": [
+      2,
+      2
+    ]
+  },
+  "unit_tests": {
+    "command": "python -m unittest test_donut_face_detailer test_install_compatibility -q",
+    "passed": 20
+  },
+  "browser_validation": {
+    "url": "http://localhost:8189/#8f35edad-c8d3-49ce-a636-06720eb9d5b1",
+    "workflow_loaded": true,
+    "missing_custom_nodes": [],
+    "remaining_errors": [
+      "Missing model: finepornV4INT8NVFP4BF16_v4.safetensors",
+      "Missing model: krea2_turbo_bf16.safetensors"
+    ],
+    "full_generation_tested": false
+  }
+}

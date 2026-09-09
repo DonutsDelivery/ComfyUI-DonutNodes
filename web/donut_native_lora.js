@@ -85,6 +85,8 @@ export function setHidden(widget, hide) {
         type: widget.type, computeSize: widget.computeSize, computeLayoutSize: widget.computeLayoutSize
     };
     widget.hidden = !!hide;
+    widget.options ||= {};
+    widget.options.hidden = !!hide;
     if (hide) {
         // Keep the native widget class/type intact, including getter-only
         // promoted views. Hidden controls are still valid serialized controls.
@@ -388,6 +390,6 @@ export function installNativeLoras(node, definition, { app, api, service }) {
         }
         return result;
     };
-    node._donutNativeLoras = { refresh, get rows() { return rows; } };
+    node._donutNativeLoras = { refresh, restore, get rows() { return rows; } };
     restore(); void refresh();
 }

@@ -41,6 +41,24 @@ is added. Dependency installation may still change transitive dependencies as
 part of pip's normal resolution; review the environment manager's proposed
 changes. Updating code alone does not repair previously installed wheels.
 
+## Workflow saving without WAS
+
+The current workflow uses `DonutImageSave`, included in DonutNodes. WAS is not a
+required pack. Its active WebP, output-folder, seed-filename and numbering
+settings are preserved. WAS-specific history browsing, color-profile input,
+and high-bit-depth/EXR controls are not part of this replacement; the migrated
+workflow did not use them.
+
+The earlier OpenCV Manager repair-list hook was removed. Donut does not write
+`pip_auto_fix.list` overrides. Older workflows still using WAS must migrate the
+save node or manage that pack separately; installing Donut does not uninstall
+WAS from an existing environment.
+
+DonutFaceDetailer also resolves Impact Pack when execution starts, so its node
+registration does not depend on which custom-node directory ComfyUI imports
+first. A missing or broken Impact Pack still produces an actionable execution
+error instead of silently removing DonutFaceDetailer from the node registry.
+
 ## In ComfyUI
 
 Open a blank workflow, add **Donut Dependency Check** from **Donut/diagnostics**,
@@ -53,19 +71,13 @@ It also warns when multiple OpenCV distributions share the `cv2` namespace.
 The report appears as selectable text on the node, in its STRING output and in
 the console. The report widget is not serialized into the workflow.
 
-Enable `probe_imports` to test NumPy, the PyTorch/NumPy conversion bridge,
-OpenCV, SciPy FFT/ndimage/optimization, and Matplotlib's noninteractive renderer.
-Each test uses a separate child process with the same Python and import paths,
-a 20-second timeout, and a temporary Matplotlib cache. A crashed extension or a
-stalled probe is reported without crashing the **checker**. No model is loaded,
-no GPU is used, and no package-install command is executed. Normal startup
-imports are not subprocess-isolated; a true native crash during startup cannot
-be recovered by Python's exception handling.
+The checker reads package metadata and recorded startup errors only. It does not
+launch child processes or run binary import probes.
 
 ## When ComfyUI itself cannot start
 
 Run `donut_dependencies.py` as a script using the Python executable that launches
-ComfyUI. This standalone mode probes imports automatically; it cannot know a
+ComfyUI. This standalone mode reads installed package metadata; it cannot know a
 previous ComfyUI process's startup errors. Examples from the portable root or
 with an already activated virtual environment:
 
@@ -140,3 +152,8 @@ VM, not a full browser. Full ComfyUI/GPU/Windows-portable testing is separate.
   https://github.com/opencv/opencv-python/releases
 - OpenCV's one-variant installation guidance:
   https://pypi.org/project/opencv-python/
+
+## Supporting model files
+
+See [model sources](model-sources.md) for manual download links and destination paths.
+The bundled `model_sources.json` retains expected file sizes and SHA-256 hashes.

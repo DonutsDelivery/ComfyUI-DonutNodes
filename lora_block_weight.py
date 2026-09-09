@@ -14,10 +14,40 @@ import logging
 
 from server import PromptServer
 from .libs import utils
+from .donut_model_patch_routing import add_model_patch_components
 
 
 model_path = folder_paths.models_dir
 utils.add_folder_path_and_extensions("lbw_models", [os.path.join(model_path, "lbw_models")], {'.safetensors'})
+
+
+def _apply_block_weight_patches(model, clip, block_weights, muted_weights, strength_model, strength_clip):
+    """Route by actual model/CLIP ownership, never by a name substring."""
+    new_model = model.clone()
+    new_clip = clip.clone() if clip is not None else None
+    model_keys = set(model.model.state_dict())
+    clip_keys = set(clip.cond_stage_model.state_dict()) if clip is not None else set()
+    muted = set(muted_weights)
+    model_components = {}
+
+    for key, (adapter, ratio) in block_weights.items():
+        if key in muted:
+            continue
+        target = key[0] if isinstance(key, tuple) else key
+        if target in model_keys:
+            strength = float(strength_model) * float(ratio)
+            if strength != 0.0:
+                model_components.setdefault(key, []).append((adapter, strength))
+        elif target in clip_keys:
+            strength = float(strength_clip) * float(ratio)
+            if strength != 0.0:
+                new_clip.add_patches({key: adapter}, strength)
+        else:
+            logging.warning("[DonutApplyLoRAStack] LoRA target is absent from both model and CLIP: %s", target)
+
+    if model_components:
+        add_model_patch_components(new_model, model_components)
+    return new_model, new_clip
 
 
 def is_numeric_string(input_str):
@@ -561,13 +591,13 @@ class LoraLoaderBlockWeight:
 
             if k_unet.startswith("input_blocks."):
                 k_unet_num = k_unet[len("input_blocks."):len("input_blocks.")+2]
-                input_blocks.append((k, v, parse_unet_num(k_unet_num), k_unet))
+                input_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
             elif k_unet.startswith("middle_block."):
                 k_unet_num = k_unet[len("middle_block."):len("middle_block.")+2]
-                middle_blocks.append((k, v, parse_unet_num(k_unet_num), k_unet))
+                middle_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
             elif k_unet.startswith("output_blocks."):
                 k_unet_num = k_unet[len("output_blocks."):len("output_blocks.")+2]
-                output_blocks.append((k, v, parse_unet_num(k_unet_num), k_unet))
+                output_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
             elif k_unet.startswith("double_blocks."):
                 k_unet_num = k_unet[len("double_blocks."):len("double_blocks.")+2]
                 double_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
@@ -581,7 +611,7 @@ class LoraLoaderBlockWeight:
                 k_unet_num = k_unet[len("blocks."):len("blocks.")+2]
                 krea_blocks.append((key, v, parse_unet_num(k_unet_num), k_unet))
             else:
-                others.append((k, v, k_unet))
+                others.append((key, v, k_unet))
 
         input_blocks = sorted(input_blocks, key=lambda x: x[2])
         middle_blocks = sorted(middle_blocks, key=lambda x: x[2])
@@ -658,27 +688,9 @@ class LoraLoaderBlockWeight:
     def load_lora_for_models(model, clip, lora, strength_model, strength_clip, inverse, seed, A, B, block_vector):
         block_weights, muted_weights, populated_vector = LoraLoaderBlockWeight.load_lbw(model, clip, lora, inverse, seed, A, B, block_vector)
 
-        new_modelpatcher = model.clone()
-        new_clip = clip.clone() if clip is not None else None
-
-        muted_weights = set(muted_weights)
-
-        for k, v in block_weights.items():
-            weights, ratio = v
-
-            # Extract string key for checking (handle tuple keys with offset info)
-            key_str = k[0] if isinstance(k, tuple) else k
-
-            if k in muted_weights:
-                pass
-            elif 'text' in key_str or 'encoder' in key_str:
-                if new_clip is not None:
-                    final_strength = strength_clip * ratio
-                    new_clip.add_patches({k: weights}, final_strength)
-            else:
-                final_strength = strength_model * ratio
-                new_modelpatcher.add_patches({k: weights}, final_strength)
-
+        new_modelpatcher, new_clip = _apply_block_weight_patches(
+            model, clip, block_weights, muted_weights, strength_model, strength_clip,
+        )
         return new_modelpatcher, new_clip, populated_vector
 
     def doit(self, model, clip, lora_name, strength_model, strength_clip, inverse, seed, A, B, preset, block_vector, bypass=False, category_filter=None):
@@ -723,25 +735,9 @@ class ApplyLBW:
 
     @staticmethod
     def doit(model, clip, strength_model, strength_clip, lbw_model):
-        block_weights = lbw_model['blocks']
-        muted_weights = lbw_model['muted']
-
-        new_modelpatcher = model.clone()
-        new_clip = clip.clone()
-
-        muted_weights = set(muted_weights)
-
-        for k, v in block_weights.items():
-            weights, ratio = v
-
-            if k in muted_weights:
-                pass
-            elif 'text' in k or 'encoder' in k:
-                new_clip.add_patches({k: weights}, strength_clip * ratio)
-            else:
-                new_modelpatcher.add_patches({k: weights}, strength_model * ratio)
-
-        return new_modelpatcher, new_clip
+        return _apply_block_weight_patches(
+            model, clip, lbw_model['blocks'], lbw_model['muted'], strength_model, strength_clip,
+        )
 
 
 class XY_Capsule_LoraBlockWeight:

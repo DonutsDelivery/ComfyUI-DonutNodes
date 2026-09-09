@@ -5,3 +5,37 @@ config.yaml
 
 # CivitAI cache
 civitai_cache/
+
+# Local credentials and environments
+.env
+.env.*
+!.env.example
+.comfy-registry.env
+.venv/
+venv/
+
+# Python and development caches
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local editor and agent state
+.idea/
+.vscode/
+.agents/
+.codex/
+.claude/
+.beads/
+.tracking
+HERMES.md
+
+# Generated release/build artifacts
+/node.zip
+/dist/
+/build/
+*.egg-info/
+.DS_Store

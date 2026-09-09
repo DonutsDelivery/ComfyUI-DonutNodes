@@ -20,7 +20,9 @@ function indexed(items, field, label) {
     return result;
 }
 function scalar(value, type) {
-    if (type === "INT") return Number.isSafeInteger(value);
+    // Comfy seed widgets support integers beyond JS's lossless range. Keep
+    // the parsed number as-is; this validator must not round or replace it.
+    if (type === "INT") return Number.isInteger(value);
     if (type === "FLOAT") return typeof value === "number" && Number.isFinite(value);
     if (type === "BOOLEAN") return typeof value === "boolean";
     if (type === "STRING") return typeof value === "string";
@@ -105,7 +107,12 @@ export function repairStreamlinedWorkflow(workflow) {
                 if (port.label !== undefined && input.label === undefined) input.label = port.label;
                 if (port.shape !== undefined && input.shape === undefined) input.shape = port.shape;
                 if (order.includes(port.name)) {
-                    if (!Object.hasOwn(named, port.name) || !scalar(named[port.name], port.type)) fail(`missing or invalid saved value for ${node.id}:${port.name}`);
+                    // A connected promoted widget gets its execution value
+                    // from its cable. Some serializers omit its unused cache
+                    // or store null. Preserve that absence, never invent a seed.
+                    // The cable is validated below before any changes commit.
+                    const missingConnectedCache = input.link != null && named[port.name] == null;
+                    if (!missingConnectedCache && (!Object.hasOwn(named, port.name) || !scalar(named[port.name], port.type))) fail(`missing or invalid saved value for ${node.id}:${port.name}`);
                     input.widget = { name: port.name };
                 } else delete input.widget;
                 return input;

@@ -1,0 +1,51 @@
+{
+  "prompt_id": "4c9d99af-3b98-481f-bed1-90c78a93892a",
+  "workflow_sha256": "6c14dcd1ffe9d4635a36021aa518d6ae52249a44f78c5fc7f4d974310ead27a7",
+  "was_version": "3.0.2",
+  "dependency_install_method": "Workflow error panel \u2192 Install All \u2192 Apply Changes",
+  "dependency_subgraph": "5067b898-1594-4938-b15c-b60d6869cffe",
+  "status": "success",
+  "completed": true,
+  "execution_messages": [
+    [
+      "execution_start",
+      {
+        "prompt_id": "4c9d99af-3b98-481f-bed1-90c78a93892a",
+        "timestamp": 1788925806328
+      }
+    ],
+    [
+      "execution_cached",
+      {
+        "nodes": [],
+        "prompt_id": "4c9d99af-3b98-481f-bed1-90c78a93892a",
+        "timestamp": 1788925806347
+      }
+    ],
+    [
+      "execution_success",
+      {
+        "prompt_id": "4c9d99af-3b98-481f-bed1-90c78a93892a",
+        "timestamp": 1788925925664
+      }
+    ]
+  ],
+  "output": "/tmp/donut-fresh-install/ComfyUI/output/Final/4539680068827511.webp",
+  "image_size": [
+    1728,
+    1344
+  ],
+  "output_sha256": "9691cec436e2f19562708c566398faf0303f3a97080f9261ad050010de948459",
+  "executed_output_nodes": [
+    "1138:1128:57",
+    "1138:1128:56",
+    "1138:1128:53",
+    "1138:1055",
+    "1014:996",
+    "912",
+    "63",
+    "913",
+    "914",
+    "64"
+  ]
+}

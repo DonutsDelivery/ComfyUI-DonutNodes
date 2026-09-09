@@ -1,0 +1,29 @@
+{
+  "baseline": "Donut Workflow V3 (user-supplied original)",
+  "baseline_sha256": "a198e7cd5bafadebf4109786326df8258ef952e42686cce8eef6850c2549d9ff",
+  "current_source_sha256": "090ca1806bf3d5c2596f953961fde5bcca0b38376a2ed390a5c2d04c60a10eae",
+  "packaged_workflow": "DonutWF_v4_beta.json",
+  "packaged_sha256": "821037ee2b696d29c3d372197a19bff228b0acd553e6f40d0b715418e57ada4e",
+  "added_node_types": {
+    "DonutImageSave": 1,
+    "DonutEditStudio": 1,
+    "DonutWorkflowPanel": 7,
+    "DonutReferenceStudio": 1,
+    "DonutModelDownloads": 1,
+    "DonutLatestPreview": 1,
+    "StringConcatenate": 1,
+    "KreaSeedVarianceEnhancer": 1,
+    "Krea2EditModelPatch": 1
+  },
+  "removed_node_types": {
+    "PrimitiveNode": 1,
+    "PrimitiveBoolean": 1,
+    "Label (rgthree)": 7,
+    "Image Save": 1,
+    "LoraLoaderModelOnly": 1,
+    "DonutPromptInjection": 1,
+    "LoadImage": 1,
+    "ResolutionSelector": 1
+  },
+  "note": "Node counts describe structure, not feature novelty. V3 already had face detail, editing, model merging, LoRA stacking and upscaling."
+}

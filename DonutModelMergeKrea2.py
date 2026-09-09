@@ -420,6 +420,10 @@ def _regular_merge(model1, model2, ratios):
     patches = _get_merge_key_patches(model2)
     for key, patch in patches.items():
         ratio = _ratio_for_key(key, ratios)
+        if ratio == 1.0:
+            # Even a zero-strength merge entry marks quantized weights as
+            # patched, forcing unnecessary dequantization/reconstruction.
+            continue
         merged.add_patches({key: patch}, 1.0 - ratio, ratio)
     return merged
 

@@ -39,6 +39,19 @@ class PromptTests(unittest.TestCase):
     def file(self, name, text):
         path = self.root / (name + ".txt"); path.parent.mkdir(parents=True, exist_ok=True); path.write_text(text, encoding="utf-8"); return path
     def test_literal_whitespace_is_preserved(self): self.assertEqual(prompt.expand_text(" face  \n scene "), " face  \n scene ")
+    def test_short_wildcards_share_existing_seeded_file_semantics(self):
+        self.file("haircolor", "black hair\nblonde hair\nred hair\n")
+        for seed in (0, 1, 2, 314159):
+            self.assertEqual(prompt.expand_text("portrait, haircolor*", seed), prompt.expand_text("portrait, __haircolor__", seed))
+            self.assertEqual(prompt.expand_text("haircolor* haircolor*", seed), prompt.expand_text("__haircolor__ __haircolor__", seed))
+    def test_short_wildcards_nest_and_keep_missing_syntax(self):
+        self.file("person", "haircolor* wearing clothes/shirt*")
+        self.file("haircolor", "red hair"); self.file("clothes/shirt", "a blue shirt")
+        self.assertEqual(prompt.expand_text("person*"), "red hair wearing a blue shirt")
+        self.assertEqual(prompt.expand_text("missing*", missing="keep"), "missing*")
+        with self.assertRaisesRegex(ValueError, "not found"): prompt.expand_text("missing*")
+    def test_plain_stars_and_bold_are_not_wildcards(self):
+        self.assertEqual(prompt.expand_text("2*3 **bold** *emphasis*"), "2*3 **bold** *emphasis*")
     def test_nested_files_and_choices(self):
         for i in range(40): self.file(f"n{i}", f"__n{i+1}__")
         self.file("n40", "{red|blue} __subjects/bird__"); self.file("subjects/bird", "finch")
@@ -195,6 +208,13 @@ class ContractTests(unittest.TestCase):
         self.assertEqual([r[0] for r in result["result"][2]],["lora0","lora2","lora3"])
         self.assertEqual(result["result"][2][1][3],"1,1")
         self.assertEqual(len(result["ui"]["donut_loras"]),4)
+    def test_dynamic_loader_forwards_comfy_patches_for_whole_stack(self):
+        self.lora.DonutLoRALoader().load("MODEL", "CLIP", self.rows(),
+            safe_stack="On", execution_mode="Comfy patches")
+        applies = [call for call in self.calls if call[0] == "apply"]
+        self.assertEqual(len(applies), 1)
+        self.assertEqual(len(applies[0][1]), 7)
+        self.assertEqual(applies[0][2]["execution_mode"], "Comfy patches")
     def test_hashes_follow_rows_not_chunk_position(self):
         self.lora.DonutDynamicLoRAStack().build(slots_json=self.rows(),model_type="KREA2")
         calls=[c[1] for c in self.calls if c[0]=="build"]
@@ -229,12 +249,55 @@ class ContractTests(unittest.TestCase):
         values=self.merge.DonutModelMergeKrea2Grouped().merge_grouped(ratio_mode="Grouped",body_ratio=.8,fusion_ratio=.2,model1="a",model2="b",**{"tmlp.":.7})[0]
         self.assertEqual(values["blocks.27."],.8); self.assertEqual(values["txtfusion.projector."],.2); self.assertEqual(values["tmlp."],.7)
     def test_per_block_merge_forwards_unchanged(self):
-        fields={"blocks.0.":.2,"txtfusion.projector.":.7}
+        fields={"model1":"a","model2":"b","blocks.0.":.2,"txtfusion.projector.":.7}
         self.assertEqual(self.merge.DonutModelMergeKrea2Grouped().merge_grouped(**fields)[0],fields)
+    def test_single_model_returns_primary_without_merging(self):
+        model = object()
+        result = self.merge.DonutModelMergeKrea2Grouped().merge_grouped(
+            model_mode="Single model", model1=model, ratio_mode="Grouped",
+            body_ratio=0.0, fusion_ratio=0.0)
+        self.assertIs(result[0], model)
+        self.assertFalse(self.calls)
+    def test_secondary_model_is_optional_and_requested_only_for_merging(self):
+        cls = self.merge.DonutModelMergeKrea2Grouped
+        schema = cls.INPUT_TYPES()
+        self.assertNotIn("model2", schema["required"])
+        self.assertTrue(schema["optional"]["model2"][1]["lazy"])
+        self.assertEqual(schema["optional"]["model_mode"][1]["default"], "Merge two models")
+        node = cls()
+        self.assertEqual(node.check_lazy_status(model_mode="Single model"), [])
+        self.assertEqual(node.check_lazy_status(model_mode="Single model", model2=None), [])
+        self.assertEqual(node.check_lazy_status(model2=None), ["model2"])
+        self.assertEqual(node.check_lazy_status(model2=object()), [])
+    def test_merge_requires_secondary_with_actionable_error(self):
+        node = self.merge.DonutModelMergeKrea2Grouped()
+        with self.assertRaisesRegex(ValueError, "Connect a secondary model"):
+            node.merge_grouped(model1=object())
+        with self.assertRaisesRegex(ValueError, "Connect a secondary model"):
+            node.check_lazy_status()
     def test_prompt_injection_uses_requested_text_seed(self):
         with patch.object(prompt,"wildcard_roots",return_value=()):
             result=self.injection.DonutPromptInjectionRecursive().process_recursive(prompt="face",seed=12)
         self.assertEqual(result,("face "+random.Random(12).choice(["a","b"]),"style preview"))
+    def test_face_prompt_precedes_general_prompt(self):
+        calls = []
+        class Encode:
+            def encode(self, clip, text):
+                calls.append(text)
+                return ([{"text": text}],)
+        class Zero:
+            def zero_out(self, value): return (value,)
+        core = types.ModuleType("nodes")
+        core.CLIPTextEncode, core.ConditioningZeroOut = Encode, Zero
+        with patch.dict(sys.modules, {"nodes": core}), patch.object(prompt, "wildcard_roots", return_value=()):
+            output = prompt.DonutPromptConditioning().encode(
+                "clip", " face details ", " general scene ", "negative", separator="\n"
+            )
+        self.assertEqual(output["result"][0], " face details \n general scene ")
+        self.assertEqual(output["result"][1], " face details ")
+        self.assertEqual(calls, [" face details \n general scene ", " face details ", "negative"])
+        self.assertEqual(output["ui"]["text"], [output["result"][0]])
+
     def test_conditioning_raw_and_zeroed_are_distinct(self):
         calls=[]
         class Encode:

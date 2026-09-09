@@ -1,0 +1,144 @@
+{
+  "workflow_sha256": "090ca1806bf3d5c2596f953961fde5bcca0b38376a2ed390a5c2d04c60a10eae",
+  "initial_installed": {
+    "donutnodes": {
+      "ver": "2b1272043bdc85b8c10b37faa0639503f8886dbe",
+      "cnr_id": "donutnodes",
+      "aux_id": "DonutsDelivery/ComfyUI-DonutNodes",
+      "enabled": true
+    }
+  },
+  "save_node_registered": true,
+  "was_installed": false,
+  "install_method": "Workflow Errors \u2192 Install All (default versions) \u2192 Apply Changes",
+  "status": "success",
+  "development_donut_source": true,
+  "models_reused": true,
+  "test_root": "/tmp/donut-fresh-install",
+  "installed": {
+    "krea2-nag": {
+      "ver": "1.0.2",
+      "cnr_id": "krea2-nag",
+      "aux_id": null,
+      "enabled": true
+    },
+    "krea-seed-variance-enhancer": {
+      "ver": "1.2.0",
+      "cnr_id": "krea-seed-variance-enhancer",
+      "aux_id": null,
+      "enabled": true
+    },
+    "derfuu_comfyui_moddednodes": {
+      "ver": "1.0.1",
+      "cnr_id": "derfuu_comfyui_moddednodes",
+      "aux_id": null,
+      "enabled": true
+    },
+    "comfyui-krea2edit": {
+      "ver": "1.2.3",
+      "cnr_id": "comfyui-krea2edit",
+      "aux_id": null,
+      "enabled": true
+    },
+    "comfyui-impact-subpack": {
+      "ver": "1.3.5",
+      "cnr_id": "comfyui-impact-subpack",
+      "aux_id": null,
+      "enabled": true
+    },
+    "comfyui-impact-pack": {
+      "ver": "8.28.3",
+      "cnr_id": "comfyui-impact-pack",
+      "aux_id": null,
+      "enabled": true
+    },
+    "ComfyUI-bleh": {
+      "ver": "5af35d2366bb3e4ed413daa52867000f3d1ac7ad",
+      "cnr_id": "ComfyUI-bleh",
+      "aux_id": "blepping/ComfyUI-bleh",
+      "enabled": true
+    },
+    "donutnodes": {
+      "ver": "2b1272043bdc85b8c10b37faa0639503f8886dbe",
+      "cnr_id": "donutnodes",
+      "aux_id": "DonutsDelivery/ComfyUI-DonutNodes",
+      "enabled": true
+    }
+  },
+  "missing_backend_nodes": [],
+  "repair_list_exists": false,
+  "pip_check": "passed",
+  "prompt_id": "f8634943-3b9d-4606-acbc-c2e3b733d1ef",
+  "save_inputs": {
+    "root": "output",
+    "filename_prefix": [
+      "1153",
+      0
+    ],
+    "filename_delimiter": "",
+    "filename_number_padding": 1,
+    "filename_number_start": false,
+    "extension": "webp",
+    "dpi": 300,
+    "quality": 100,
+    "optimize_image": true,
+    "lossless_webp": false,
+    "overwrite_mode": false,
+    "embed_workflow": false,
+    "show_previews": true,
+    "images": [
+      "914",
+      0
+    ]
+  },
+  "unit_tests": {
+    "command": "PYTHONPATH=/tmp/donut-fresh-install/ComfyUI:$PWD /tmp/donut-fresh-install/venv/bin/python -m unittest test_image_save -v",
+    "passed": 6
+  },
+  "completed": true,
+  "execution_messages": [
+    [
+      "execution_start",
+      {
+        "prompt_id": "f8634943-3b9d-4606-acbc-c2e3b733d1ef",
+        "timestamp": 1788928134112
+      }
+    ],
+    [
+      "execution_cached",
+      {
+        "nodes": [],
+        "prompt_id": "f8634943-3b9d-4606-acbc-c2e3b733d1ef",
+        "timestamp": 1788928134131
+      }
+    ],
+    [
+      "execution_success",
+      {
+        "prompt_id": "f8634943-3b9d-4606-acbc-c2e3b733d1ef",
+        "timestamp": 1788928245932
+      }
+    ]
+  ],
+  "elapsed_seconds": 111.82,
+  "output": "/tmp/donut-fresh-install/ComfyUI/output/Final/4539680068827511.webp",
+  "image_size": [
+    1728,
+    1344
+  ],
+  "output_sha256": "9691cec436e2f19562708c566398faf0303f3a97080f9261ad050010de948459",
+  "executed_output_nodes": [
+    "1138:1128:57",
+    "1138:1128:56",
+    "1138:1128:53",
+    "1138:1055",
+    "1014:996",
+    "912",
+    "63",
+    "913",
+    "914",
+    "64"
+  ],
+  "registration_tests_passed": 34,
+  "matches_previous_was_output_sha256": true
+}

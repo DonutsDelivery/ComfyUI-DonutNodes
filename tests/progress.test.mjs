@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+test('progress follows nested nodes and ignores other runs', () => {
+    const handlers = {};
+    const api = {addEventListener:(n,f)=>handlers[n]=f, removeEventListener:n=>delete handlers[n]};
+    const context = vm.createContext({document:{createElement:()=>({children:[],append(...x){this.children.push(...x);},setAttribute(){},removeAttribute(name){delete this[name];}})}});
+    vm.runInContext(fs.readFileSync(new URL('../web/donut_progress.js',import.meta.url),'utf8').replace('export function','function'),context);
+    const graph={getNodeById:id=>id===1014?{subgraph:{getNodeById:id=>id===989?{title:'Edit upscale'}:null}}:null};
+    const panel=context.createProgress(api,()=>graph); panel.attach();
+    const [label,bar]=panel.element.children;
+    handlers.execution_start({detail:{prompt_id:'a'}});
+    handlers.executing({detail:{prompt_id:'a',node:'1014:989'}});
+    assert.equal(label.textContent,'Edit upscale');
+    handlers.progress_state({detail:{prompt_id:'a',nodes:{x:{node_id:'1014:989',state:'running',value:3,max:8}}}});
+    assert.equal(bar.value,3/8);
+    handlers.execution_success({detail:{prompt_id:'b'}});
+    assert.equal(bar.value,3/8);
+    handlers.execution_success({detail:{prompt_id:'a'}});
+    assert.equal(label.textContent,'Generation complete');
+    assert.equal(bar.value,1);
+    panel.detach(); assert.equal(Object.keys(handlers).length,0);
+});

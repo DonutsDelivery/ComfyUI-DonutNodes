@@ -133,7 +133,7 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
             self.assertTrue(torch.isfinite(down).all())
 
     def test_no_original_container_or_metadata(self):
-        raw = self.weights._decode_payload(self.weights._PAYLOAD)
+        raw = self.weights._read_payload()
         self.assertNotIn(b"source_checkpoint", raw)
         self.assertNotIn(b"__metadata__", raw)
         source = (ROOT / "uncensorfix_weights.py").read_text()
@@ -148,22 +148,28 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
         self.assertEqual(len(result.patches), 33)
 
     def test_decode_is_cached(self):
-        with mock.patch.object(self.weights, "_decode_payload", side_effect=AssertionError("decoded twice")):
+        with mock.patch.object(self.weights, "_read_payload", side_effect=AssertionError("decoded twice")):
             self.assertIs(self.factors, self.weights.get_uncensorfix_factors())
 
     def test_corrupt_payload_fails(self):
-        with self.assertRaisesRegex(RuntimeError, "corrupt|SHA-256"):
-            self.weights._decode_payload("not a valid payload")
+        with mock.patch.object(Path, "open", mock.mock_open(read_data=b"corrupt")):
+            with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+                self.weights._read_payload()
+
+    def test_missing_asset_fails(self):
+        with mock.patch.object(Path, "open", side_effect=FileNotFoundError("missing")):
+            with self.assertRaisesRegex(RuntimeError, "missing or unreadable"):
+                self.weights._read_payload()
 
     def test_wrong_checksum_fails(self):
         with mock.patch.object(self.weights, "PAYLOAD_SHA256", "0" * 64):
             with self.assertRaisesRegex(RuntimeError, "SHA-256"):
-                self.weights._decode_payload(self.weights._PAYLOAD)
+                self.weights._read_payload()
 
     def test_wrong_size_fails(self):
         with mock.patch.object(self.weights, "PAYLOAD_SIZE_BYTES", 64):
             with self.assertRaisesRegex(RuntimeError, "SHA-256"):
-                self.weights._decode_payload(self.weights._PAYLOAD)
+                self.weights._read_payload()
 
     def test_schema_short_names_and_node_id_preserved(self):
         required = self.module.DonutKrea2FusionControl.INPUT_TYPES()["required"]

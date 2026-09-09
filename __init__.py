@@ -1,5 +1,7 @@
 """Register DonutNodes independently so one broken wheel cannot hide the pack."""
 
+from pathlib import Path
+
 from .donut_dependencies import (
     DonutDependencyCheck,
     IMPORT_FAILURES,
@@ -17,6 +19,10 @@ IMPORT_FAILURES.clear()
 # Settings/CivitAI routes are useful, but their dependencies must not prevent
 # unrelated model/conditioning nodes (or the diagnostic node) from loading.
 import_component(__name__, "shared.server_routes")
+import_component(__name__, "donut_wildcards")
+# Full GitHub installs include this backend; registry packages omit it.
+if Path(__file__).with_name("donut_model_downloads.py").is_file():
+    import_component(__name__, "donut_model_downloads")
 
 # Keep the original registration order. The overrides are deliberate:
 # failed overrides must NOT quietly expose an older, incompatible node class.
@@ -33,9 +39,9 @@ _NODE_MODULES = (
     "DonutHistogramStretch", "DonutAutoWhiteBalance", "DonutSharpen",
     "DonutPromptInjection", "DonutZitConditioningRebalance", "DonutZitLayerBlendEncode",
     "DonutKrea2ImageConditioning", "DonutKrea2FusionControl", "DonutKrea2FusionPreset",
-    "DonutImageAdjust",
+    "DonutImageAdjust", "DonutImageSave",
     "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",
-    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge",
+    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio",
 )
 _REQUIRED_OVERRIDES = {
     "DonutSafeApplyLoRAStack": ("DonutApplyLoRAStack",),

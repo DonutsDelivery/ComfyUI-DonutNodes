@@ -6,8 +6,11 @@ projector. Safety remains off by default so old workflows retain their exact
 behaviour.
 """
 
+import copy
 import math
 import re
+import weakref
+import uuid
 
 import comfy.sd
 import comfy.utils
@@ -25,6 +28,8 @@ from .donut_lora_nodes import (
     _split_fused_text,
 )
 from .lora_block_weight import LoraLoaderBlockWeight
+from .donut_model_patch_routing import add_model_patch_components
+from .donut_krea2_merge_serialization import KREA2_MERGE_SOURCE_KEY, get_krea2_merge_bypass_info
 
 
 _KREA_BLOCK_RE = re.compile(r"(?<![a-z_])blocks\.(\d+)")
@@ -406,6 +411,37 @@ else:
             )
 
 
+_LOKR_ADAPTER_BASE = getattr(comfy_weight_adapter, "LoKrAdapter", None)
+if _LOKR_ADAPTER_BASE is not None:
+    class _LinearLoKrBypassAdapter(_LOKR_ADAPTER_BASE):
+        """Keep native patch/save math, with matching rank scaling in forward."""
+
+        def __init__(self, adapter):
+            self.loaded_keys = set(adapter.loaded_keys)
+            self.weights = adapter.weights
+
+        def h(self, x, base_out):
+            w1, w2, alpha, a, b, c, d, _, _ = self.weights
+            rank = None
+            if w1 is None:
+                rank = b.shape[0]
+                w1 = a.to(dtype=x.dtype) @ b.to(dtype=x.dtype)
+            else:
+                w1 = w1.to(dtype=x.dtype)
+            grouped = x.reshape(*x.shape[:-1], w1.shape[1], -1)
+            if w2 is None:
+                # calculate_weight uses w2's rank when both are decomposed.
+                rank = d.shape[0]
+                hidden = torch.nn.functional.linear(grouped, d.to(dtype=x.dtype))
+                hidden = torch.nn.functional.linear(hidden, c.to(dtype=x.dtype))
+            else:
+                hidden = torch.nn.functional.linear(grouped, w2.to(dtype=x.dtype))
+            out = torch.nn.functional.linear(hidden.transpose(-1, -2), w1)
+            out = out.transpose(-1, -2).flatten(-2)
+            scale = alpha / rank if alpha is not None and rank is not None else 1.0
+            return out * (scale * getattr(self, "multiplier", 1.0))
+
+
 def _module_for_weight_key(model_root, key):
     """Resolve a state-dict weight key to its owning model module."""
     if not isinstance(key, str) or not key.endswith(".weight"):
@@ -431,8 +467,13 @@ def _bypass_compatibility_error(adapter, module):
         and module_type.__name__ == "Linear"
         and callable(getattr(module, "_forward", None))
     )
-    if not (is_torch_linear or is_comfy_linear):
-        return "target module is not a supported linear layer"
+    conv_types = tuple(getattr(torch.nn, name) for name in ("Conv1d", "Conv2d", "Conv3d")
+                       if hasattr(torch.nn, name))
+    is_conv = isinstance(module, conv_types)
+    if not (is_torch_linear or is_comfy_linear or is_conv):
+        return "target module is not a supported linear layer or convolution"
+    if is_conv and (module.groups != 1 or module.padding_mode != "zeros"):
+        return "grouped or nonzero-padding-mode convolutions are not supported"
     if getattr(module, "pre_quant_scale", None) is not None:
         return "target applies an input pre-quantization scale"
 
@@ -443,25 +484,66 @@ def _bypass_compatibility_error(adapter, module):
     if lora_type is not None and adapter_type is lora_type:
         if not isinstance(weights, (tuple, list)) or len(weights) != 6:
             return "unexpected LoRA weight layout"
-        _, _, _, mid, dora_scale, reshape = weights
+        up, down, _, mid, dora_scale, reshape = weights
         if dora_scale is not None:
             return "DoRA normalization is weight-dependent"
         if reshape is not None:
             return "reshape_weight is not activation-additive"
         if mid is not None:
             return "mid/Tucker LoRA bypass has not been parity-validated"
+        if is_conv:
+            dim = len(module.kernel_size)
+            if not all(torch.is_tensor(value) and value.ndim in (2, dim + 2)
+                       for value in (up, down)):
+                return "unexpected convolutional LoRA factor dimensions"
+            rank = down.shape[0]
+            if (rank == 0 or up.shape[0] != module.out_channels or up.shape[1] != rank
+                    or up.numel() != module.out_channels * rank
+                    or down.numel() != rank * module.in_channels * math.prod(module.kernel_size)):
+                return "convolutional LoRA factors do not match target kernel"
+            if up.ndim != 2 and any(size != 1 for size in up.shape[2:]):
+                return "convolutional LoRA up factor must use a pointwise kernel"
+            if down.ndim != 2 and tuple(down.shape[1:]) != (module.in_channels, *module.kernel_size):
+                return "convolutional LoRA down factor has incompatible kernel shape"
         return None
 
-    if lokr_type is not None and adapter_type is lokr_type:
+    if is_conv:
+        return "convolutional bypass currently supports plain LoRA/LoCon only"
+
+    loha_type = getattr(comfy_weight_adapter, "LoHaAdapter", None)
+    if loha_type is not None and adapter_type is loha_type:
+        if not isinstance(weights, (tuple, list)) or len(weights) != 8:
+            return "unexpected LoHa weight layout"
+        a, b, _, c, d, t1, t2, dora = weights
+        if dora is not None:
+            return "DoRA normalization is weight-dependent"
+        if t1 is not None or t2 is not None:
+            return "Tucker LoHa bypass has not been parity-validated"
+        if not all(torch.is_tensor(value) and value.ndim == 2 for value in (a, b, c, d)):
+            return "LoHa requires matrix factors"
+        if (a.shape[1] != b.shape[0] or c.shape[1] != d.shape[0]
+                or b.shape[0] == 0 or d.shape[0] == 0
+                or (a.shape[0], b.shape[1]) != (c.shape[0], d.shape[1])):
+            return "LoHa has incompatible factor shapes"
+        return None
+
+    if lokr_type is not None and adapter_type in (lokr_type, _LinearLoKrBypassAdapter):
         if not isinstance(weights, (tuple, list)) or len(weights) != 9:
             return "unexpected LoKr weight layout"
         w1, w2, _, w1_a, w1_b, w2_a, w2_b, t2, dora_scale = weights
         if dora_scale is not None:
             return "DoRA normalization is weight-dependent"
-        if w1 is None or w2 is None or any(
-            value is not None for value in (w1_a, w1_b, w2_a, w2_b, t2)
-        ):
-            return "decomposed/Tucker LoKr bypass has not been parity-validated"
+        if t2 is not None:
+            return "Tucker LoKr bypass has not been parity-validated"
+        for direct, a, b in ((w1, w1_a, w1_b), (w2, w2_a, w2_b)):
+            if direct is not None:
+                if torch.is_tensor(direct) and direct.ndim != 2:
+                    return "linear LoKr requires matrix factors"
+                continue
+            if not all(torch.is_tensor(value) and value.ndim == 2 for value in (a, b)):
+                return "LoKr decomposition requires two matrix factors"
+            if a.shape[1] != b.shape[0] or b.shape[0] == 0:
+                return "LoKr decomposition has incompatible factor ranks"
         return None
 
     return f"unsupported adapter type {adapter_type.__name__}"
@@ -497,12 +579,123 @@ def _partition_bypass_targets(model_root, model_keys, patches_by_key):
 def _register_bypass_adapters(manager, adapters_by_key):
     """Register one adapter or one additive composite for each model key."""
     for key, components in adapters_by_key.items():
+        components = [
+            (_LinearLoKrBypassAdapter(adapter) if _LOKR_ADAPTER_BASE is not None
+             and type(adapter) is _LOKR_ADAPTER_BASE else adapter, strength)
+            for adapter, strength in components
+        ]
         if len(components) == 1:
             adapter, strength = components[0]
             manager.add_adapter(key, adapter, strength=strength)
             continue
 
         manager.add_adapter(key, _CompositeBypassAdapter(components), strength=1.0)
+
+
+
+def _copy_runtime_adapter(adapter):
+    """Keep runtime device moves/multipliers separate from saved components."""
+    if isinstance(adapter, _CompositeBypassAdapter):
+        return _CompositeBypassAdapter([
+            (_copy_runtime_adapter(child), strength)
+            for child, strength in adapter.components
+        ])
+    return copy.copy(adapter)
+
+
+def _trace_lokr_calls(manager):
+    """Report actual LoKr execution, including children of stacked adapters."""
+    pending = set()
+    for key, (adapter, _strength) in manager.adapters.items():
+        components = adapter.components if isinstance(adapter, _CompositeBypassAdapter) else ((adapter, 1.),)
+        for index, (component, _scale) in enumerate(components):
+            if _LOKR_ADAPTER_BASE is None or not isinstance(component, _LOKR_ADAPTER_BASE):
+                continue
+            token = (key, index)
+            pending.add(token)
+            original = component.h
+
+            def traced(x, base_out, _original=original, _token=token):
+                result = _original(x, base_out)
+                if _token in pending:
+                    pending.remove(_token)
+                    if not pending:
+                        print(f"[DonutApplyLoRAStack] LoKr forward coverage: {total}/{total} component(s) executed")
+                return result
+
+            component.h = traced
+    total = len(pending)
+    return pending
+
+
+def _eject_runtime_bypass(manager, injections, model_patcher=None):
+    # Core ejects injection groups in insertion order, not reverse order. An
+    # earlier Krea2 merge hook may already have restored this layer's base
+    # forward. Do not resurrect that now-ejected swap from our saved forward.
+    for hook in manager.hooks:
+        if (hook.original_forward is not None
+                and hook.module.forward != hook._bypass_forward):
+            hook.original_forward = None
+    for injection in reversed(injections):
+        injection.eject(model_patcher)
+
+
+def _make_rebinding_bypass_injections(manager, model_root):
+    """Bind fresh hooks to the sampling clone, rather than the loader's root.
+
+    The template manager also retains the canonical components for the save /
+    extraction bridge. Its hooks are only used to validate the initial plan.
+    """
+    templates = manager.create_injections(model_root)
+    expected = len(manager.adapters)
+    if manager.get_hook_count() != expected or not templates:
+        raise RuntimeError("Donut bypass could not create every planned forward hook")
+    injection_type = type(templates[0])
+    active = weakref.WeakKeyDictionary()
+    reported = False
+
+    def inject(model_patcher):
+        nonlocal reported
+        if model_patcher in active:
+            return
+        # A copied patcher can share the same physical modules. Retire any
+        # previous runtime from this plan before installing the copied one.
+        for owner, (root, runtime, inner, cleanup) in list(active.items()):
+            if root() is model_patcher.model:
+                cleanup.detach()
+                _eject_runtime_bypass(runtime, inner, owner)
+                del active[owner]
+
+        runtime = type(manager)()
+        for key, (adapter, strength) in manager.adapters.items():
+            runtime.add_adapter(key, _copy_runtime_adapter(adapter), strength=strength)
+        _trace_lokr_calls(runtime)
+        inner = tuple(runtime.create_injections(model_patcher.model))
+        if runtime.get_hook_count() != expected:
+            raise RuntimeError(
+                f"Donut bypass sampling model has {runtime.get_hook_count()}/{expected} planned hooks"
+            )
+        try:
+            for injection in inner:
+                injection.inject(model_patcher)
+        except Exception:
+            _eject_runtime_bypass(runtime, inner, model_patcher)
+            raise
+        cleanup = weakref.finalize(model_patcher, _eject_runtime_bypass, runtime, inner)
+        cleanup.atexit = False
+        active[model_patcher] = (weakref.ref(model_patcher.model), runtime, inner, cleanup)
+        if not reported:
+            print(f"[DonutApplyLoRAStack] Experimental bypass activated {expected} forward hook(s) on the sampling model")
+            reported = True
+
+    def eject(model_patcher):
+        entry = active.pop(model_patcher, None)
+        if entry is not None:
+            _, runtime, inner, cleanup = entry
+            cleanup.detach()
+            _eject_runtime_bypass(runtime, inner, model_patcher)
+
+    return [injection_type(inject=inject, eject=eject)]
 
 
 def _apply_bypass_applications(model, applications):
@@ -518,16 +711,6 @@ def _apply_bypass_applications(model, applications):
     or custom bypass-forward semantics remain guarded because their ordering
     cannot be represented by a simple additive sum.
     """
-    manager_type = getattr(comfy_weight_adapter, "BypassInjectionManager", None)
-    existing_injections = getattr(model, "injections", {})
-    force_regular_reason = None
-    if _WEIGHT_ADAPTER_BASE is None or manager_type is None:
-        force_regular_reason = "comfy.weight_adapter bypass support is unavailable"
-    elif getattr(model, "is_injected", False) or any(existing_injections.values()):
-        force_regular_reason = "the input model already has runtime injections"
-
-    new_model = model.clone()
-    model_keys = set(new_model.model.state_dict().keys())
     patches_by_key = {}
 
     for lora, strength, block_vector in applications:
@@ -547,6 +730,49 @@ def _apply_bypass_applications(model, applications):
                 continue
             patches_by_key.setdefault(key, []).append((patch_data, final_strength))
 
+    return _apply_bypass_components(model, patches_by_key)
+
+
+def _apply_bypass_components(model, patches_by_key):
+    manager_type = getattr(comfy_weight_adapter, "BypassInjectionManager", None)
+    existing_injections = getattr(model, "injections", {})
+    # Rebuild our own additive adapter group when a downstream loader adds a LoRA.
+    if existing_injections.get("donut_bypass_lora") and not getattr(model, "is_injected", False):
+        from .donut_bypass_materialization import get_bypass_components, BYPASS_ATTACHMENT_KEY
+        previous = get_bypass_components(model)
+        if previous:
+            model = model.clone()
+            model.remove_injections("donut_bypass_lora")
+            model.remove_attachments(BYPASS_ATTACHMENT_KEY)
+            combined = {key: list(value) for key, value in previous.items()}
+            for key, value in patches_by_key.items():
+                combined.setdefault(key, []).extend(value)
+            patches_by_key = combined
+            existing_injections = getattr(model, "injections", {})
+    force_regular_reason = None
+    if _WEIGHT_ADAPTER_BASE is None or manager_type is None:
+        force_regular_reason = "comfy.weight_adapter bypass support is unavailable"
+    elif getattr(model, "is_injected", False) or any(value for key, value in existing_injections.items()
+                                                        if key != "donut_krea2_model_merge_bypass"):
+        force_regular_reason = "the input model already has runtime injections"
+
+    new_model = model.clone()
+    model_keys = set(new_model.model.state_dict().keys())
+    merge_info = get_krea2_merge_bypass_info(model)
+    if merge_info:
+        swapped = {path for path, _key, _ratio in merge_info[1]}
+        source_components, main_components = {}, {}
+        for key, components in patches_by_key.items():
+            target = key[0] if isinstance(key, tuple) else key
+            owner = source_components if target.rpartition('.')[0] in swapped else main_components
+            owner[key] = components
+        if source_components:
+            source = _apply_bypass_components(merge_info[0], source_components)
+            new_model.set_additional_models(KREA2_MERGE_SOURCE_KEY, [source])
+            new_model.set_attachments('donut_lora_source_bypass:' + uuid.uuid4().hex, len(source_components))
+            new_model.patches_uuid = uuid.uuid4()
+        patches_by_key = main_components
+
     if force_regular_reason is None:
         adapters_by_key, regular_targets, fallback_reasons = _partition_bypass_targets(
             new_model.model,
@@ -560,19 +786,16 @@ def _apply_bypass_applications(model, applications):
             key: (force_regular_reason,)
             for key in patches_by_key
         }
-    regular_count = 0
-    for key, components in regular_targets.items():
-        for patch_data, final_strength in components:
-            new_model.add_patches({key: patch_data}, final_strength)
-            regular_count += 1
+    regular_count = sum(len(components) for components in regular_targets.values())
+    if regular_targets:
+        add_model_patch_components(new_model, regular_targets)
 
     if adapters_by_key:
         assert manager_type is not None
         manager = manager_type()
         _register_bypass_adapters(manager, adapters_by_key)
-        injections = manager.create_injections(new_model.model)
-        if manager.get_hook_count() > 0:
-            new_model.set_injections("donut_bypass_lora", injections)
+        injections = _make_rebinding_bypass_injections(manager, new_model.model)
+        new_model.set_injections("donut_bypass_lora", injections)
     if regular_count:
         print(
             "[DonutApplyLoRAStack] Experimental bypass kept "
@@ -591,7 +814,7 @@ def _apply_bypass_applications(model, applications):
             f"component(s) across {len(adapters_by_key)} forward hook(s) with "
             "block-vector strengths"
         )
-    else:
+    elif regular_count:
         print(
             "[DonutApplyLoRAStack] Experimental bypass used the compatibility "
             "path for this stack; all model patches remain regular Comfy patches"
@@ -653,8 +876,9 @@ class DonutApplyLoRAStackSafe:
                     "default": "Comfy patches",
                     "tooltip": (
                         "Experimental bypass computes base(x) + LoRA(x) without rebuilding "
-                        "quantized model weights. Multiple plain linear LoRA and direct-factor "
-                        "LoKr adapters can be stacked; unsupported targets stay ordered on "
+                        "quantized model weights. Supports linear LoRA, LoHa, LoKr, and "
+                        "ungrouped zero-padded Conv1d/2d/3d LoRA/LoCon. LoHa builds a dense "
+                        "delta each forward and can be slower. Unsupported targets stay ordered on "
                         "Comfy's regular path."
                     ),
                 }),
@@ -682,6 +906,11 @@ class DonutApplyLoRAStackSafe:
             "wiki/LoRA-Nodes#cr-apply-lora-stack"
         )
 
+        if execution_mode not in _EXECUTION_MODES:
+            raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
+        model = model.clone()
+        model.model_options = dict(getattr(model, "model_options", {}))
+        model.model_options["donut_lora_execution_mode"] = execution_mode
         if lora_stack is None or len(lora_stack) == 0:
             return (model, clip, help_url)
         if fusion_aware not in _FUSION_AWARE_MODES:

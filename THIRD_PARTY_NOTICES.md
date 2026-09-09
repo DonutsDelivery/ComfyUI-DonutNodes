@@ -45,7 +45,7 @@ Source: https://github.com/lbouaraba/comfyui-krea2edit
 
 Pinned source revision: `17af88332728c97ab5c7d26296b2cae59c935976`
 
-The Krea2 edit appearance-token forward in `krea2_edit_integration.py` is adapted from ComfyUI-Krea2Edit under the Apache License 2.0. Donut's version is prominently modified: the caller's target latent controls output geometry and metadata; source batching is restricted to one reference broadcast deterministically; and edit wrapper registration composes with other diffusion wrappers. Source, text, and target tokens retain the upstream active-timestep modulation required by the Identity Edit LoRA's training-matched inference path.
+The Krea2 edit appearance-token forward in `krea2_edit_integration.py` is adapted from ComfyUI-Krea2Edit under the Apache License 2.0. Donut's version is prominently modified: the caller's target latent controls output geometry and metadata; each reference contains one image broadcast deterministically across the target batch; and edit wrapper registration composes with other diffusion wrappers. Optional dual references use the upstream scene/subject order at RoPE frames 1 and 2. Source, text, and target tokens retain the upstream active-timestep modulation required by the Identity Edit LoRA's training-matched inference path.
 
 ### Apache License 2.0
 
@@ -114,3 +114,33 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the specific language governing permissions and limitations under the License.
+
+## WAS Node Suite v3 — image filename numbering
+
+`DonutImageSave.py` adapts the filename numbering convention from
+`modules/io/naming.py` in WAS Node Suite 3.0.2. Saving uses Pillow directly;
+WAS modules are not imported or required.
+
+Source: https://github.com/WASasquatch/was-node-suite-comfyui
+
+MIT License
+
+Copyright (c) 2023 Jordan Thompson (WASasquatch)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

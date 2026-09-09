@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import torch
@@ -195,7 +196,7 @@ fake_impact_core.segs_bitwise_and_mask = lambda segs, mask: segs
 
 def fake_ksampler_wrapper(model, seed, steps, cfg, sampler, scheduler, positive, negative, latent, denoise, **kwargs):
     sample_calls.append({
-        "model": model, "seed": seed, "steps": steps,
+        "model": model, "seed": seed, "steps": steps, "cfg": cfg,
         "positive": positive, "negative": negative, "latent": latent,
         "sampler_opt": kwargs.get("sampler_opt"), "noise": kwargs.get("noise"),
     })
@@ -233,7 +234,17 @@ fake_dd.DifferentialDiffusion = type(
 )
 fake_comfy_extras.nodes_differential_diffusion = fake_dd
 
+fake_nag = types.ModuleType("krea2_nag_integration")
+fake_nag.apply_krea2_nag = lambda model, negative, **kwargs: model
+fake_nag.nag_input_types = lambda: {}
+fake_nag.sampler_negative = lambda negative, turbo_mode: negative
+
+fake_variance = types.ModuleType("krea2_variance_integration")
+fake_variance.reapply_edit_variance = lambda grounded, original: grounded
+
 _modules = {
+    "krea2_variance_integration": fake_variance,
+    "krea2_nag_integration": fake_nag,
     "comfy": fake_comfy,
     "comfy.samplers": fake_samplers,
     "comfy.sample": fake_sample,
@@ -269,6 +280,27 @@ finally:
 
 
 class DonutFaceDetailerTests(unittest.TestCase):
+    def test_registration_does_not_depend_on_impact_loading_first(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def without_impact(name, *args, **kwargs):
+            if name == "impact" or name.startswith("impact."):
+                raise ImportError("Impact has not loaded yet")
+            return real_import(name, *args, **kwargs)
+
+        with patch.dict(sys.modules, _modules):
+            spec = importlib.util.spec_from_file_location(
+                "donut_face_late_impact", Path(__file__).with_name("DonutFaceDetailer.py"))
+            late = importlib.util.module_from_spec(spec)
+            with patch("builtins.__import__", side_effect=without_impact):
+                spec.loader.exec_module(late)
+                self.assertIn("DonutFaceDetailer", late.NODE_CLASS_MAPPINGS)
+                with self.assertRaisesRegex(RuntimeError, "working ComfyUI Impact Pack"):
+                    late._ensure_impact()
+            late._ensure_impact()
+            self.assertTrue(late.IMPACT_AVAILABLE)
+
     def setUp(self):
         lifecycle_calls.clear()
         sample_calls.clear()
@@ -315,6 +347,26 @@ class DonutFaceDetailerTests(unittest.TestCase):
         }
         values.update(overrides)
         return values
+
+    def test_edit_nag_receives_reference_and_negative_before_turbo_zeroing(self):
+        reference = torch.ones(1, 64, 64, 3)
+        negative = [[torch.ones(1, 2, 4), {}]]
+        latent = {"samples": torch.zeros(1, 4, 8, 8)}
+        with patch.object(module, "prepare_krea2_edit", return_value=(
+            FakeModel("edit"), ["pos"], negative, latent, reference,
+        )), patch.object(module, "apply_krea2_nag", return_value=FakeModel("nag")) as apply, \
+                patch.object(module, "sampler_negative", return_value=["zero"]) as zero:
+            module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
+                edit_mode=True, face_reference_crop=reference, turbo_mode=True,
+                nag_enabled=True, nag_phi=5, cfg=8,
+            ))
+        self.assertIs(apply.call_args.args[1], negative)
+        self.assertIs(apply.call_args.kwargs["source_latent"], latent)
+        self.assertIs(apply.call_args.kwargs["source_image"], reference)
+        self.assertEqual(apply.call_args.kwargs["nag_phi"], 5)
+        zero.assert_called_once_with(negative, True)
+        self.assertEqual(sample_calls[-1]["cfg"], 1.)
+        self.assertEqual(sample_calls[-1]["negative"], ["zero"])
 
     def test_sampling_canvas_is_64_aligned_and_cycles_stay_latent(self):
         vae = FakeVAE()
@@ -459,6 +511,20 @@ class DonutFaceDetailerTests(unittest.TestCase):
         module.DonutFaceDetailer.enhance_face(**self.face_kwargs(
             detector, steps=8, denoise=0.2, turbo_mode=True))
         self.assertEqual(seen, [(2, 0.25)])
+
+    def test_second_reference_supplies_face_identity_and_disconnected_b_uses_a(self):
+        scene = torch.zeros(1, 64, 64, 3)
+        subject = torch.ones(1, 32, 48, 3)
+        values = self.face_kwargs(FakeDetector([]), edit_mode=True, face_reference=scene)
+        values["guide_size_for"] = values.pop("guide_size_for_bbox")
+        values["noise_mask"] = values.pop("noise_mask_enabled")
+        values.update(wildcard="", resolution=1024)
+        result = (scene, [], [], torch.zeros(1, 64, 64), [])
+        with patch.object(module.DonutFaceDetailer, "enhance_face", return_value=result) as enhance:
+            module.DonutFaceDetailer().doit(**values, face_reference_b=subject)
+            self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference"], subject))
+            module.DonutFaceDetailer().doit(**values)
+            self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference"], scene))
 
     def test_edit_reference_pairing_happens_after_final_face_selection(self):
         target_large, target_small = (FakeSegment("target-large", (0, 0, 35, 35)),

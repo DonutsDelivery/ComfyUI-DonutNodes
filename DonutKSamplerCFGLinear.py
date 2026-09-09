@@ -42,6 +42,16 @@ except ImportError:
     )
 
 try:
+    from .krea2_variance_integration import reapply_edit_variance
+except ImportError:
+    from krea2_variance_integration import reapply_edit_variance
+
+try:
+    from .krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+except ImportError:
+    from krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+
+try:
     from .turbo_sampling import resolve_turbo_sampling
 except ImportError:
     from turbo_sampling import resolve_turbo_sampling
@@ -1108,6 +1118,10 @@ class DonutSampler(_DonutSamplerEngine):
                     "default": False,
                     "tooltip": "Treat steps as the model's supported Turbo steps and snap denoise to the nearest valid scheduler point.",
                 }),
+                "source_image_b": ("IMAGE", {
+                    "tooltip": "Optional second edit reference (subject/identity). source_image is the scene/base; both images condition the edit.",
+                }),
+                **nag_input_types(),
             }
         }
 
@@ -1123,7 +1137,7 @@ class DonutSampler(_DonutSamplerEngine):
                randomize_seed_per_model="enable", switch_at_step_1=10, switch_at_step_2=15,
                model_2=None, model_3=None, edit_mode=False, source_image=None,
                vae=None, clip=None, edit_prompt="", edit_negative_prompt="", grounding_px=768,
-               edit_model=None, turbo_mode=False):
+               edit_model=None, turbo_mode=False, source_image_b=None, **nag_options):
         # Reset per-call state before dispatching to the selected mode.
         self.cfg_history = []
         self.model_phases = []
@@ -1138,6 +1152,8 @@ class DonutSampler(_DonutSamplerEngine):
                 f"(ComfyUI denoise={denoise:.3f})"
             )
 
+        source_latent = None
+        original_positive = positive
         if edit_mode:
             target_samples, target_width, target_height = validate_krea2_edit_target(
                 latent_image, source_image, mode, denoise, add_noise, start_at_step,
@@ -1148,7 +1164,9 @@ class DonutSampler(_DonutSamplerEngine):
                 edit_negative_prompt, grounding_px,
                 target_width, target_height,
                 target_batch=int(target_samples.shape[0]),
+                source_image_b=source_image_b,
             )
+            positive = reapply_edit_variance(positive, original_positive)
             latent_image = make_krea2_edit_target(latent_image)
             if mode == "multi_model":
                 if model_2 is not None:
@@ -1159,6 +1177,20 @@ class DonutSampler(_DonutSamplerEngine):
                     model_3 = patch_krea2_edit_model(
                         model_3, source_latent, target_batch=int(target_samples.shape[0]),
                     )
+
+        if nag_options.get("nag_enabled", False):
+            patch_options = dict(nag_options, source_latent=source_latent)
+            if edit_mode:
+                patch_options.update(vae=vae, source_image=source_image,
+                                     source_image_b=source_image_b, target_latent=latent_image)
+            model = apply_krea2_nag(model, negative, **patch_options)
+            if mode == "multi_model":
+                if model_2 is not None:
+                    model_2 = apply_krea2_nag(model_2, negative, **patch_options)
+                if model_3 is not None:
+                    model_3 = apply_krea2_nag(model_3, negative, **patch_options)
+            cfg_start = cfg_halfway = cfg_end = 1.0
+        negative = sampler_negative(negative, turbo_mode)
 
         if mode == "advanced":
             result = self.run_advanced(
@@ -1211,7 +1243,9 @@ class DonutKSamplerAdvanced(_DonutSamplerEngine):
                 "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000}),
                 "return_with_leftover_noise": (["disable", "enable"],),
                 "cfg_curve": (["linear", "exponential", "logarithmic", "ease_in", "ease_out", "ease_in_out", "sine_wave", "cosine_wave", "smooth_step", "smoother_step", "circular_in", "circular_out", "back_in", "back_out", "elastic_in", "elastic_out", "bounce_in", "bounce_out", "dramatic_exponential", "dramatic_logarithmic"], {"default": "linear"}),
-            }
+            },
+            "optional": {key: value for key, value in nag_input_types().items()
+                         if key not in ("nag_ref_boost", "nag_ref_boost_a", "nag_ref_boost_mask", "nag_fit_mode")}
         }
 
     RETURN_TYPES = ("LATENT", "STRING")
@@ -1221,9 +1255,12 @@ class DonutKSamplerAdvanced(_DonutSamplerEngine):
 
     def sample_advanced(self, model, add_noise, noise_seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                        scheduler, positive, negative, latent_image, start_at_step, end_at_step,
-                       return_with_leftover_noise, cfg_curve="linear", denoise=1.0):
+                       return_with_leftover_noise, cfg_curve="linear", denoise=1.0, **nag_options):
         self.cfg_history = []
         self.model_phases = []
+        model = apply_krea2_nag(model, negative, **nag_options)
+        if nag_options.get("nag_enabled", False):
+            cfg_start = cfg_halfway = cfg_end = 1.0
         return self.run_advanced(
             model, add_noise, noise_seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
             scheduler, positive, negative, latent_image, start_at_step, end_at_step,
@@ -1268,6 +1305,8 @@ class DonutMultiModelSampler(_DonutSamplerEngine):
                 "model_3": ("MODEL",),
                 "switch_at_step_1": ("INT", {"default": 10, "min": 1, "max": 10000}),
                 "switch_at_step_2": ("INT", {"default": 15, "min": 1, "max": 10000}),
+                **{key: value for key, value in nag_input_types().items()
+                   if key not in ("nag_ref_boost", "nag_ref_boost_a", "nag_ref_boost_mask", "nag_fit_mode")},
             }
         }
 
@@ -1279,9 +1318,16 @@ class DonutMultiModelSampler(_DonutSamplerEngine):
     def sample_multi_model(self, model_1, add_noise, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
                           scheduler, positive, negative, latent_image, noise_seed, start_at_step, end_at_step,
                           return_with_leftover_noise, randomize_seed_per_model, denoise, cfg_curve="linear",
-                          model_2=None, model_3=None, switch_at_step_1=10, switch_at_step_2=15):
+                          model_2=None, model_3=None, switch_at_step_1=10, switch_at_step_2=15, **nag_options):
         self.cfg_history = []
         self.model_phases = []
+        if nag_options.get("nag_enabled", False):
+            model_1 = apply_krea2_nag(model_1, negative, **nag_options)
+            if model_2 is not None:
+                model_2 = apply_krea2_nag(model_2, negative, **nag_options)
+            if model_3 is not None:
+                model_3 = apply_krea2_nag(model_3, negative, **nag_options)
+            cfg_start = cfg_halfway = cfg_end = 1.0
         return self.run_multi_model(
             model_1, add_noise, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
             scheduler, positive, negative, latent_image, noise_seed, start_at_step, end_at_step,

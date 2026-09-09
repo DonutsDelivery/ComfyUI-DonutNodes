@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "folder": "diffusion_models",
+      "filename": "krea2_turbo_bf16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Krea-2/resolve/e5ea8b4dd7f38f348b138eb0fe29f92c0e367e96/diffusion_models/krea2_turbo_bf16.safetensors",
+      "sha256": "78bbf8f4165eda19cea3cb06c78089221932a39e2eed8af9da741f942c47ffb3",
+      "size": 26283332608
+    },
+    {
+      "folder": "text_encoders",
+      "filename": "qwen3vl_4b_fp8_scaled.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen3-VL/resolve/5529a3c630b649351fb72d8c251577b5962371d8/text_encoders/qwen3vl_4b_fp8_scaled.safetensors",
+      "sha256": "54bd5144df0bbc25dd6ccadfcb826b521445a1b06ae5a42570bdd2974ca87094",
+      "size": 5242467968
+    },
+    {
+      "folder": "vae",
+      "filename": "qwen-image/qwen_image_vae.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/7beb7b647f04469fbe64ba8adc2bb0d7e5e9f73f/split_files/vae/qwen_image_vae.safetensors",
+      "sha256": "a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f",
+      "size": 253806246
+    },
+    {
+      "folder": "loras",
+      "filename": "krea2/krea2_identity_edit_v1_2.safetensors",
+      "url": "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors",
+      "sha256": "6adf9a69cc9502d286db7b69964d37da7e9cfe4b05b4d004bc275f087d3fd3cf",
+      "size": 1828256432
+    },
+    {
+      "folder": "upscale_models",
+      "filename": "4x_NickelbackFS_72000_G.pth",
+      "url": "https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_NickelbackFS_72000_G.pth",
+      "sha256": "a177fe6c4c125ca0e5dd5d70453112ca17c9de62eb055bef70111edd220d07fa",
+      "size": 67077535
+    },
+    {
+      "folder": "sams",
+      "filename": "sam_vit_b_01ec64.pth",
+      "url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
+      "sha256": "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912",
+      "size": 375042383
+    },
+    {
+      "folder": "ultralytics",
+      "filename": "bbox/face_yolov8m.pt",
+      "url": "https://huggingface.co/Bingsu/adetailer/resolve/fdb6e26f5212c6a7184b359f62cc4b41fd731bb3/face_yolov8m.pt",
+      "sha256": "e3893a92c5c1907136b6cc75404094db767c1e0cfefe1b43e87dad72af2e4c9f",
+      "size": 51996128
+    },
+    {
+      "folder": "diffusion_models",
+      "filename": "finepornV4INT8NVFP4BF16_v4.safetensors",
+      "url": "https://civitai.com/api/download/models/3187539?fileId=3068237",
+      "sha256": "2c77313e3169da833a2f545a9eb73bcb5bd6f7196b39ecd786e4026dec58d21e",
+      "size": 13141769675
+    },
+    {
+      "folder": "loras",
+      "filename": "krea2/Krea2_NSFW_Aesthetics_V1.safetensors",
+      "url": "https://civitai.com/api/download/models/3179666?fileId=3060213",
+      "sha256": "87b5dd883c747a79915b0b9361c681b24309d59912d0d03c1be0514e033b0ac5",
+      "size": 457111976
+    }
+  ]
+}

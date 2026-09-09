@@ -11,7 +11,6 @@ import importlib.util
 import io
 import math
 from pathlib import Path
-import subprocess
 import sys
 import types
 import unittest
@@ -110,7 +109,7 @@ class DependencyTests(unittest.TestCase):
     def test_interrupt_exit_and_out_of_memory_are_not_swallowed(self):
         for error in (KeyboardInterrupt(), SystemExit(), MemoryError()):
             with self.subTest(error=type(error).__name__):
-                with mock.patch.object(deps.importlib, "import_module", side_effect=error):
+                with mock.patch.object(builtins, "__import__", side_effect=error):
                     with self.assertRaises(type(error)):
                         deps.import_component("test", "Broken", {})
 
@@ -142,86 +141,33 @@ class DependencyTests(unittest.TestCase):
 
     def test_cv2_is_returned_without_changing_image_arithmetic(self):
         cv2 = object()
-        with mock.patch.object(deps.importlib, "import_module", return_value=cv2) as loader:
+        with mock.patch.dict(sys.modules, {"cv2": cv2}):
             self.assertIs(deps.require_cv2("Masks"), cv2)
-        loader.assert_called_once_with("cv2")
 
     def test_cv2_failure_is_actionable_and_preserves_cause(self):
         for error in (ImportError("missing"), AttributeError("_ARRAY_API not found"),
                       ValueError("numpy.dtype size changed"), OSError("DLL load failed")):
             with self.subTest(error=error):
-                with mock.patch.object(deps.importlib, "import_module", side_effect=error):
+                with mock.patch.object(builtins, "__import__", side_effect=error):
                     with self.assertRaisesRegex(RuntimeError, "Donut Dependency Check") as raised:
                         deps.require_cv2("Mask dilation/erosion")
                 self.assertIs(raised.exception.__cause__, error)
                 self.assertIn("Mask dilation/erosion", str(raised.exception))
 
     def test_cv2_helper_does_not_catch_unrelated_type_error(self):
-        with mock.patch.object(deps.importlib, "import_module", side_effect=TypeError("bug")):
+        with mock.patch.object(builtins, "__import__", side_effect=TypeError("bug")):
             with self.assertRaises(TypeError):
                 deps.require_cv2("Mask")
 
-    def test_unknown_probe_never_starts_a_process(self):
-        with mock.patch.object(deps.subprocess, "run", side_effect=AssertionError("spawned")):
-            with self.assertRaises(KeyError):
-                deps.probe_dependency("arbitrary code")
-
-    def test_probes_use_running_python_no_shell_and_bounded_timeout(self):
-        result = types.SimpleNamespace(returncode=0, stdout="", stderr="")
-        with mock.patch.object(deps.subprocess, "run", return_value=result) as runner:
-            checked = deps.probe_dependency("numpy", timeout=7)
-        arguments, options = runner.call_args
-        self.assertEqual(arguments[0][0], sys.executable)
-        self.assertIn("-c", arguments[0])
-        self.assertNotIn("pip", arguments[0])
-        self.assertFalse(options["shell"])
-        self.assertEqual(options["timeout"], 7)
-        self.assertEqual(options["env"]["MPLBACKEND"], "Agg")
-        self.assertEqual(checked["status"], "ok")
-
-    def test_probes_preserve_portable_no_user_site_flag(self):
-        result = types.SimpleNamespace(returncode=0, stdout="", stderr="")
-        with mock.patch.object(deps.sys, "flags", types.SimpleNamespace(no_user_site=True)), mock.patch.object(
-            deps.subprocess, "run", return_value=result
-        ) as runner:
-            deps.probe_dependency("numpy")
-        self.assertEqual(runner.call_args.args[0][:2], [sys.executable, "-s"])
-
-    def test_timeout_and_native_crash_are_reported(self):
-        with mock.patch.object(deps.subprocess, "run", side_effect=subprocess.TimeoutExpired(["python"], 2)):
-            self.assertEqual(deps.probe_dependency("numpy", timeout=2)["status"], "timeout")
-        with mock.patch.object(deps.subprocess, "run", return_value=types.SimpleNamespace(returncode=-11, stdout="", stderr="crashed")):
-            result = deps.probe_dependency("numpy")
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(result["returncode"], -11)
-
-    def test_spawn_failure_is_reported(self):
-        with mock.patch.object(deps.subprocess, "run", side_effect=OSError("permission denied")):
-            self.assertEqual(deps.probe_dependency("numpy")["status"], "error")
-
-    def test_success_exit_with_numpy_abi_warning_is_not_a_pass(self):
-        with mock.patch.object(deps.subprocess, "run", return_value=types.SimpleNamespace(
-            returncode=0, stdout="", stderr="A module that was compiled using NumPy 1.x cannot be run"
-        )):
-            self.assertEqual(deps.probe_dependency("numpy")["status"], "failed")
-
-    def test_report_default_never_spawns_processes(self):
+    def test_report_uses_metadata_without_importing_packages(self):
         with mock.patch.object(deps, "installed_versions", return_value={"numpy": "2.5.1"}), mock.patch.object(
-            deps.subprocess, "run", side_effect=AssertionError("subprocess")
+            deps.importlib, "import_module", side_effect=AssertionError("imported package")
         ):
             report = deps.dependency_report()
         self.assertIn(sys.executable, report)
-        self.assertIn("NumPy 2.x version range cannot", report)
-        self.assertIn("Import checks not run", report)
-        self.assertIn("pip", report)
-
-    def test_report_probes_are_fixed_allowlist(self):
-        with mock.patch.object(deps, "installed_versions", return_value={}), mock.patch.object(
-            deps, "probe_dependency", return_value={"status": "ok", "returncode": 0, "output": ""}
-        ) as probe:
-            report = deps.dependency_report(True)
-        self.assertEqual([c.args[0] for c in probe.call_args_list], list(deps._PROBES))
-        self.assertIn("torch_numpy: ok", report)
+        self.assertIn("numpy: 2.5.1", report)
+        self.assertEqual(deps.DonutDependencyCheck.INPUT_TYPES(), {"required": {}})
+        self.assertFalse(hasattr(deps, "probe_dependency"))
 
     def test_diagnostic_node_has_visible_text_and_string_output(self):
         with mock.patch.object(deps, "dependency_report", return_value="test report"), redirect_stdout(io.StringIO()):
@@ -262,6 +208,12 @@ class BootstrapTests(unittest.TestCase):
                 mapping = {"DonutApplyLoRAStack": base_class, "DonutFiller": type("Filler", (), {})}
             elif name == "DonutSafeApplyLoRAStack":
                 mapping = {"DonutApplyLoRAStack": replacement_class}
+            elif name == "donut_upscale_stage":
+                mapping = {"DonutTiledUpscale": replacement_class}
+            elif name == "donut_prompt_injection_recursive":
+                mapping = {"DonutPromptInjection": replacement_class}
+            elif name == "donut_grouped_merge":
+                mapping = {"DonutModelMergeKrea2": replacement_class}
             return types.SimpleNamespace(NODE_CLASS_MAPPINGS=mapping, NODE_DISPLAY_NAME_MAPPINGS={})
 
         with mock.patch.dict(sys.modules, {package: module, package + ".donut_dependencies": deps}), mock.patch.object(
@@ -274,13 +226,20 @@ class BootstrapTests(unittest.TestCase):
 
     def test_real_initializer_preserves_order_and_required_overrides(self):
         module, loaded, replacement = self.boot()
-        self.assertEqual(loaded, ["shared.server_routes", *module._NODE_MODULES])
-        self.assertEqual(len(module._NODE_MODULES), 38)
+        self.assertEqual(loaded, ["shared.server_routes", "donut_wildcards", "donut_model_downloads", *module._NODE_MODULES])
+        self.assertIn("DonutImageSave", module.NODE_CLASS_MAPPINGS)
         for key in ("DonutApplyLoRAStack", "DonutKrea2FusionControl"):
             self.assertIs(module.NODE_CLASS_MAPPINGS[key], replacement)
         self.assertIn("DonutDependencyCheck", module.NODE_CLASS_MAPPINGS)
         self.assertEqual(module.WEB_DIRECTORY, "./web")
         self.assertEqual(module.NODE_DISPLAY_NAME_MAPPINGS["DonutFiller"], "Donut Filler (Model + CLIP)")
+
+    def test_registry_omits_optional_downloader_without_startup_failure(self):
+        with mock.patch.object(Path, "is_file", return_value=False):
+            module, loaded, _ = self.boot()
+        self.assertNotIn("donut_model_downloads", loaded)
+        self.assertNotIn("donut_model_downloads", deps.IMPORT_FAILURES)
+        self.assertIn("DonutKrea2FusionControl", module.NODE_CLASS_MAPPINGS)
 
     def test_broken_analysis_and_server_routes_do_not_hide_lora_or_fusion(self):
         module, loaded, _ = self.boot({"DonutFrequencyAnalysis", "DonutSpectralNoiseSharpener", "shared.server_routes"})
@@ -356,7 +315,12 @@ class SharedUtilsTests(unittest.TestCase):
 
     def test_dilation_fails_at_use_not_import_with_clear_message(self):
         utils, _ = self.load_utils()
-        with mock.patch.object(deps.importlib, "import_module", side_effect=ImportError("_ARRAY_API not found")):
+        original = builtins.__import__
+        def guarded(name, *args, **kwargs):
+            if name == "cv2":
+                raise ImportError("_ARRAY_API not found")
+            return original(name, *args, **kwargs)
+        with mock.patch.object(builtins, "__import__", side_effect=guarded):
             with self.assertRaisesRegex(RuntimeError, "Mask dilation/erosion"):
                 utils.dilate_mask(self.torch.ones((1, 4, 4)), 1)
 

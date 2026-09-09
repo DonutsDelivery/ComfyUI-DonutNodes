@@ -44,6 +44,7 @@ def _patch_existing_node():
     def input_types(cls):
         inputs = deepcopy(original_input_types(cls))
         optional = inputs.setdefault("optional", {})
+        nag_inputs = {key: optional.pop(key) for key in list(optional) if key.startswith("nag_")}
         optional["color_reference"] = (
             "IMAGE",
             {"tooltip": "Optional color reference. Defaults to the input image."},
@@ -58,6 +59,7 @@ def _patch_existing_node():
                 "tooltip": "0 disables preservation; 1 fully matches output RGB mean/std to the reference after sampling and decode.",
             },
         )
+        optional.update(nag_inputs)
         return inputs
 
     def upscale(self, image, upscale_model, model, positive, negative, vae, seed,
@@ -67,7 +69,7 @@ def _patch_existing_node():
                 edit_prompt="Enhance fine details while preserving the source image.",
                 edit_negative_prompt="", grounding_px=768, edit_model=None,
                 edit_source_image=None, turbo_mode=False, tiled_diffusion=True,
-                color_reference=None, color_preserve_strength=0.0):
+                color_reference=None, color_preserve_strength=0.0, edit_source_image_b=None, **nag_options):
         output, debug = original_upscale(
             self, image, upscale_model, model, positive, negative, vae, seed,
             steps, cfg, sampler_name, scheduler, denoise,
@@ -76,6 +78,7 @@ def _patch_existing_node():
             edit_negative_prompt=edit_negative_prompt, grounding_px=grounding_px,
             edit_model=edit_model, edit_source_image=edit_source_image,
             turbo_mode=turbo_mode, tiled_diffusion=tiled_diffusion,
+            edit_source_image_b=edit_source_image_b, **nag_options,
         )
 
         if color_preserve_strength > 0.0:

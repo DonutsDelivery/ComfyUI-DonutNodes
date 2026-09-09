@@ -1,8 +1,8 @@
 """Dependency isolation and read-only diagnostics; uses only the standard library.
 
 Never runs pip, changes NumPy, suppresses ABI errors, or imports optional binary
-packages just to query their versions. Import probes run only on request, in
-short-lived child processes, so a broken extension cannot crash the checker.
+packages just to query their versions. Reports use installed metadata and
+previously recorded startup errors only.
 """
 
 import importlib
@@ -10,9 +10,7 @@ from importlib import metadata
 import logging
 import os
 import shlex
-import subprocess
 import sys
-import tempfile
 import traceback
 
 
@@ -86,11 +84,12 @@ def import_component(package, module_name, classes=None, display_names=None, *, 
 def require_cv2(feature):
     """OpenCV is only needed when executing image/mask operations, not LoRAs."""
     try:
-        return importlib.import_module("cv2")
+        import cv2
+        return cv2
     except (ImportError, AttributeError, ValueError, OSError, RuntimeError) as error:
         raise RuntimeError(
             f"[DonutNodes] {feature} requires a working OpenCV (cv2) installation. "
-            "Run Donut Dependency Check with probe_imports enabled in a blank workflow "
+            "Run Donut Dependency Check in a blank workflow "
             "to see the failing binary and installed OpenCV variants. Repair that "
             "package in ComfyUI's Python environment and restart ComfyUI; do not "
             "blindly change NumPy. Original error: "
@@ -133,66 +132,7 @@ def python_command(*arguments):
     return shlex.join(parts)
 
 
-# Fixed allowlist, not arbitrary code supplied through a node or server route.
-_PROBES = {
-    "numpy": "import numpy as np; assert np.zeros((2, 2)).sum() == 0",
-    "torch_numpy": (
-        "import numpy as np, torch; a = np.arange(4, dtype=np.float32); "
-        "assert np.array_equal(torch.from_numpy(a).numpy(), a)"
-    ),
-    "opencv": (
-        "import numpy as np, cv2; a = np.zeros((2, 2, 3), dtype=np.uint8); "
-        "assert cv2.cvtColor(a, cv2.COLOR_RGB2GRAY).shape == (2, 2)"
-    ),
-    "scipy": (
-        "import numpy as np; from scipy import fft, ndimage; "
-        "from scipy.optimize import linear_sum_assignment; "
-        "assert fft.fft2(np.zeros((2, 2))).shape == (2, 2); "
-        "assert ndimage.gaussian_filter(np.ones((2, 2)), 1).shape == (2, 2); "
-        "assert len(linear_sum_assignment(np.eye(2))[0]) == 2"
-    ),
-    "matplotlib": (
-        "from matplotlib.figure import Figure; "
-        "from matplotlib.backends.backend_agg import FigureCanvasAgg; "
-        "figure = Figure(figsize=(1, 1)); figure.subplots().plot([0, 1]); "
-        "FigureCanvasAgg(figure).draw()"
-    ),
-}
-
-
-def probe_dependency(name, timeout=20):
-    """Smoke-test imports and their NumPy bridge in an isolated child process."""
-    code = _PROBES[name]  # Reject unknown probes before starting any process.
-    command = [sys.executable]
-    if sys.flags.no_user_site:
-        command.append("-s")
-    # Match the running ComfyUI environment, including explicitly added paths.
-    paths = [os.path.abspath(path) for path in sys.path]
-    code = "import sys\nsys.path = " + repr(paths) + "\n" + code
-    command.extend(["-c", code])
-    with tempfile.TemporaryDirectory(prefix="donut-dependency-check-") as temp:
-        env = dict(os.environ, MPLBACKEND="Agg", MPLCONFIGDIR=temp)
-        try:
-            process = subprocess.run(
-                command, capture_output=True, text=True, encoding="utf-8",
-                errors="replace", timeout=timeout, env=env, cwd=temp,
-                shell=False,
-            )
-        except subprocess.TimeoutExpired:
-            return {"name": name, "status": "timeout", "output": f"Exceeded {timeout}s"}
-        except OSError as error:
-            return {"name": name, "status": "error", "output": str(error)}
-    output = (process.stdout + process.stderr).strip()
-    abi_warning = any(marker in output.lower() for marker in ABI_MARKERS)
-    return {
-        "name": name,
-        "status": "failed" if process.returncode or abi_warning else "ok",
-        "returncode": process.returncode,
-        "output": output,
-    }
-
-
-def dependency_report(probe_imports=False):
+def dependency_report():
     versions = installed_versions()
     lines = [
         "DonutNodes dependency report (read-only)",
@@ -208,15 +148,6 @@ def dependency_report(probe_imports=False):
     lines.append(f"\nDonutNodes startup failures: {len(IMPORT_FAILURES)}")
     for record in IMPORT_FAILURES.values():
         lines.extend([f"\n[{record['component']}] {record['error']}", record["traceback"]])
-    if probe_imports:
-        lines.append("\nIsolated import/NumPy-bridge checks (up to 20 seconds each):")
-        for name in _PROBES:
-            result = probe_dependency(name)
-            lines.append(f"  {name}: {result['status']} (exit={result.get('returncode', 'n/a')})")
-            if result["output"]:
-                lines.append(result["output"])
-    else:
-        lines.append("\nImport checks not run. Enable probe_imports to test binary compatibility.")
     lines.extend([
         "\nNext steps for a failing check:",
         "Repair/update the package identified by the first non-NumPy traceback frame, "
@@ -228,7 +159,7 @@ def dependency_report(probe_imports=False):
         "ComfyUI environment, not a custom node's automatic installer.",
         "Package metadata check (does not test binary compatibility):",
         python_command("-m", "pip", "check"),
-        "Only DonutNodes failures and the fixed probes above are covered; failures in "
+        "Only recorded DonutNodes startup failures are covered; failures in "
         "other node packs require their own traceback.",
     ])
     return "\n".join(lines)
@@ -237,12 +168,7 @@ def dependency_report(probe_imports=False):
 class DonutDependencyCheck:
     @classmethod
     def INPUT_TYPES(cls):
-        return {"required": {"probe_imports": ("BOOLEAN", {
-            "default": False,
-            "tooltip": "Read-only checks of NumPy, PyTorch/NumPy, OpenCV, SciPy and "
-                       "Matplotlib in child processes (up to 20 seconds each). "
-                       "Never installs packages. Use a blank workflow if nodes are missing.",
-        })}}
+        return {"required": {}}
 
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("report",)
@@ -255,13 +181,12 @@ class DonutDependencyCheck:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    def check(self, probe_imports=False):
-        report = dependency_report(probe_imports)
+    def check(self, **kwargs):
+        # Ignore obsolete inputs from workflows saved with the old checker.
+        report = dependency_report()
         print(report)
         return {"ui": {"text": [report]}, "result": (report,)}
 
 
 if __name__ == "__main__":
-    # Standalone mode also works when ComfyUI itself cannot start. It has no
-    # in-process startup history, so probe imports unconditionally.
-    print(dependency_report(probe_imports=True))
+    print(dependency_report())

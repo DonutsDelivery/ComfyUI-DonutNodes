@@ -50,7 +50,7 @@ fake_torch.allclose = lambda left, right: np.allclose(left.array, right.array)
 setattr(fake_torch, "nn", types.SimpleNamespace(Linear=type("Linear", (), {})))
 
 
-def _load_module():
+def _load_module(weight_adapter=None):
     package = types.ModuleType(PACKAGE)
     package.__path__ = [str(ROOT)]
 
@@ -83,6 +83,7 @@ def _load_module():
     setattr(comfy_weight_adapter, "LoRAAdapter", LoRAAdapter)
     setattr(comfy_weight_adapter, "LoKrAdapter", LoKrAdapter)
     setattr(comfy_weight_adapter, "BypassInjectionManager", object)
+    comfy_weight_adapter = weight_adapter or comfy_weight_adapter
     comfy.sd = comfy_sd
     comfy.utils = comfy_utils
     comfy.weight_adapter = comfy_weight_adapter
@@ -397,6 +398,14 @@ class SafetyCompatibilityTests(unittest.TestCase):
             module._bypass_compatibility_error(lora, linear),
         )
 
+    def test_empty_stack_propagates_selected_mode_without_changing_input(self):
+        for mode in module._EXECUTION_MODES:
+            original = types.SimpleNamespace(model_options={})
+            original.clone = lambda: types.SimpleNamespace(model_options={})
+            output = module.DonutApplyLoRAStackSafe().apply_stack(original, None, [], execution_mode=mode)[0]
+            self.assertEqual(output.model_options["donut_lora_execution_mode"], mode)
+            self.assertEqual(original.model_options, {})
+
     def test_bypass_uses_regular_path_with_existing_runtime_injections(self):
         cloned = types.SimpleNamespace(
             model=types.SimpleNamespace(state_dict=lambda: {}),
@@ -456,6 +465,7 @@ class SafetyCompatibilityTests(unittest.TestCase):
             }
         })
 
+        model.clone = lambda: types.SimpleNamespace(model_options=dict(model.model_options))
         module.DonutApplyLoRAStackSafe().apply_stack(
             model,
             object(),

@@ -1,9 +1,10 @@
 # Embedded UncensorFix preset
 
 UncensorFix lives in the existing Donut Krea2 Fusion Control node. Its numerical
-factors remain in `uncensorfix_weights.py`; no original safetensors file, source
-checkpoint metadata, weight-file lookup, file picker or runtime download is
-required. The embedded numerical data is unchanged by the execution-mode update.
+factors ship as `assets/uncensorfix.f32`, loaded by `uncensorfix_weights.py`.
+The raw little-endian float32 bytes retain the same SHA-256 as the former
+embedded data. No original safetensors header, source checkpoint metadata,
+user-selected weight path or runtime download is required.
 
 ## Compare with Donut Apply LoRA Stack
 
@@ -163,7 +164,7 @@ should also be run in a complete checkout.
 
 ## Distribution
 
-Ship `uncensorfix_weights.py`, `DonutKrea2FusionPreset.py` and
+Ship `assets/uncensorfix.f32`, `uncensorfix_weights.py`, `DonutKrea2FusionPreset.py` and
 `donut_uncensorfix_lora.py` with the rest of DonutNodes. Do not add a separate
-`assets/*.safetensors` file. The original data module is unchanged. Existing node
+`assets/*.safetensors` file. The bundled raw data is byte-identical to the former decoded payload. Existing node
 IDs and the older documentation/test filenames are retained.

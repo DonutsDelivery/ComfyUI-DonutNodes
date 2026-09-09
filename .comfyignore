@@ -1,0 +1,50 @@
+# User data and credentials (also excluded when packaging outside Git)
+civitai_cache/
+config.yaml
+.env
+.env.*
+.comfy-registry.env
+
+# Local state, environments, and generated artifacts
+.git/
+.github/
+.agents/
+.codex/
+.claude/
+.beads/
+.tracking
+HERMES.md
+.idea/
+.vscode/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+/node.zip
+/dist/
+/build/
+*.egg-info/
+.DS_Store
+
+# Development tests and validation reports
+/test_*.py
+/*_test.py
+/tests/
+/tools/
+/distribution/
+/docs/validation/
+/docs/publishing.md
+/AGENTS.md
+/analyze_strength_distribution.py
+/cache_invalidation_validation.py
+/debug_cache_invalidation_issue.py
+/debug_merge_strength_flow.py
+/detailed_strength_analysis.py
+
+# Automatic downloader remains excluded: its network/environment operations were flagged
+/donut_model_downloads.py

@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -56,6 +57,36 @@ finally:
 
 
 class AlignedReferenceCropTests(unittest.TestCase):
+    def test_two_references_reach_both_grounded_prompts_and_model_in_order(self):
+        encoded, grounded = [], []
+        class Encoder:
+            def encode(self, vae, image):
+                encoded.append(image)
+                return ({"samples": image.movedim(-1, 1)},)
+        class Grounded:
+            def encode(self, clip, prompt, image=None, image_b=None, grounding_px=768):
+                grounded.append((prompt, image, image_b, grounding_px))
+                return (prompt,)
+        a, b = torch.zeros(1, 30, 60, 3), torch.ones(1, 60, 30, 3)
+        with patch.object(fake_nodes, "VAEEncode", Encoder, create=True), patch.dict(
+            fake_nodes.NODE_CLASS_MAPPINGS, {"Krea2EditGroundedEncode": Grounded}
+        ), patch.object(module, "patch_krea2_edit_model", return_value="patched") as patch_model:
+            result = module.prepare_krea2_edit(
+                "model", "clip", "vae", a, "positive", "negative", 1088,
+                96, 64, target_batch=2, source_image_b=b,
+            )
+        self.assertEqual([tuple(image.shape) for image in encoded], [(1, 64, 96, 3)] * 2)
+        self.assertEqual([float(image.mean()) for image in encoded], [0, 1])
+        self.assertEqual([item[0] for item in grounded], ["positive", "negative"])
+        for _, scene, subject, px in grounded:
+            self.assertGreater(scene.shape[2], scene.shape[1])
+            self.assertGreater(subject.shape[1], subject.shape[2])
+            self.assertEqual(px, 1088)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(len(result[3]), 2)
+        self.assertIs(patch_model.call_args.args[1], result[3])
+        self.assertEqual(patch_model.call_args.kwargs["target_batch"], 2)
+
     def test_natural_one_megapixel_conditioning_is_not_grid_snapped(self):
         source = torch.zeros(1, 2433, 1664, 3)
 
@@ -228,7 +259,7 @@ class AlignedReferenceCropTests(unittest.TestCase):
 
         self.assertEqual((width, height), (96, 64))
 
-    def test_edit_target_validation_rejects_temporal_and_oversize_targets(self):
+    def test_edit_target_validation_rejects_temporal_but_allows_custom_sizes(self):
         source = torch.zeros(1, 64, 64, 3)
         temporal = {
             "samples": torch.zeros(1, 16, 8, 8),
@@ -243,10 +274,10 @@ class AlignedReferenceCropTests(unittest.TestCase):
             module.validate_krea2_edit_target(
                 temporal, source, "simple", 1.0, "enable", 0,
             )
-        with self.assertRaisesRegex(ValueError, "up to 2 MiP"):
-            module.validate_krea2_edit_target(
-                oversize, source, "simple", 1.0, "enable", 0,
-            )
+        _, width, height = module.validate_krea2_edit_target(
+            oversize, source, "simple", 1.0, "enable", 0,
+        )
+        self.assertEqual((width, height), (2048, 2048))
 
     def test_edit_target_validation_rejects_invalid_empty_target_controls(self):
         latent = {"samples": torch.zeros(2, 16, 8, 8)}

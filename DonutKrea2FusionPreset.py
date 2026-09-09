@@ -1,7 +1,7 @@
 """Self-contained UncensorFix preset and Simple/Advanced fusion UI.
 
 The existing DonutKrea2FusionControl node ID is retained. UncensorFix uses numerical
-factors embedded in Python source. It never reads safetensors, searches LoRA
+factors bundled in assets/uncensorfix.f32. It never reads safetensors, searches LoRA
 folders, or downloads weights. Off is a pure pass-through; other presets delegate
 to the base node.
 """
@@ -193,16 +193,16 @@ def _rewrite_uncensorfix_diagnostics(diagnostics, strength, loaded_count, source
     return diagnostics.replace(
         "external_files_loaded=none",
         f"uncensorfix_source={source_details}; uncensorfix_strength={float(strength):g}; "
-        f"uncensorfix_targets={loaded_count}; external_files_loaded=none", 1,
+        f"uncensorfix_targets={loaded_count}; bundled_weight_asset=assets/uncensorfix.f32; external_files_loaded=none", 1,
     )
 
 
 class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
-    """Existing Krea2 Fusion Control with UncensorFix factors embedded in source."""
+    """Existing Krea2 Fusion Control with UncensorFix factors bundled as raw numerical data."""
 
     DESCRIPTION = (
         "Krea 2 text-fusion controls with Simple/Advanced UI modes and short preset names. "
-        "UncensorFix uses numerical factors embedded in Python; no external LoRA "
+        "UncensorFix uses bundled numerical factors; no external LoRA "
         "installation, file selection or download is required. Krea2 Experimental "
         "merge-bypass targets are patched on their retained model2 source. "
         "LoRA only ignores this node's stored fusion controls. Match execution_mode "

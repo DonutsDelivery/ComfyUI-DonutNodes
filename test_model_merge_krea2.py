@@ -229,6 +229,21 @@ class MergeTests(unittest.TestCase):
         self.assertAlmostEqual(by_key['diffusion_model.raw_scale'][0], 0.1)
         self.assertEqual(by_key['diffusion_model.raw_scale'][1], 0.9)
 
+    def test_regular_keep_model1_components_do_not_register_zero_strength_patches(self):
+        root1, root2 = TinyKrea(), TinyKrea()
+        patches = {key: object() for key in root2.state_dict()}
+        model1, model2 = FakePatcher(root1), FakePatcher(root2, patches)
+        merged, = module.DonutModelMergeKrea2().merge(
+            model1, model2, execution_mode='Comfy patches', **{'first.': 1., 'blocks.0.': 1.},
+        )
+        self.assertEqual(merged.added, [])
+        partial, = module.DonutModelMergeKrea2().merge(
+            model1, model2, execution_mode='Comfy patches', **{'first.': 1., 'blocks.0.': .25},
+        )
+        self.assertEqual(len(partial.added), 1)
+        self.assertEqual(next(iter(partial.added[0][0])), 'diffusion_model.blocks.0.proj.weight')
+        self.assertEqual(partial.added[0][1:], (.75, .25))
+
     def test_experimental_mode_bypasses_exact_model2_linear_state(self):
         root1 = TinyKrea()
         root2 = TinyKrea()

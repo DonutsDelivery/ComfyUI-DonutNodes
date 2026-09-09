@@ -124,3 +124,43 @@ test('real PNG workflow preserves layout, prompts, LoRAs and all semantic links'
     }
     const stage=w.nodes.find(n=>n.id===1014);assert.equal(stage.inputs.length,37);assert.equal(stage.widgets_values.length,25);assert.equal(repair(w),false);
 });
+
+test('connected seeds may omit their unused cache and survive JSON reload',()=>{
+    const w=fixture(), n=w.nodes[1];n.widgets_values[1]=null;delete n.widgets_values_named.seed;
+    const links=semanticLinks(w);repair(w);assert.deepEqual(semanticLinks(w),links);
+    assert.equal(n.widgets_values[1],null);assert.equal(n.widgets_values_named.seed,null);
+    assert.equal(repair(clone(w)),false);
+});
+test('missing connected cache does not bypass cable validation',()=>{
+    const w=fixture();w.nodes[1].widgets_values[1]=null;delete w.nodes[1].widgets_values_named.seed;
+    w.nodes[1].inputs[1].link=999;const before=clone(w);
+    assert.throws(()=>repair(w),/ambiguous destination/);assert.deepEqual(w,before);
+});
+test('large Comfy integer seeds are preserved without rounding or substitution',()=>{
+    const w=fixture(), n=w.nodes[1], seed=2**60;n.widgets_values[1]=seed;n.widgets_values_named.seed=seed;
+    repair(w);assert.equal(n.widgets_values_named.seed,seed);assert.equal(n.widgets_values[1],seed);
+    assert.equal(repair(clone(w)),false);
+});
+test('invalid nonmissing connected seed remains an atomic error',()=>{
+    for(const value of ['bad',1.5]){const w=fixture();w.nodes[1].widgets_values[1]=value;w.nodes[1].widgets_values_named.seed=value;
+    const before=clone(w);assert.throws(()=>repair(w),/invalid saved value/);assert.deepEqual(w,before);}
+});
+
+test('published workflow: every connected promoted cache can be omitted independently',()=>{
+    const original=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v4-beta/DonutWF_v4_beta.json')));
+    let checked=0;
+    const graphs=w=>[w,...w.definitions.subgraphs];
+    for(const [gi,g] of graphs(original).entries())for(const [ni,n] of g.nodes.entries()){
+        const order=n.properties?.donut_widget_order;
+        if(!order)continue;
+        for(const p of n.inputs||[]){
+            const index=order.indexOf(p.name);if(p.link==null||index<0)continue;
+            const w=clone(original),target=graphs(w)[gi].nodes[ni];
+            target.widgets_values[index]=null;delete target.widgets_values_named[p.name];
+            const links=semanticLinks(w);repair(w);assert.deepEqual(semanticLinks(w),links);
+            assert.equal(target.widgets_values[index],null,`${n.id}:${p.name}`);
+            assert.equal(repair(clone(w)),false);checked++;
+        }
+    }
+    assert.ok(checked>=10,`Only checked ${checked} connected caches`);
+});

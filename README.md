@@ -1,25 +1,58 @@
-# ComfyUI-DonutNodes
+# DonutNodes + Donut Workflow V4 Beta
 
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Development-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/donutsdelivery)
 
-Custom nodes for ComfyUI focused on LoRA management, model merging, and image enhancement.
+**Donut Workflow is the main workflow for this node pack.** DonutNodes is built
+around its Krea2 model setup, LoRA controls, editing, prompting, generation and
+saving. You can also use the individual nodes in your own ComfyUI workflows.
 
-## Features
+## Start with Donut Workflow V4 Beta
 
-- **Block-weighted LoRA stacking** with per-block strength control, CivitAI integration, and an experimental quantized-model bypass mode
-- **Krea2 component model merging** with regular patches or an experimental hybrid hard-swap bypass
-- **Donut Detailers** for per-block model tuning and face/object enhancement
-- **TeaCache acceleration** for faster SDXL inference
-- **Tiled upscaling** with seamless blending
-- **CFG sampling** with 18 curve types
-- **Spectral noise sharpening** for reference-based detail enhancement
+**[Download the workflow](workflows/v4-beta/DonutWF_v4_beta.json)** ·
+**[Setup and usage](workflows/v4-beta/README.md)** ·
+**[V3 → V4 Beta changelog](workflows/v4-beta/CHANGELOG.md)**
+
+![Donut Workflow V4 Beta — redesigned controls](workflows/v4-beta/workflow-overview.png)
+
+**New look, you will be shook.** V4 Beta replaces V3's spread-out controls with
+numbered cards, collapsible Advanced settings and inspectable source/generation
+subgraphs. Everyday controls stay accessible in Graph and App Mode.
+
+- **Edit Studio:** base and optional identity images, paste/drop/upload, visual
+  crop controls and output sizing in one place.
+- **Reference guidance:** optional image references for native Krea2 generation
+  conditioning, separate from the edit-LoRA path.
+- **Wildcard library:** create reusable prompt choices, insert tokens and inspect
+  the final expanded prompt.
+- **Model downloads:** check selected models against a reviewed catalog and
+  download missing files with size/hash verification.
+- **Latest result:** follow generation stages and view intermediate/final images.
+- **Donut Image Save:** numbered filenames and configurable formats, including
+  WebP, without a WAS dependency.
+
+V3 already included face detailing, editing, model merging, LoRA stacking and
+upscaling. The [changelog](workflows/v4-beta/CHANGELOG.md) separates those existing
+capabilities from V4 Beta's additions and installation fixes.
 
 ## Installation
 
-### ComfyUI Manager
-Search for "DonutNodes" in ComfyUI Manager and install.
+1. Install or update **DonutNodes to the code accompanying V4 Beta**. In ComfyUI
+   Manager, search for **DonutNodes**. If the installed release does not yet
+   contain `DonutImageSave` and `DonutEditStudio`, use the matching beta source;
+   an older package is not sufficient.
+2. Restart ComfyUI and refresh the browser, then download the workflow JSON using
+   GitHub's **Download raw file** button and open it in ComfyUI.
+3. Use **Install Missing Nodes → Install All**, then **Apply Changes/restart**.
+   Leave the collapsed **Required node packs** subgraph in place for dependency
+   detection. No WAS version selection is needed.
+4. Select your models/LoRAs, use **Download missing** for catalogued files, review
+   the prompts and save settings, and click **Run**.
 
-### Manual
+See the [workflow README](workflows/v4-beta/README.md) for model filenames,
+companion packs, editing, wildcard files, saving and migration from V3.
+
+### Manual node installation
+
 ```bash
 cd ComfyUI/custom_nodes
 git clone https://github.com/DonutsDelivery/ComfyUI-DonutNodes.git donutnodes
@@ -27,102 +60,45 @@ cd donutnodes
 python -m pip install -r requirements.txt
 ```
 
-Run the install command with the same Python interpreter that launches ComfyUI.
+Use the Python interpreter that launches ComfyUI, then restart and refresh.
+For an existing checkout, update it rather than creating a duplicate node folder.
+The workflow release name **V4 Beta** is separate from the DonutNodes package
+version. These documents and the bundled JSON are prepared with the current
+source; this is not a claim that an older registry release contains the beta.
 
-## Optional companion packages
+## Beta test status
 
-- [ComfyUI-DonutLocalAutomation](https://github.com/DonutsDelivery/ComfyUI-DonutLocalAutomation) provides the local-only Prompt Receiver and Image Reporter nodes.
-- [ComfyUI-DonutCivitaiLocal](https://github.com/DonutsDelivery/ComfyUI-DonutCivitaiLocal) provides optional local CivitAI library and workflow-recovery tools.
+The current development code passed a fresh Linux/Python 3.12.7 installation
+with **default missing-node installs → restart → full generation** on an RTX
+4070. No WAS installation, manual version selection or dependency repair
+was required. The tested path includes base generation, first upscale, two face
+refinements and a 1728 × 1344 WebP save.
 
-Install `ComfyUI-DonutLocalAutomation` alongside this package to keep the original
-`DonutPromptReceiver` and `DonutImageReporter` node IDs in existing workflows.
+That run reused models and had editing and the second upscale off. Other modes,
+platforms and GPU configurations still need beta coverage. See the
+[validation report](docs/validation/no-was-fresh-install-2026-09-09.md) for exact
+scope and remaining warnings. For errors, include the workflow, versions,
+OS/GPU and full traceback; **Donut Dependency Check** helps diagnose dependencies.
 
-## Nodes
+## Using the nodes independently
 
-| Node | Description |
-|------|-------------|
-| DonutLoRAStack | Block-weighted LoRA stacking with presets |
-| DonutApplyLoRAStack | Apply stacked LoRAs to model/CLIP |
-| DonutLoraStackCombine | Merge two LoRA stacks |
-| DonutFaceDetailer | Face detection and enhancement |
-| DonutUniversalDetailer | Auto-detect object enhancement |
-| DonutDetailerZIT | ZIT-based detail enhancement |
-| DonutSDXLTeaCache | TeaCache acceleration for SDXL |
-| DonutTiledUpscale | Tiled img2img upscaling |
-| DonutKSamplerCFG | CFG sampling with curve control |
-| DonutSpectralNoiseSharpener | Reference-based spectral sharpening |
-| ModelMergeZIT | ZIT model merging |
-| DonutModelMergeKrea2 | Krea2 component merging with optional hybrid hard-swap bypass |
-| DonutModelSave | Save merged models |
+The pack also includes block-weighted LoRA stacking, Krea2 model merging and
+Fusion Control, CFG sampling curves, detailers, tiled upscaling, SDXL TeaCache
+and spectral sharpening. Experimental execution modes remain optional.
 
-### Experimental quantized LoRA bypass
+- [Node guide and advanced settings](docs/node-guide.md)
+- [Dependency diagnostics and compatibility](docs/dependencies.md)
+- [Third-party licenses and attribution](THIRD_PARTY_NOTICES.md)
 
-`DonutApplyLoRAStack` has an optional `execution_mode` named
-`Experimental bypass`. It computes the quantized base layer and low-rank LoRA
-path separately instead of repeatedly rebuilding patched quantized weights.
-This can substantially reduce warm inference time for Krea2 and similar models
-under Dynamic VRAM while preserving the LoRA's model strength, block vector,
-Safe Stack attenuation, and fusion-aware processing.
+### Optional companion packages
 
-Multiple plain linear LoRA and direct-factor linear LoKr adapters can be
-stacked. Overlapping compatible components are composed into one forward hook
-per model layer while retaining each LoRA's own strength and block vector. If
-any component on a target is unsupported—such as DoRA, reshaped or decomposed
-adapters, output transforms, convolutional targets, direct diffs, or unknown
-adapter classes—the complete ordered patch sequence for that target stays on
-ComfyUI's regular patch path. Models with pre-existing runtime injections and
-LoRAs without supported forward adapters use the regular compatibility path
-instead of failing. Existing workflows default to `Comfy patches` and retain
-their previous behavior.
+- [ComfyUI-DonutLocalAutomation](https://github.com/DonutsDelivery/ComfyUI-DonutLocalAutomation): local Prompt Receiver and Image Reporter nodes.
+- [ComfyUI-DonutCivitaiLocal](https://github.com/DonutsDelivery/ComfyUI-DonutCivitaiLocal): local CivitAI library and workflow-recovery tools.
 
-### Experimental Krea2 model-merge bypass
+These are separate from the seven companion packs required by V4 Beta. Install
+DonutLocalAutomation to retain `DonutPromptReceiver` and `DonutImageReporter`
+when using older personal workflows that contain them.
 
-`DonutModelMergeKrea2` mirrors the component controls and ratio direction of
-ComfyUI's built-in `ModelMergeKrea2`: `1.0` keeps `model1`, while `0.0` uses
-`model2`. Its optional `execution_mode` also defaults to `Comfy patches`.
+## Third-party attribution
 
-`Experimental bypass` uses a hybrid strategy optimized for inference:
-
-- `1.0` keeps the `model1` component unchanged.
-- `0.0` uses a runtime hard swap to the compatible `model2` linear layer, keeping that layer's original weight, bias, and quantization metadata intact.
-- Partial ratios such as `0.25`, `0.5`, and `0.75` use ComfyUI's normal materialized merge patches so inference executes one merged linear forward instead of two full model forwards.
-
-This avoids the main performance problem of the original experimental version,
-which evaluated both full linear layers for every partial blend. Unsupported
-hard-swap targets still use ComfyUI's regular patch path. Model2 is retained as
-an additional runtime model only when at least one compatible exact `0.0` swap
-is active.
-
-Runtime hard swaps are inference-time behavior and are not materialized by
-checkpoint saving. Select `Comfy patches` before `DonutModelSave` or another
-checkpoint save node when you need fully saved merged weights. Inputs that
-share the same underlying model, use different load devices, or already contain
-runtime injections automatically use the regular compatibility path instead of
-failing.
-
-### Fusion-aware Krea2 LoRA safety
-
-`DonutApplyLoRAStack` can budget Krea2 projector
-LoRAs against the 12 resolved projector-input gains from
-`DonutKrea2FusionControl`.
-
-Connect the model path in this order:
-
-`Checkpoint -> Donut Krea2 Fusion Control -> Donut Apply LoRA Stack -> Sampler`
-
-Then set `safe_stack` to `On` and choose a `fusion_aware` mode:
-
-- `Attenuate only` reduces LoRA projector columns amplified by Fusion Control.
-- `Use headroom` may also boost quieter columns, capped by `max_fusion_boost`.
-- `tensor_rms` projector normalization is prompt-dependent, so it never
-  receives automatic headroom boosts.
-
-The 12 fusion channels are not mapped onto Krea2's 28 DiT blocks. Existing
-per-block Safe Stack behavior remains independent and unchanged. Fusion-aware
-column scaling supports standard LoRA/PEFT projector adapters and direct
-projector `.diff` patches; other adapter formats use a conservative scalar
-fallback.
-
-## License
-
-See [LICENSE](LICENSE) file.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for incorporated code and its licenses.

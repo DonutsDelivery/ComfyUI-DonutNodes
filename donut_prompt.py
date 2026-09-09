@@ -13,9 +13,14 @@ import json
 import random
 import re
 
+try:
+    from .krea2_variance_integration import enhance_prompt_pair, variance_input_types
+except ImportError:
+    from krea2_variance_integration import enhance_prompt_pair, variance_input_types
+
 MAX_TEXT = 1_000_000
 MAX_EXPANSIONS = 10_000
-FILE_TOKEN = re.compile(r"(?:(\d+)\$\$)?__([!+*\-]?)([^|\n]*?)(\|[^\n]*?)?__")
+FILE_TOKEN = re.compile(r"(?:(\d+)\$\$)?__([!+*\-]?)([^|\n]*?)(\|[^\n]*?)?__|(?<![\w/*])([A-Za-z][\w/-]*)\*(?![\w*])")
 CHOICE = re.compile(r"\{([^{}]*)\}")
 NUMBER = re.compile(r"<random:(-?\d*\.?\d+):(-?\d*\.?\d+)>")
 MACRO = re.compile(r"%([^%\n]+)%")
@@ -25,7 +30,7 @@ def wildcard_roots():
     import folder_paths
     user = Path(folder_paths.get_user_directory()) / "wildcards"
     legacy = Path(folder_paths.__file__).resolve().parent / "wildcards"
-    roots = [user if user.is_dir() else legacy]
+    roots = [user, legacy]
     try:
         roots.extend(Path(p) for p in folder_paths.get_folder_paths("wildcards"))
     except KeyError:
@@ -148,7 +153,8 @@ def expand_text(text, seed=0, max_depth=128, missing="error", *, roots=None, pro
 
         def replace_file(match):
             nonlocal offset, expansions, replaced
-            count, modifier, name, filters = match.groups()
+            count, modifier, name, filters, short_name = match.groups()
+            name = name or short_name
             count = int(count or 1)
             expansions += max(1, count)
             if count > MAX_EXPANSIONS or expansions > MAX_EXPANSIONS:
@@ -238,6 +244,9 @@ class DonutPromptConditioning:
             "edit_negative": ("STRING", {"default": "", "multiline": True, "dynamicPrompts": False}),
             "separator": ("STRING", {"default": ""}),
             "text_seed": ("INT", {"default": 0, "min": 0, "max": 2**53 - 1}),
+        }, "optional": {**variance_input_types(),
+            "native_reference_enabled": ("BOOLEAN", {"default": False}),
+            "native_reference_a": ("IMAGE",), "native_reference_b": ("IMAGE",),
         }}
     RETURN_TYPES = ("STRING", "STRING", "STRING", "CONDITIONING", "CONDITIONING", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("full_text", "face_text", "edit_negative", "positive", "face_positive", "negative_zeroed", "negative_raw")
@@ -245,18 +254,34 @@ class DonutPromptConditioning:
     CATEGORY = "donut/text"
     OUTPUT_NODE = True
 
-    def encode(self, clip, face, scene, negative, edit_negative="", separator="", text_seed=0):
+    def encode(self, clip, face, scene, negative, edit_negative="", separator="", text_seed=0,
+               native_reference_enabled=False, native_reference_a=None, native_reference_b=None, **variance_options):
         from nodes import CLIPTextEncode, ConditioningZeroOut
         full = face + separator + scene  # Do not strip/normalise the user's text.
         edit_negative = expand_text(edit_negative, text_seed)
         encoder, cache = CLIPTextEncode(), {}
-        def encode_once(text):
-            if text not in cache:
-                cache[text] = encoder.encode(clip, text)[0]
-            return cache[text]
-        positive, face_positive, raw = (encode_once(t) for t in (full, face, negative))
+        references = [image for image in (native_reference_a, native_reference_b) if image is not None] if native_reference_enabled else []
+        if native_reference_enabled and not references:
+            raise ValueError("Add an image in Reference Guidance, or turn reference guidance off.")
+        def encode_once(text, use_references=False):
+            key = (text, use_references)
+            if key not in cache:
+                if use_references:
+                    # Krea2 is an optional backend; use its native vision template.
+                    from comfy.text_encoders.krea2 import KREA2_TEMPLATE
+                    prefix = "".join(f"Reference {chr(65 + index)}: <|vision_start|><|image_pad|><|vision_end|>\n" for index in range(len(references)))
+                    tokens = clip.tokenize(prefix + text, images=references, llama_template=KREA2_TEMPLATE)
+                    if "qwen3vl_4b" not in tokens:
+                        raise ValueError("Reference Guidance requires the Krea2 Qwen3-VL text encoder.")
+                    cache[key] = clip.encode_from_tokens_scheduled(tokens)
+                else:
+                    cache[key] = encoder.encode(clip, text)[0]
+            return cache[key]
+        positive, face_positive = (encode_once(t, bool(references)) for t in (full, face))
+        raw = encode_once(negative)
+        positive, face_positive = enhance_prompt_pair(positive, face_positive, **variance_options)
         zeroed = ConditioningZeroOut().zero_out(raw)[0]
-        return {"ui": {"text": [full]}, "result": (full, face, edit_negative, positive, face_positive, zeroed, raw)}
+        return {"ui": {"text": [full], "donut_final_prompt": [full]}, "result": (full, face, edit_negative, positive, face_positive, zeroed, raw)}
 
     @classmethod
     def IS_CHANGED(cls, edit_negative="", text_seed=0, **kwargs):

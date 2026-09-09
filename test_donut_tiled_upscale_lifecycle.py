@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import torch
 from PIL import Image
@@ -95,7 +96,17 @@ fake_krea.prepare_krea2_edit = lambda *args, **kwargs: (_ for _ in ()).throw(
     AssertionError("regular-mode test must not prepare Krea2 edit")
 )
 
+fake_nag = types.ModuleType("krea2_nag_integration")
+fake_nag.apply_krea2_nag = lambda model, negative, **kwargs: model
+fake_nag.nag_input_types = lambda: {}
+fake_nag.sampler_negative = lambda negative, turbo_mode: negative
+
+fake_variance = types.ModuleType("krea2_variance_integration")
+fake_variance.reapply_edit_variance = lambda grounded, original: grounded
+
 _fake_modules = {
+    "krea2_variance_integration": fake_variance,
+    "krea2_nag_integration": fake_nag,
     "nodes": fake_nodes,
     "comfy": fake_comfy,
     "comfy.sample": fake_sample,
@@ -154,6 +165,57 @@ class LegacyUpscaleModel:
 
 
 class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
+    def test_two_reference_upscale_broadcasts_subject_and_keeps_full_scene(self):
+        image = torch.zeros(2, 32, 64, 3)
+        scene = torch.stack([torch.zeros(40, 80, 3), torch.ones(40, 80, 3)])
+        subject = torch.full((1, 80, 40, 3), 0.5)
+        with patch.object(module, "upscale_with_model", side_effect=lambda model, image: image), patch.object(
+            module, "create_debug_image", return_value=Image.new("RGB", (64, 32))
+        ), patch.object(FakeVAEDecode, "decode", return_value=(torch.zeros(1, 32, 64, 3),)
+        ), patch.object(module, "prepare_krea2_edit", return_value=(
+            "patched", "pos", "neg", None, None,
+        )) as prepare:
+            module.DonutTiledUpscale().upscale(
+                image, types.SimpleNamespace(scale=1), object(), "pos", "neg", object(),
+                1, 8, 1, "euler", "simple", 0.5, 1, "nearest", 0, False,
+                edit_mode=True, clip=object(), edit_source_image=scene, edit_source_image_b=subject,
+            )
+        self.assertEqual(prepare.call_count, 2)
+        self.assertEqual([float(call.args[3].mean()) for call in prepare.call_args_list], [0, 1])
+        for call in prepare.call_args_list:
+            self.assertEqual(tuple(call.args[3].shape), (1, 40, 80, 3))
+            self.assertTrue(torch.equal(call.kwargs["source_image_b"], subject))
+
+    def test_edit_nag_is_applied_per_image_with_prepared_references(self):
+        image = torch.zeros(2, 32, 64, 3)
+        refs = [{"samples": torch.zeros(1, 4, 4, 8)}] * 2
+        subject = torch.ones(1, 32, 64, 3)
+        with patch.object(module, "upscale_with_model", side_effect=lambda model, image: image), \
+                patch.object(module, "create_debug_image", return_value=Image.new("RGB", (64, 32))), \
+                patch.object(FakeVAEDecode, "decode", return_value=(torch.zeros(1, 32, 64, 3),)), \
+                patch.object(module, "prepare_krea2_edit", return_value=("edit", "pos", "edit neg", refs, image)), \
+                patch.object(module, "apply_krea2_nag", return_value="nag") as apply, \
+                patch.object(module, "sampler_negative", return_value="zero") as zero, \
+                patch.object(fake_sample, "sample", side_effect=lambda *args, **kw: args[8]) as sample:
+            module.DonutTiledUpscale().upscale(
+                image, types.SimpleNamespace(scale=1), object(), "pos", "neg", object(),
+                1, 8, 7, "euler", "simple", 1., 1, "nearest", 0, False,
+                edit_mode=True, clip=object(), edit_source_image=image,
+                edit_source_image_b=subject, nag_enabled=True, turbo_mode=True,
+            )
+        self.assertEqual(apply.call_count, 2)
+        for call in apply.call_args_list:
+            self.assertEqual(call.args[1], "edit neg")
+            self.assertIs(call.kwargs["source_latent"], refs)
+            self.assertTrue(torch.equal(call.kwargs["source_image_b"], subject))
+            self.assertIn("samples", call.kwargs["target_latent"])
+        for call in zero.call_args_list:
+            self.assertEqual(call.args, ("edit neg", True))
+        for call in sample.call_args_list:
+            self.assertEqual(call.args[0], "nag")
+            self.assertEqual(call.args[3], 1.)
+            self.assertEqual(call.args[7], "zero")
+
     def setUp(self):
         events.clear()
 
@@ -250,7 +312,7 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
             module.DonutTiledUpscale().upscale(
                 image=torch.zeros(1, 4, 4, 3),
                 upscale_model=types.SimpleNamespace(scale=1.0), model=object(),
-                positive=object(), negative=object(), vae=object(), seed=100,
+                positive=object(), negative=[[torch.ones(1, 2, 4), {}]], vae=object(), seed=100,
                 steps=8, cfg=1.0, sampler_name="euler", scheduler="simple",
                 denoise=0.20, rescale_factor=1.0, resampling_method="nearest",
                 feather=0.0, tiled_vae=False, turbo_mode=True,

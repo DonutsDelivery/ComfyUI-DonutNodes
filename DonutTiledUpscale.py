@@ -20,9 +20,25 @@ except ImportError:
     from krea2_edit_integration import prepare_krea2_edit
 
 try:
+    from .krea2_variance_integration import reapply_edit_variance
+except ImportError:
+    from krea2_variance_integration import reapply_edit_variance
+
+try:
+    from .krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+except ImportError:
+    from krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+
+try:
     from .turbo_sampling import resolve_turbo_sampling
 except ImportError:
     from turbo_sampling import resolve_turbo_sampling
+
+
+try:
+    from .krea2_memory import patch_krea2_upscale_memory
+except ImportError:
+    from krea2_memory import patch_krea2_upscale_memory
 
 
 def upscale_with_model(upscale_model, image):
@@ -482,6 +498,10 @@ class DonutTiledUpscale:
                     "label_off": "single pass",
                     "tooltip": "Process the upscaled canvas in overlapping diffusion tiles. Disable for one full-resolution diffusion pass; this requires substantially more VRAM.",
                 }),
+                "edit_source_image_b": ("IMAGE", {
+                    "tooltip": "Optional second edit reference (subject/identity). edit_source_image is the scene/base.",
+                }),
+                **nag_input_types(),
             }
         }
 
@@ -495,8 +515,10 @@ class DonutTiledUpscale:
                 rescale_factor, resampling_method, feather, tiled_vae,
                 edit_mode=False, clip=None, edit_prompt="Enhance fine details while preserving the source image.",
                 edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None,
-                turbo_mode=False, tiled_diffusion=True):
+                turbo_mode=False, tiled_diffusion=True, edit_source_image_b=None, **nag_options):
 
+        if nag_options.get("nag_enabled", False):
+            cfg = 1.0
         if turbo_mode:
             supported_steps = steps
             steps, denoise, matched_denoise = resolve_turbo_sampling(steps, denoise, scheduler)
@@ -627,17 +649,34 @@ class DonutTiledUpscale:
                 sampling_model = model
                 sampling_positive = positive
                 sampling_negative = negative
+                _source_latent = None
+                reference_tile = reference_b = None
                 if edit_mode:
                     assert edit_source_image is not None
                     reference_index = min(b, len(edit_source_image) - 1)
                     reference_tile = edit_source_image[reference_index].unsqueeze(0)
+                    reference_b = None
+                    if edit_source_image_b is not None:
+                        reference_b = edit_source_image_b[min(b, len(edit_source_image_b) - 1)].unsqueeze(0)
                     sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
                         edit_model if edit_model is not None else model,
                         clip, vae, reference_tile, edit_prompt,
                         edit_negative_prompt, grounding_px,
                         tile_width, tile_height,
+                        source_image_b=reference_b,
                     )
+                if edit_mode:
+                    sampling_positive = reapply_edit_variance(sampling_positive, positive)
                 latent = vae_encoder.encode(vae, record.pop("tile_tensor"))[0]
+                sampling_model = apply_krea2_nag(
+                    sampling_model, sampling_negative, **nag_options,
+                    source_latent=_source_latent, vae=vae,
+                    source_image=reference_tile, source_image_b=reference_b,
+                    target_latent=latent,
+                )
+                if edit_mode:
+                    sampling_model = patch_krea2_upscale_memory(sampling_model)
+                sampling_negative = sampler_negative(sampling_negative, turbo_mode)
                 record["model"] = sampling_model
                 record["positive"] = sampling_positive
                 record["negative"] = sampling_negative

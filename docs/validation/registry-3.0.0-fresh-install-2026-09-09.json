@@ -1,0 +1,198 @@
+{
+  "result": "passed",
+  "test_root": "/tmp/donut-registry-fresh/ComfyUI",
+  "comfyui_commit": "54e03f5367ebd8d96380e4cf02fa3084f7a7eca5",
+  "python": "3.12.7",
+  "manager_version": "4.2.2",
+  "install": {
+    "registry": {
+      "changelog": "Adds Donut Edit Studio, image saving, model downloads and wildcard support; updates Krea2 integration, LoRA handling, sampling, and tiled upscaling.",
+      "dependencies": [],
+      "deprecated": false,
+      "id": "7c602759-f8b2-48f8-a1d9-e7d8155e29b6",
+      "version": "3.0.0",
+      "download_url": "https://cdn.comfy.org/donutsdelivery/donutnodes/3.0.0/node.zip"
+    },
+    "result": {
+      "action": "install-cnr",
+      "items": [],
+      "result": true,
+      "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/donutnodes",
+      "msg": null,
+      "target": "3.0.0",
+      "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fe5c102d1c0>",
+      "ver": null
+    }
+  },
+  "provenance": {
+    "archive_sha256": "de7246b5992ce353a92dff7e4a316fe94ff3a429bb5f2dc9009497d722f14ed4",
+    "installed_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/donutnodes",
+    "symlink": false,
+    "file_count": 156,
+    "mismatches": []
+  },
+  "companions": [
+    {
+      "id": "comfyui-impact-pack",
+      "version": "8.28.3",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/comfyui-impact-pack",
+        "msg": null,
+        "target": "8.28.3",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb4d3e691c0>",
+        "ver": null
+      }
+    },
+    {
+      "id": "comfyui-impact-subpack",
+      "version": "1.3.5",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/comfyui-impact-subpack",
+        "msg": null,
+        "target": "1.3.5",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdf6a8e0>",
+        "ver": null
+      }
+    },
+    {
+      "id": "derfuu_comfyui_moddednodes",
+      "version": "1.0.1",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/derfuu_comfyui_moddednodes",
+        "msg": null,
+        "target": "1.0.1",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdfb44a0>",
+        "ver": null
+      }
+    },
+    {
+      "id": "comfyui-krea2edit",
+      "version": "1.2.3",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/comfyui-krea2edit",
+        "msg": null,
+        "target": "1.2.3",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdfb4180>",
+        "ver": null
+      }
+    },
+    {
+      "id": "krea2-nag",
+      "version": "1.0.2",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/krea2-nag",
+        "msg": null,
+        "target": "1.0.2",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdfb4680>",
+        "ver": null
+      }
+    },
+    {
+      "id": "krea-seed-variance-enhancer",
+      "version": "1.2.0",
+      "result": {
+        "action": "install-cnr",
+        "items": [],
+        "result": true,
+        "to_path": "/tmp/donut-registry-fresh/ComfyUI/custom_nodes/krea-seed-variance-enhancer",
+        "msg": null,
+        "target": "1.2.0",
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdfb49a0>",
+        "ver": null
+      }
+    },
+    {
+      "id": "ComfyUI-bleh",
+      "version": "nightly",
+      "result": {
+        "action": "install-git",
+        "items": [
+          "https://github.com/blepping/ComfyUI-bleh"
+        ],
+        "result": true,
+        "to_path": null,
+        "msg": null,
+        "target": null,
+        "postinstall": "<function ManagedResult.__init__.<locals>.<lambda> at 0x7fb3bdfb4860>",
+        "ver": null
+      }
+    }
+  ],
+  "prompt_id": "755e9d20-e063-4d1f-b550-c13680ed6afe",
+  "status": {
+    "status_str": "success",
+    "completed": true,
+    "messages": [
+      [
+        "execution_start",
+        {
+          "prompt_id": "755e9d20-e063-4d1f-b550-c13680ed6afe",
+          "timestamp": 1788931893279
+        }
+      ],
+      [
+        "execution_cached",
+        {
+          "nodes": [],
+          "prompt_id": "755e9d20-e063-4d1f-b550-c13680ed6afe",
+          "timestamp": 1788931893294
+        }
+      ],
+      [
+        "execution_success",
+        {
+          "prompt_id": "755e9d20-e063-4d1f-b550-c13680ed6afe",
+          "timestamp": 1788932019775
+        }
+      ]
+    ]
+  },
+  "image": {
+    "path": "/tmp/donut-registry-fresh/ComfyUI/output/Final/4539680068827511.webp",
+    "size": [
+      1728,
+      1344
+    ],
+    "format": "WEBP",
+    "sha256": "5a95f3f52f48181910ae7374a4fcf5b55f31be0abcd881b1da3e1e351c1c2faf"
+  },
+  "duration_seconds": 126.5,
+  "source_symlinks": false,
+  "model_files_reused": true,
+  "manual_dependency_fixes": false,
+  "pip_check": "No broken requirements found",
+  "browser_extension_count": 24,
+  "face_refinement_crops": 3,
+  "limitations": [
+    "Existing model files reused; model downloading through Donut not tested.",
+    "Editing and reference guidance off; second upscale disabled.",
+    "Browser extension URLs checked; no full interactive UI acceptance run.",
+    "Linux RTX 4070 only."
+  ],
+  "warnings": [
+    "Multiple OpenCV distributions from companion requirements.",
+    "Optional Florence-2 integration unavailable without comfyui_layerstyle.",
+    "Manager matrix sharing disabled without matrix-nio."
+  ],
+  "logs": [
+    "/tmp/donut-registry-manager-install.log",
+    "/tmp/donut-registry-companions.log",
+    "/tmp/donut-registry-fresh-server.log",
+    "/tmp/donut-registry-run-history.json"
+  ]
+}

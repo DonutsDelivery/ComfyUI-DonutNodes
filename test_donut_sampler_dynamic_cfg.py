@@ -38,6 +38,31 @@ class _InstalledSamplerProbe:
 
 
 class DynamicCFGGuiderTests(unittest.TestCase):
+    def test_dual_reference_edit_is_kept_across_model_switches(self):
+        sampler = sampler_module.DonutSampler()
+        target = {"samples": torch.ones(1, 16, 8, 12)}
+        scene, subject = torch.zeros(1, 64, 96, 3), torch.ones(1, 96, 64, 3)
+        references = [{"samples": torch.zeros(1, 16, 8, 12)}, {"samples": torch.ones(1, 16, 8, 12)}]
+        with patch.object(sampler_module, "prepare_krea2_edit", return_value=(
+            "edit model", "positive", "negative", references, scene,
+        )) as prepare, patch.object(sampler_module, "patch_krea2_edit_model", side_effect=[
+            "phase 2", "phase 3",
+        ]) as patch_model, patch.object(sampler, "run_multi_model", return_value=(target, "info")) as run:
+            sampler.sample(
+                "base", 1, 8, 1, 1, 1, 4, "euler", "beta", [[torch.ones(1, 2, 4), {}]], "neg", target, 1,
+                mode="multi_model", edit_mode=True, source_image=scene, source_image_b=subject,
+                vae="vae", clip="clip", edit_model="lora model", model_2="model 2", model_3="model 3",
+            )
+        self.assertIs(prepare.call_args.kwargs["source_image_b"], subject)
+        self.assertEqual(prepare.call_args.args[0], "lora model")
+        self.assertEqual(patch_model.call_count, 2)
+        for call in patch_model.call_args_list:
+            self.assertIs(call.args[1], references)
+        self.assertEqual(run.call_args.kwargs["model_2"], "phase 2")
+        self.assertEqual(run.call_args.kwargs["model_3"], "phase 3")
+        self.assertEqual(int(torch.count_nonzero(run.call_args.args[11]["samples"])), 0)
+        self.assertTrue(torch.all(target["samples"] == 1))
+
     def test_diagnostic_output_ignores_closed_manager_pipe(self):
         with patch.object(
             sampler_module.builtins,

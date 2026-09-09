@@ -145,6 +145,7 @@ class FakeDiffusionModel:
         return context
 
     def pe_embedder(self, positions):
+        self.positions = positions.detach().clone()
         return positions
 
     def last(self, value, timestep):
@@ -185,6 +186,35 @@ def all_diffusion_wrappers(model_patcher):
 
 
 class Krea2EditForwardTests(unittest.TestCase):
+    def test_two_references_keep_order_frames_and_target_slice_with_cfg_batch(self):
+        model = FakeDiffusionModel()
+        target = torch.tensor([[[[30.0]]], [[[40.0]]]])
+        sources = [torch.tensor([[[[20.0]]]]), torch.tensor([[[[50.0]]]])]
+        output = module.krea2_edit_forward(
+            model, target, torch.tensor([2.0, 3.0]),
+            torch.tensor([[[10.0]], [[11.0]]]), sources, target_batch=1,
+        )
+        self.assertTrue(torch.equal(output, target))
+        self.assertEqual(model.first_batches, [2, 1, 1])
+        self.assertEqual(model.positions[:, :, 0].tolist(), [[0, 1, 2, 0]] * 2)
+        self.assertEqual(model.block.attention_input[0, :, 0].tolist(), [32, 62, 152, 92])
+        self.assertEqual(model.block.attention_input[1, :, 0].tolist(), [47, 83, 203, 163])
+
+    def test_two_reference_patch_moves_and_runs_both_sources(self):
+        latents = [{"samples": torch.full((1, 1, 1, 1), value)} for value in (20.0, 50.0)]
+        patched = module.patch_krea2_edit_model(FakeModelPatcher(), latents, target_batch=1)
+        wrapper = all_diffusion_wrappers(patched)[0]
+        moved = wrapper.to(torch.float64)
+        self.assertEqual([source.dtype for source in moved.source_samples], [torch.float64] * 2)
+        self.assertEqual([source.dtype for source in wrapper.source_samples], [torch.float32] * 2)
+        model = FakeDiffusionModel()
+        executor = FakeWrapperExecutor.new_class_executor(
+            lambda *args: self.fail("native forward should be replaced"), model, [moved],
+        )
+        output = executor.execute(torch.full((1, 1, 1, 1), 30.0), torch.tensor([2.0]), torch.ones(1, 1, 1))
+        self.assertEqual(output.item(), 30.0)
+        self.assertEqual(model.positions[0, :, 0].tolist(), [0, 1, 2, 0])
+
     def test_reference_text_and_target_use_upstream_active_timestep(self):
         model = FakeDiffusionModel()
         target = torch.tensor([[[[30.0]]]])
