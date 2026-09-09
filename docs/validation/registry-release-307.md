@@ -11,3 +11,6 @@ the manual downloader UI. Downloaded ZIP: all 159 entries match the upload.
 2026-09-09T11:37:26Z: exact 3.0.7 status NodeVersionStatusPending, empty reason.
 Upload verified; approval unverified. User requested publishing and Git push
 without waiting for registry review.
+
+Follow-up 2026-09-09T11:48:29Z: NodeVersionStatusPending, empty status_reason.
+Sandbox DNS failed; the read-only check succeeded outside the sandbox.

@@ -275,7 +275,7 @@ function applySimplePreset(node, name) {
     node._donutApplyingKrea2Preset = false;
   }
   const composition = widget(node, "uncensorfix_controls");
-  if (composition) composition.value = name === UNCENSORFIX ? "Fusion + LoRA" : "Fusion only";
+  if (composition) composition.value = name === UNCENSORFIX ? "Fusion + UncensorFix weights" : "Fusion only";
 }
 
 function updateModeVisibility(node) {

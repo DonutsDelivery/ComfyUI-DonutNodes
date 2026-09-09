@@ -354,7 +354,7 @@ class UncensorFixParityTests(unittest.TestCase):
     def test_optional_controls_are_appended_and_existing_node_id_is_retained(self):
         schema = self.module.DonutKrea2FusionControl.INPUT_TYPES()
         self.assertEqual(list(schema["required"])[-1], "ui_mode")
-        self.assertEqual(list(schema["optional"])[-2:], ["uncensorfix_controls", "execution_mode"])
+        self.assertEqual(list(schema["optional"])[-3:], ["uncensorfix_controls", "execution_mode", "uncensorfix_strength"])
         self.assertEqual(schema["optional"]["uncensorfix_controls"][1]["default"], "Fusion only")
         self.assertEqual(list(self.module.NODE_CLASS_MAPPINGS), ["DonutKrea2FusionControl"])
 
@@ -365,6 +365,16 @@ class UncensorFixParityTests(unittest.TestCase):
                 self.assertEqual(len(result[0].patches), 33)
                 result = self.apply(compatibility_preset=preset, uncensorfix_controls="Fusion only")
                 self.assertEqual(len(result[0].patches), 0)
+
+    def test_weight_strength_is_independent_of_tap_strength(self):
+        for tap in (0.0, 0.4, 2.0):
+            result = self.apply(compatibility_preset="Balanced", uncensorfix_controls="Fusion + UncensorFix weights",
+                                tap_strength=tap, uncensorfix_strength=0.75)
+            self.assertIn("uncensorfix_strength=0.75", result[-1])
+            self.assertEqual(len(result[0].patches), 33)
+        result = self.apply(compatibility_preset="Balanced", uncensorfix_controls="Fusion + UncensorFix weights",
+                            tap_strength=2, uncensorfix_strength=0)
+        self.assertEqual(len(result[0].patches), 0)
 
     def test_partial_merge_routes_both_modes_without_mutating_model2(self):
         for mode in ("Comfy patches", "Experimental bypass"):

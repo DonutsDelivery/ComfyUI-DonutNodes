@@ -19,3 +19,6 @@ the existing exclusions and its archive was rejected before publication.
 
 Follow-up 2026-09-09T11:20:59Z could not reach api.comfy.org because DNS
 resolution failed; registry approval remains unverified.
+
+Follow-up 2026-09-09T11:48:29Z: NodeVersionStatusPending, empty status_reason.
+Sandbox DNS failed; the read-only check succeeded outside the sandbox.

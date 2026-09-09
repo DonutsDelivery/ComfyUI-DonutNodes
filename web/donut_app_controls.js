@@ -63,7 +63,7 @@ function applyFusionPreset(node, preset) {
         projector_layer_weights: neutral,
         compatibility_preset: preset,
         uncensorfix_controls: ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset)
-            ? "Fusion + LoRA" : "Fusion only",
+            ? "Fusion + UncensorFix weights" : "Fusion only",
     })) {
         const widget = node.widgets.find(item => item.name === name);
         if (widget) widget.value = value;
@@ -181,6 +181,8 @@ function install(node, appOnly = false) {
         const label = element("label"), caption = element("span", title);
         let values = choices || widget.options?.values;
         if (typeof values === "function") values = values();
+        const composition = name === "uncensorfix_controls";
+        if (composition) values = ["Fusion only", "Fusion + UncensorFix weights"];
         const boolean = typeof widget.value === "boolean";
         const numeric = typeof widget.value === "number";
         const multiline = widget.options?.multiline || (typeof widget.value === "string" && !values && /text|prompt|instruction/i.test(name));
@@ -199,6 +201,20 @@ function install(node, appOnly = false) {
         const refresh = () => {
             if (document.activeElement === input) return;
             if (boolean) input.checked = widget.value;
+            else if (composition) {
+                // Keep legacy serialization/behavior until the user edits it,
+                // but never offer obsolete modes as new choices.
+                const presetControl = node.properties?.donut_app_controls?.groups
+                    ?.flatMap(group => group.controls || [])
+                    .find(item => item.widget === "compatibility_preset"
+                        && item.path.every((id, index) => path[index] === id));
+                const presetNode = presetControl ? resolve(presetControl.path) : target;
+                const preset = presetNode?.widgets?.find(item => item.name === "compatibility_preset")?.value;
+                const legacyActive = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset);
+                input.value = widget.value === "Fusion + LoRA" || widget.value === "Fusion + UncensorFix weights"
+                    || (legacyActive && ["LoRA only", "LoRA + fusion controls"].includes(widget.value))
+                    ? "Fusion + UncensorFix weights" : "Fusion only";
+            }
             else input.value = widget.value ?? "";
             if (input.tagName === "TEXTAREA") fitTextarea(input);
         };
@@ -213,6 +229,9 @@ function install(node, appOnly = false) {
             queueMicrotask(refreshControls);
         });
         label.append(caption, input); parent.append(label);
+        if (name === "uncensorfix_controls" && target.widgets?.some(item => item.name === "uncensorfix_strength")) {
+            field(parent, path, "uncensorfix_strength", "UncensorFix weight strength");
+        }
         if (ui?.prompt) {
             const tools = promptTools(input, value => commit(target, widget, value), () => {
                 const seedNode = resolve(node.properties?.donut_app_controls?.seed_path || []);

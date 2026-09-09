@@ -54,6 +54,7 @@ UNCENSORFIX_WITH_CONTROLS = "LoRA + fusion controls"
 UNCENSORFIX_CONTROL_MODES = (UNCENSORFIX_LORA_ONLY, UNCENSORFIX_WITH_CONTROLS)
 FUSION_ONLY = "Fusion only"
 FUSION_WITH_LORA = "Fusion + LoRA"
+FUSION_WITH_WEIGHTS = "Fusion + UncensorFix weights"
 UNCENSORFIX_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
 _UNCENSORFIX_SOURCE_ID_PREFIX = "donut_uncensorfix_source_identity:"
 
@@ -235,9 +236,9 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         })
         # Optional, appended widgets preserve old workflow widget indices.
         optional = dict(schema.get("optional", {}))
-        optional["uncensorfix_controls"] = ([FUSION_ONLY, FUSION_WITH_LORA, *UNCENSORFIX_CONTROL_MODES], {
+        optional["uncensorfix_controls"] = ([FUSION_ONLY, FUSION_WITH_WEIGHTS, FUSION_WITH_LORA, *UNCENSORFIX_CONTROL_MODES], {
             "default": FUSION_ONLY,
-            "tooltip": "Fusion only applies the visible fusion settings. Fusion + LoRA also applies "
+            "tooltip": "Fusion only applies the visible fusion settings. Fusion + UncensorFix weights also applies "
                        "embedded UncensorFix weights with any preset. Old LoRA modes remain for saved workflows.",
         })
         optional["execution_mode"] = (list(UNCENSORFIX_EXECUTION_MODES), {
@@ -246,12 +247,16 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                        "Experimental bypass reuses its forward-adapter path and compatibility fallbacks. "
                        "The two execution modes are not numerically interchangeable, especially with quantization.",
         })
+        optional["uncensorfix_strength"] = ("FLOAT", {
+            "default": 1.0, "min": -20.0, "max": 20.0, "step": 0.05,
+            "tooltip": "UncensorFix weight strength, independent of tap/fusion strength.",
+        })
         return {**schema, "required": required, "optional": optional}
 
     def apply(
         self, *args, ui_mode=UI_MODE_ADVANCED,
         uncensorfix_controls=UNCENSORFIX_LORA_ONLY,
-        execution_mode="Comfy patches", **kwargs,
+        execution_mode="Comfy patches", uncensorfix_strength=None, **kwargs,
     ):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
@@ -262,15 +267,16 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             kwargs = signature(super().apply).bind_partial(*args, **kwargs).arguments
             args = ()
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
-        if uncensorfix_controls in (FUSION_ONLY, FUSION_WITH_LORA):
+        if uncensorfix_controls in (FUSION_ONLY, FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
             # New controls are authoritative: the preset label cannot enable
             # or disable either operation. Legacy workflows use the old path.
             delegated = dict(kwargs)
             delegated["compatibility_preset"] = base.PRESET_MANUAL
             result = list(super().apply(**delegated))
             result[-1] = _rewrite_preset_diagnostics(result[-1], base.PRESET_MANUAL, preset)
-            if uncensorfix_controls == FUSION_WITH_LORA:
-                strength = float(kwargs.get("tap_strength", 1.0))
+            if uncensorfix_controls in (FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
+                fallback = kwargs.get("tap_strength", 1.0) if uncensorfix_controls == FUSION_WITH_LORA else 1.0
+                strength = float(fallback if uncensorfix_strength is None else uncensorfix_strength)
                 result[0], count, source = _apply_uncensorfix(result[0], strength, execution_mode)
                 result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
                                f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
@@ -299,7 +305,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
             if uncensorfix_controls not in UNCENSORFIX_CONTROL_MODES:
                 raise ValueError(f"Unknown UncensorFix controls mode: {uncensorfix_controls}")
-            strength = float(kwargs.get("tap_strength", 1.0))
+            strength = float(kwargs.get("tap_strength", 1.0) if uncensorfix_strength is None else uncensorfix_strength)
             if uncensorfix_controls == UNCENSORFIX_LORA_ONLY:
                 # Enforce parity server-side, including API workflows and
                 # stale/hidden widget values. Do not depend on JS resetting
