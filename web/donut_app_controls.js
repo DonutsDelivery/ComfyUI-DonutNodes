@@ -82,6 +82,11 @@ function resolve(path) {
     }
     return node;
 }
+function resolveByType(path, type) {
+    const parent = resolve(path.slice(0, -1));
+    return parent?.subgraph?.nodes?.find(node => node.type === type
+        || node.properties?.["Node name for S&R"] === type);
+}
 function commitWidget(node, widget, value) {
     node.graph.beforeChange();
     widget.value = value;
@@ -134,11 +139,14 @@ function install(node, appOnly = false) {
     function refreshControls() {
         refreshers.forEach(refresh => refresh());
     }
-    function field(parent, path, name, title, choices, weightOptions, ui, modeControl) {
-        const target = resolve(path);
+    function field(parent, path, name, title, choices, weightOptions, ui, modeControl, fallbackType, unavailableMessage) {
+        // Node IDs inside a serialized subgraph can be remapped by a frontend
+        // migration. A control with a declared type still resolves to its one
+        // intended node instead of silently disappearing from the panel.
+        const target = resolve(path) || (fallbackType && resolveByType(path, fallbackType));
         if (modeControl === "bypass") {
             if (!target) {
-                parent.append(element("p", `${title}: control unavailable`));
+                parent.append(element("p", unavailableMessage || `${title}: control unavailable`));
                 return;
             }
             const label = element("label"), caption = element("span", title), input = element("input");
@@ -367,7 +375,7 @@ function install(node, appOnly = false) {
             let bank;
             for (const item of group.controls || []) {
                 if (item.weights?.vertical && !bank) { bank = element("div"); bank.className = "donut-weight-bank"; section.append(bank); }
-                field(item.weights?.vertical ? bank : section, item.path, item.widget, item.title, item.choices, item.weights, item.ui, item.mode);
+                field(item.weights?.vertical ? bank : section, item.path, item.widget, item.title, item.choices, item.weights, item.ui, item.mode, item.fallback_type, item.unavailable_message);
             }
             if (group.loras) loras(section, group.loras);
             if (group.wildcard_library) section.append(wildcardLibrary());

@@ -28,6 +28,7 @@ htmlcov/
 /node.zip
 /dist/
 /build/
+/output/
 *.egg-info/
 .DS_Store
 

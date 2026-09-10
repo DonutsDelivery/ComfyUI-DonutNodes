@@ -1583,7 +1583,9 @@
                     984
                   ],
                   "mode": "bypass",
-                  "title": "Face detail"
+                  "title": "Face detail",
+                  "fallback_type": "DonutFaceDetailer",
+                  "unavailable_message": "Face detail is unavailable because this workflow has no Face Detailer node. Load the current V4 Beta workflow."
                 },
                 {
                   "path": [
