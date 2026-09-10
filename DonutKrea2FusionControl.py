@@ -460,12 +460,24 @@ def _apply_projector_diff(model, values, strength):
     if float(strength) == 0.0:
         return model
     patched = model.clone()
-    diff = torch.tensor([values], dtype=torch.float32)
-    loaded = patched.add_patches(
-        {_PROJECTOR_WEIGHT_KEY: ("diff", (diff,))},
-        strength_patch=float(strength),
-    )
-    if _PROJECTOR_WEIGHT_KEY not in loaded:
+    # Same [1, 12] additive tensor as krea2filterbypass / krea2filterbypass3.
+    diff = torch.tensor(list(values), dtype=torch.float32).reshape(1, -1)
+    adapter = ("diff", (diff,))
+    try:
+        from .donut_model_patch_routing import add_model_patch_components
+    except ImportError:
+        loaded = patched.add_patches(
+            {_PROJECTOR_WEIGHT_KEY: adapter},
+            strength_patch=float(strength),
+        )
+    else:
+        # txtfusion-reset merge (ratio 0) runs model2's projector. Patch that
+        # live module, not FinePorn's unused copy on the outer patcher.
+        loaded = add_model_patch_components(
+            patched,
+            {_PROJECTOR_WEIGHT_KEY: [(adapter, float(strength))]},
+        )
+    if _PROJECTOR_WEIGHT_KEY not in (loaded or ()):
         raise RuntimeError("The loaded model does not expose the Krea 2 text-fusion projector weight")
     return patched
 
