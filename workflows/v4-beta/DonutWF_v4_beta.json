@@ -1579,6 +1579,14 @@
                 },
                 {
                   "path": [
+                    1014,
+                    984
+                  ],
+                  "mode": "bypass",
+                  "title": "Face detail"
+                },
+                {
+                  "path": [
                     1014
                   ],
                   "widget": "denoise_2",

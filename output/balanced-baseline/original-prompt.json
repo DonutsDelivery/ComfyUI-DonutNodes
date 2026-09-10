@@ -1,0 +1,1264 @@
+{
+  "28": {
+    "inputs": {
+      "dimensions": " 832 x 1216  (portrait)",
+      "clip_scale": 1.0,
+      "batch_size": 1
+    },
+    "class_type": "SDXL Empty Latent Image (rgthree)",
+    "_meta": {
+      "title": "SDXL Empty Latent Image (rgthree)"
+    }
+  },
+  "43": {
+    "inputs": {
+      "rgthree_comparer": {
+        "images": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_gcvgy_00157_.png&type=temp&subfolder=&rand=0.04514175045591218"
+          },
+          {
+            "name": "B",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_gcvgy_00158_.png&type=temp&subfolder=&rand=0.8947088754685515"
+          }
+        ]
+      },
+      "image_a": [
+        "664:255",
+        0
+      ],
+      "image_b": [
+        "664:171",
+        0
+      ]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": {
+      "title": "face inpaint"
+    }
+  },
+  "50": {
+    "inputs": {
+      "model_name": "bbox/face_yolov8m.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "UltralyticsDetectorProvider"
+    }
+  },
+  "51": {
+    "inputs": {
+      "anything3": [
+        "50",
+        0
+      ],
+      "SAM_MODEL": [
+        "52",
+        0
+      ]
+    },
+    "class_type": "Anything Everywhere",
+    "_meta": {
+      "title": "Anything Everywhere"
+    }
+  },
+  "52": {
+    "inputs": {
+      "model_name": "sam_vit_b_01ec64.pth",
+      "device_mode": "Prefer GPU"
+    },
+    "class_type": "SAMLoader",
+    "_meta": {
+      "title": "SAMLoader (Impact)"
+    }
+  },
+  "53": {
+    "inputs": {
+      "prompt": "cinematic flash photo of a skinny 18 year old danish teen girl, the girl is extremely attractive with big lips, {long|medium|very long|profesionally styled} hair {with small curls|that is staightened|with pigtails|with twintails|with bangs|with parted hair|with a ponytail} {brunette|blonde|ginger|black|bleach blonde} hair.  {Pale|very pale} skin. ",
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Face related only"
+    }
+  },
+  "56": {
+    "inputs": {
+      "prompt": "she is in tight leather and latex the matrix cosplay with cutouts in a dark cityscape, with black the matrix sunglasses, boots and combat accessories and harnesses. {{standing in a fierce pose|bent over on an object|on the ground|holding large bulky handguns in both hands|two submachine guns in her hands|holding a large bulky sniper rifle|holding two uzi Submachine gun|holding a katana sword|holding a lasersword|holding a single handgun}, {on the street|on a roof top|in a garden|in a mall|in a pedestrian street|in a zombie apocalypse|in a ghosttown|in a circus|in a house|in an office building|in a tunnel|in a cemetary|on a graveyard|in a rusty industrial sight|at a school|in a classroom|in an airpost|on an airpost strip|in an action movie|}, in a brutalist future, {her butt is exposed, her asshole is visible,  |her vagina is exposed|her vagina and breasts are exposed|}",
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Everything Else"
+    }
+  },
+  "57": {
+    "inputs": {
+      "prompt": "",
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Negative"
+    }
+  },
+  "63": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "759",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Save Image"
+    }
+  },
+  "64": {
+    "inputs": {
+      "output_path": "Final",
+      "filename_prefix": [
+        "777",
+        1
+      ],
+      "filename_delimiter": "",
+      "filename_number_padding": 1,
+      "filename_number_start": "false",
+      "extension": "webp",
+      "dpi": 300,
+      "quality": 100,
+      "optimize_image": "true",
+      "lossless_webp": "false",
+      "overwrite_mode": "false",
+      "show_history": "false",
+      "show_history_by_prefix": "true",
+      "embed_workflow": "false",
+      "show_previews": "true",
+      "images": [
+        "664:255",
+        0
+      ]
+    },
+    "class_type": "Image Save",
+    "_meta": {
+      "title": "final save"
+    }
+  },
+  "71": {
+    "inputs": {
+      "rgthree_comparer": {
+        "images": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_czogb_00163_.png&type=temp&subfolder=&rand=0.17354321972566344"
+          },
+          {
+            "name": "B",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_czogb_00164_.png&type=temp&subfolder=&rand=0.25581167690557927"
+          }
+        ]
+      },
+      "image_a": [
+        "664:171",
+        0
+      ],
+      "image_b": [
+        "664:8",
+        0
+      ]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": {
+      "title": "upscale"
+    }
+  },
+  "124": {
+    "inputs": {
+      "rgthree_comparer": {
+        "images": [
+          {
+            "name": "A",
+            "selected": true,
+            "url": "/api/view?filename=rgthree.compare._temp_fpdsv_00120_.png&type=temp&subfolder=&rand=0.16380684639736132"
+          }
+        ]
+      },
+      "image_a": [
+        "664:8",
+        0
+      ]
+    },
+    "class_type": "Image Comparer (rgthree)",
+    "_meta": {
+      "title": "1st pass"
+    }
+  },
+  "172": {
+    "inputs": {
+      "model_name": "4x_NickelbackFS_72000_G.pth"
+    },
+    "class_type": "UpscaleModelLoader",
+    "_meta": {
+      "title": "Load Upscale Model"
+    }
+  },
+  "195": {
+    "inputs": {
+      "seed": 377025532147271
+    },
+    "class_type": "SeedGenerator",
+    "_meta": {
+      "title": "SeedGenerator"
+    }
+  },
+  "430": {
+    "inputs": {
+      "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "431": {
+    "inputs": {
+      "vae_name": "qwen-image/qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "upscaling vae"
+    }
+  },
+  "468": {
+    "inputs": {
+      "vae_name": "qwen-image/qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "first pass vae"
+    }
+  },
+  "759": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 0.25,
+      "image": [
+        "664:8",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "Upscale Image By"
+    }
+  },
+  "777": {
+    "inputs": {
+      "seed": 350008631647225
+    },
+    "class_type": "Seed String",
+    "_meta": {
+      "title": "Seed String (Mikey)"
+    }
+  },
+  "780": {
+    "inputs": {
+      "unet_name": "krea2TurboFP8_krea2TURBO.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "791": {
+    "inputs": {
+      "model_type": "KREA2",
+      "civitai_lookup": "On",
+      "switch_1": "On",
+      "lora_name_1": "krea2/general-purpose/realism_engine_krea2_v1.safetensors",
+      "model_weight_1": 1.0,
+      "clip_weight_1": 1.0,
+      "block_preset_1": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_1": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_2": "On",
+      "lora_name_2": "krea2/age_krea2_loraholic.safetensors",
+      "model_weight_2": 0.0,
+      "clip_weight_2": 0.0,
+      "block_preset_2": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_2": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_3": "Off",
+      "lora_name_3": "krea2/breast_size_krea2_loraholic.safetensors",
+      "model_weight_3": 1.0,
+      "clip_weight_3": 0.0,
+      "block_preset_3": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_3": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "lora_stack": [
+        "793",
+        0
+      ]
+    },
+    "class_type": "DonutLoRAStack",
+    "_meta": {
+      "title": "DonutLoRAStack"
+    }
+  },
+  "792": {
+    "inputs": {
+      "model": [
+        "780",
+        0
+      ],
+      "clip": [
+        "430",
+        0
+      ],
+      "lora_stack": [
+        "791",
+        0
+      ]
+    },
+    "class_type": "DonutApplyLoRAStack",
+    "_meta": {
+      "title": "DonutApplyLoRAStack"
+    }
+  },
+  "793": {
+    "inputs": {
+      "model_type": "KREA2",
+      "civitai_lookup": "Off",
+      "switch_1": "Off",
+      "lora_name_1": "krea2/real_3d_krea2_loraholic.safetensors",
+      "model_weight_1": 1.0,
+      "clip_weight_1": 1.0,
+      "block_preset_1": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_1": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_2": "Off",
+      "lora_name_2": "krea2/general-purpose/krea2filterbypass3.safetensors",
+      "model_weight_2": 1.0,
+      "clip_weight_2": 1.0,
+      "block_preset_2": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_2": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "switch_3": "Off",
+      "lora_name_3": "krea2/Krea2-realism-V2.safetensors",
+      "model_weight_3": 0.0,
+      "clip_weight_3": 1.0,
+      "block_preset_3": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_3": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "lora_stack": [
+        "794",
+        0
+      ]
+    },
+    "class_type": "DonutLoRAStack",
+    "_meta": {
+      "title": "DonutLoRAStack"
+    }
+  },
+  "794": {
+    "inputs": {
+      "model_type": "KREA2",
+      "civitai_lookup": "On",
+      "switch_1": "On",
+      "lora_name_1": "krea2/ethnicity_krea2_loraholic.safetensors",
+      "model_weight_1": 1.0,
+      "clip_weight_1": 1.0,
+      "block_preset_1": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_1": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_2": "On",
+      "lora_name_2": "krea2/general-purpose/Krea2_HMNSFW_AIO.safetensors",
+      "model_weight_2": 1.0,
+      "clip_weight_2": 1.0,
+      "block_preset_2": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_2": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_3": "Off",
+      "lora_name_3": "krea2/ass_krea2_loraholic.safetensors",
+      "model_weight_3": -4.0,
+      "clip_weight_3": -4.0,
+      "block_preset_3": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_3": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "lora_stack": [
+        "827",
+        0
+      ]
+    },
+    "class_type": "DonutLoRAStack",
+    "_meta": {
+      "title": "DonutLoRAStack"
+    }
+  },
+  "807": {
+    "inputs": {
+      "image": "clipspace/clipspace-painted-masked-1784128559398.png [input]"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Image Reference Loader"
+    },
+    "is_changed": [
+      "3152b0b1d12424c79ff15505c6f6318eba96aaccf1a8b0f3f0d59bbbba6fc2f3"
+    ]
+  },
+  "827": {
+    "inputs": {
+      "model_type": "KREA2",
+      "civitai_lookup": "Off",
+      "switch_1": "On",
+      "lora_name_1": "fun/K2fun2.safetensors",
+      "model_weight_1": [
+        "852",
+        1
+      ],
+      "clip_weight_1": 1.0,
+      "block_preset_1": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_1": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_2": "On",
+      "lora_name_2": "krea2/candid_krea2_loraholic.safetensors",
+      "model_weight_2": 4.0,
+      "clip_weight_2": 4.0,
+      "block_preset_2": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_2": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0",
+      "switch_3": "Off",
+      "lora_name_3": "krea2/nsfw_helper_slider_loraholic.safetensors",
+      "model_weight_3": [
+        "853",
+        1
+      ],
+      "clip_weight_3": [
+        "853",
+        1
+      ],
+      "block_preset_3": "KREA2-ALL:1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1",
+      "block_vector_3": "1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0"
+    },
+    "class_type": "DonutLoRAStack",
+    "_meta": {
+      "title": "DonutLoRAStack"
+    }
+  },
+  "849": {
+    "inputs": {
+      "compatibility_preset": "DONUT settings: RMS-balanced classic",
+      "tap_method": "Donut 12-tap gains",
+      "tap_profile": "classic",
+      "per_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
+      "tap_strength": 1.0,
+      "tap_formula": "scale_around_1",
+      "tap_normalization": "tensor_rms",
+      "projector_method": "Donut projector-input gains",
+      "projector_profile": "off",
+      "projector_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0",
+      "projector_strength": 1.0,
+      "projector_formula": "scale_around_1",
+      "projector_normalization": "none",
+      "fusion_method": "Standard Krea2 fusion",
+      "fusion_strength": 1.0,
+      "model": [
+        "792",
+        0
+      ],
+      "conditioning_in_1": [
+        "664:6",
+        0
+      ],
+      "conditioning_in_2": [
+        "664:6",
+        0
+      ],
+      "conditioning_in_3": [
+        "664:55",
+        0
+      ]
+    },
+    "class_type": "DonutKrea2FusionControl",
+    "_meta": {
+      "title": "Donut Krea2 Fusion Control"
+    }
+  },
+  "852": {
+    "inputs": {
+      "number_type": "float",
+      "minimum": 0.0,
+      "maximum": 0.6,
+      "seed": 1079138586110996
+    },
+    "class_type": "Random Number",
+    "_meta": {
+      "title": "Random Number"
+    },
+    "is_changed": NaN
+  },
+  "853": {
+    "inputs": {
+      "number_type": "float",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "seed": 134653953191121
+    },
+    "class_type": "Random Number",
+    "_meta": {
+      "title": "Random Number"
+    },
+    "is_changed": NaN
+  },
+  "664:196": {
+    "inputs": {
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "SeedGenerator",
+    "_meta": {
+      "title": "SeedGenerator"
+    }
+  },
+  "664:417": {
+    "inputs": {
+      "a": [
+        "664:415",
+        0
+      ]
+    },
+    "class_type": "CM_IntToFloat",
+    "_meta": {
+      "title": "IntToFloat"
+    }
+  },
+  "664:418": {
+    "inputs": {
+      "a": [
+        "664:415",
+        1
+      ]
+    },
+    "class_type": "CM_IntToFloat",
+    "_meta": {
+      "title": "IntToFloat"
+    }
+  },
+  "664:421": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:420",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:415": {
+    "inputs": {
+      "image": [
+        "664:171",
+        0
+      ]
+    },
+    "class_type": "GetImageSize",
+    "_meta": {
+      "title": "Get Image Size"
+    }
+  },
+  "664:422": {
+    "inputs": {
+      "_float": [
+        "664:416",
+        0
+      ]
+    },
+    "class_type": "CR Float To Integer",
+    "_meta": {
+      "title": "\ud83d\udd27 CR Float To Integer"
+    }
+  },
+  "664:423": {
+    "inputs": {
+      "_float": [
+        "664:420",
+        0
+      ]
+    },
+    "class_type": "CR Float To Integer",
+    "_meta": {
+      "title": "\ud83d\udd27 CR Float To Integer"
+    }
+  },
+  "664:605": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": true,
+      "anything": [
+        "664:275",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "LayerUtility: Purge VRAM"
+    }
+  },
+  "664:523": {
+    "inputs": {
+      "purge_cache": false,
+      "purge_models": true,
+      "anything": [
+        "664:275",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "LayerUtility: Purge VRAM"
+    }
+  },
+  "664:420": {
+    "inputs": {
+      "Numerator": [
+        "664:418",
+        0
+      ],
+      "Denominator": 2.0
+    },
+    "class_type": "DF_Divide",
+    "_meta": {
+      "title": "Divide"
+    }
+  },
+  "664:419": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:416",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:416": {
+    "inputs": {
+      "Numerator": [
+        "664:417",
+        0
+      ],
+      "Denominator": 2.0
+    },
+    "class_type": "DF_Divide",
+    "_meta": {
+      "title": "Divide"
+    }
+  },
+  "664:111": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:54",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:198": {
+    "inputs": {
+      "seed": [
+        "664:197",
+        1
+      ]
+    },
+    "class_type": "SeedGenerator",
+    "_meta": {
+      "title": "SeedGenerator"
+    }
+  },
+  "664:197": {
+    "inputs": {
+      "seed": [
+        "664:196",
+        1
+      ]
+    },
+    "class_type": "SeedGenerator",
+    "_meta": {
+      "title": "SeedGenerator"
+    }
+  },
+  "664:574": {
+    "inputs": {
+      "value": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Seed"
+    }
+  },
+  "664:8": {
+    "inputs": {
+      "samples": [
+        "664:803",
+        0
+      ],
+      "vae": [
+        "468",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "664:316": {
+    "inputs": {
+      "conditioning": [
+        "664:7",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "ConditioningZeroOut"
+    }
+  },
+  "664:66": {
+    "inputs": {
+      "anything": [
+        "431",
+        0
+      ],
+      "anything16": [
+        "792",
+        1
+      ],
+      "anything17": [
+        "849",
+        0
+      ]
+    },
+    "class_type": "Anything Everywhere",
+    "_meta": {
+      "title": "Anything Everywhere"
+    }
+  },
+  "664:798": {
+    "inputs": {
+      "model": [
+        "849",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ]
+    },
+    "class_type": "DonutApplyLoRAStack",
+    "_meta": {
+      "title": "DonutApplyLoRAStack"
+    }
+  },
+  "664:809": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "megapixels": 1,
+      "resolution_steps": 1,
+      "image": [
+        "807",
+        0
+      ]
+    },
+    "class_type": "ImageScaleToTotalPixels",
+    "_meta": {
+      "title": "Scale Image to Total Pixels"
+    }
+  },
+  "664:465": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:275",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:522": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:275",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:839": {
+    "inputs": {
+      "output": "",
+      "source": [
+        "664:287",
+        0
+      ]
+    },
+    "class_type": "Display Any (rgthree)",
+    "_meta": {
+      "title": "Display Any (rgthree)"
+    }
+  },
+  "664:287": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "53",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "\ud83d\udd24 CR Text Concatenate"
+    }
+  },
+  "664:7": {
+    "inputs": {
+      "text": [
+        "664:288",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "664:288": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "\ud83d\udd24 CR Text Concatenate"
+    }
+  },
+  "664:273": {
+    "inputs": {
+      "prompt": [
+        "664:272",
+        0
+      ],
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Wildcard Processor (Mikey)"
+    }
+  },
+  "664:275": {
+    "inputs": {
+      "prompt": [
+        "664:273",
+        0
+      ],
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Wildcard Processor (Mikey)"
+    }
+  },
+  "664:272": {
+    "inputs": {
+      "prompt": [
+        "664:274",
+        0
+      ],
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Wildcard Processor (Mikey)"
+    }
+  },
+  "664:274": {
+    "inputs": {
+      "prompt": [
+        "664:54",
+        0
+      ],
+      "seed": [
+        "195",
+        0
+      ]
+    },
+    "class_type": "Wildcard Processor",
+    "_meta": {
+      "title": "Wildcard Processor (Mikey)"
+    }
+  },
+  "664:284": {
+    "inputs": {
+      "separator": "",
+      "text2": [
+        "56",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "\ud83d\udd24 CR Text Concatenate"
+    }
+  },
+  "664:54": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "664:287",
+        0
+      ],
+      "text2": [
+        "664:284",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "\ud83d\udd24 CR Text Concatenate"
+    }
+  },
+  "664:171": {
+    "inputs": {
+      "seed": [
+        "664:197",
+        1
+      ],
+      "steps": 2,
+      "cfg": 1.0,
+      "sampler_name": "er_sde",
+      "scheduler": "bong_tangent",
+      "denoise": 0.31,
+      "rescale_factor": 1.5,
+      "resampling_method": "bilinear",
+      "feather": 10.0,
+      "tiled_vae": false,
+      "edit_mode": false,
+      "grounding_px": 768,
+      "image": [
+        "664:8",
+        0
+      ],
+      "upscale_model": [
+        "172",
+        0
+      ],
+      "model": [
+        "849",
+        0
+      ],
+      "positive": [
+        "849",
+        2
+      ],
+      "negative": [
+        "664:316",
+        0
+      ],
+      "vae": [
+        "431",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ],
+      "edit_model": [
+        "849",
+        0
+      ]
+    },
+    "class_type": "DonutTiledUpscale",
+    "_meta": {
+      "title": "Donut Tiled Upscale"
+    }
+  },
+  "664:255": {
+    "inputs": {
+      "resolution": 1024,
+      "max_resolution": 1024,
+      "guide_size_for": false,
+      "seed": [
+        "664:198",
+        1
+      ],
+      "steps": 3,
+      "cfg": 1.0,
+      "sampler_name": "er_sde",
+      "scheduler": "bong_tangent",
+      "denoise": 0.36,
+      "feather": 10,
+      "noise_mask": false,
+      "force_inpaint": false,
+      "bbox_threshold": 0.21,
+      "bbox_dilation": 11,
+      "bbox_crop_factor": 1.5,
+      "sam_detection_hint": "center-1",
+      "sam_dilation": 0,
+      "sam_threshold": 0.93,
+      "sam_bbox_expansion": 0,
+      "sam_mask_hint_threshold": 0.7,
+      "sam_mask_hint_use_negative": "False",
+      "drop_size": 1,
+      "wildcard": "",
+      "cycle": 1,
+      "max_faces": 2,
+      "inpaint_model": false,
+      "noise_mask_feather": 20,
+      "edit_mode": false,
+      "grounding_px": 768,
+      "image": [
+        "664:171",
+        0
+      ],
+      "model": [
+        "849",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ],
+      "vae": [
+        "431",
+        0
+      ],
+      "positive": [
+        "849",
+        3
+      ],
+      "negative": [
+        "664:316",
+        0
+      ],
+      "bbox_detector": [
+        "50",
+        0
+      ],
+      "sam_model_opt": [
+        "52",
+        0
+      ],
+      "edit_model": [
+        "849",
+        0
+      ]
+    },
+    "class_type": "DonutFaceDetailer",
+    "_meta": {
+      "title": "Face Detailer (Max Faces)"
+    }
+  },
+  "664:803": {
+    "inputs": {
+      "seed": 1109704187542936,
+      "steps": 8,
+      "cfg_start": 1.0,
+      "cfg_halfway": 1.0,
+      "cfg_end": 1.0,
+      "halfway_step": 8,
+      "sampler_name": "er_sde",
+      "scheduler": "bong_tangent",
+      "denoise": 1.0,
+      "mode": "simple",
+      "cfg_curve": "linear",
+      "add_noise": "enable",
+      "start_at_step": 0,
+      "end_at_step": 10000,
+      "return_with_leftover_noise": "disable",
+      "randomize_seed_per_model": "enable",
+      "switch_at_step_1": 10,
+      "switch_at_step_2": 15,
+      "edit_mode": false,
+      "grounding_px": 768,
+      "model": [
+        "849",
+        0
+      ],
+      "positive": [
+        "849",
+        1
+      ],
+      "negative": [
+        "664:316",
+        0
+      ],
+      "latent_image": [
+        "664:340",
+        0
+      ],
+      "model_2": [
+        "849",
+        0
+      ],
+      "model_3": [
+        "849",
+        0
+      ],
+      "vae": [
+        "431",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ],
+      "edit_model": [
+        "849",
+        0
+      ]
+    },
+    "class_type": "DonutSampler",
+    "_meta": {
+      "title": "DonutSampler"
+    }
+  },
+  "664:340": {
+    "inputs": {
+      "width": [
+        "28",
+        1
+      ],
+      "height": [
+        "28",
+        2
+      ],
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
+  "664:128": {
+    "inputs": {
+      "purge_cache": true,
+      "purge_models": false,
+      "anything": [
+        "664:255",
+        0
+      ]
+    },
+    "class_type": "LayerUtility: PurgeVRAM",
+    "_meta": {
+      "title": "LayerUtility: Purge VRAM"
+    }
+  },
+  "664:55": {
+    "inputs": {
+      "text": [
+        "664:287",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "664:830": {
+    "inputs": {
+      "prompt": [
+        "664:275",
+        0
+      ],
+      "text_strength": 1,
+      "rebalance": false,
+      "strength1": 0.3,
+      "strength2": 0,
+      "strength3": 0,
+      "multiplier": 1,
+      "clip": [
+        "792",
+        1
+      ],
+      "image1": [
+        "664:809",
+        0
+      ],
+      "vae": [
+        "431",
+        0
+      ]
+    },
+    "class_type": "DonutKrea2ImageConditioning",
+    "_meta": {
+      "title": "Donut Krea2 Image Conditioning"
+    }
+  },
+  "664:6": {
+    "inputs": {
+      "text": [
+        "664:275",
+        0
+      ],
+      "clip": [
+        "792",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  }
+}
