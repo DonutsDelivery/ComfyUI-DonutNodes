@@ -34,3 +34,8 @@ staging archive byte-for-byte (`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a
 Upload is verified; Registry approval is pending. Because this release changes
 runtime package contents, follow-up checks continue every five minutes until
 the exact version becomes Active or Flagged.
+
+Follow-up check at 2026-09-11T21:20:31Z returned the same
+`NodeVersionStatusPending` status and empty reason. The published ZIP again
+passed `unzip -t` and retained SHA-256
+`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
