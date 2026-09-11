@@ -27,6 +27,11 @@ Publishing from the fresh staging directory regenerated the same 159-file
 payload with SHA-256
 `c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
 
+Follow-up check at 2026-09-11T21:26:31Z returned the same
+`NodeVersionStatusPending` status and empty reason. The published ZIP passed
+`unzip -t` and retained SHA-256
+`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
+
 At 2026-09-11T21:12:58Z, the exact version endpoint returned
 `NodeVersionStatusPending` with an empty status reason. The published ZIP at
 the returned download URL was downloaded, passed `unzip -t`, and matched the
