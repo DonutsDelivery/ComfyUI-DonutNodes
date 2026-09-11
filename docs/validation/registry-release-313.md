@@ -21,6 +21,16 @@ model-download panel and required runtime assets, excludes tests, development
 tools, validation documents, and the automatic downloader backend, and passes
 `comfy node validate`.
 
-The exact published version will be checked at the Registry versions endpoint
-with `include_status_reason=true` after upload. Upload success and Registry
-approval will be recorded separately below.
+The source archive has SHA-256
+`84502c071a16821799b9fc845e6ccc22f8cbeaf88c8497039ca00766866ef8a4`.
+Publishing from the fresh staging directory regenerated the same 159-file
+payload with SHA-256
+`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
+
+At 2026-09-11T21:12:58Z, the exact version endpoint returned
+`NodeVersionStatusPending` with an empty status reason. The published ZIP at
+the returned download URL was downloaded, passed `unzip -t`, and matched the
+staging archive byte-for-byte (`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`).
+Upload is verified; Registry approval is pending. Because this release changes
+runtime package contents, follow-up checks continue every five minutes until
+the exact version becomes Active or Flagged.
