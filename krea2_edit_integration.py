@@ -7,6 +7,7 @@ and training-matched source modulation. See THIRD_PARTY_NOTICES.md.
 """
 
 import math
+import uuid
 
 import nodes
 import torch
@@ -20,6 +21,151 @@ from comfy.ldm.flux.layers import timestep_embedding
 _REQUIRED_NODE_IDS = ("Krea2EditGroundedEncode",)
 _EDIT_WRAPPER_KEY = "donut_krea2_edit"
 _LEGACY_EDIT_WRAPPER_KEY = "krea2_edit"
+_EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
+
+
+def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
+    """Apply the Edit Studio LoRA to an already-prepared model branch.
+
+    Edit Studio normally returns a clone with this LoRA applied.  Sampling
+    also needs to apply the same adapter to the sampler's model branch when
+    that branch carries Fusion Control, UncensorFix, or another upstream
+    patch that the Edit Studio clone did not receive.
+    """
+    model_options = getattr(model, "model_options", {})
+    if not isinstance(model_options, dict):
+        model_options = {}
+    if execution_mode is None:
+        execution_mode = model_options.get("donut_lora_execution_mode", "Comfy patches")
+    if execution_mode == "Experimental bypass":
+        import folder_paths
+        import comfy.utils
+        path = folder_paths.get_full_path("loras", lora_name)
+        lora = comfy.utils.load_torch_file(path, safe_load=True)
+        try:
+            from .DonutSafeApplyLoRAStack import _apply_bypass_applications
+        except ImportError:
+            from DonutSafeApplyLoRAStack import _apply_bypass_applications
+        return _apply_bypass_applications(
+            model, [(lora, float(strength), ",".join(["1"] * 29))],
+        )
+    if execution_mode != "Comfy patches":
+        raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
+    return nodes.LoraLoaderModelOnly().load_lora_model_only(
+        model, lora_name, float(strength),
+    )[0]
+
+
+def _edit_lora_metadata(model):
+    options = getattr(model, "model_options", None)
+    if not isinstance(options, dict):
+        return None
+    metadata = options.get(_EDIT_LORA_METADATA_KEY)
+    if not isinstance(metadata, dict):
+        return None
+    name = metadata.get("name")
+    strength = metadata.get("strength")
+    mode = metadata.get("execution_mode", "Comfy patches")
+    if not isinstance(name, str) or not name or mode not in ("Comfy patches", "Experimental bypass"):
+        return None
+    try:
+        strength = float(strength)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(strength) or strength == 0.0:
+        return None
+    return name, strength, mode
+
+
+def _same_model_root(first, second):
+    if first is second:
+        return True
+    first_root = getattr(first, "model", None)
+    second_root = getattr(second, "model", None)
+    return first_root is not None and first_root is second_root
+
+
+def _merge_legacy_edit_patches(model, edit_model):
+    """Preserve a legacy loader's extra regular patches on the model branch.
+
+    V3 used a raw ``LoraLoaderModelOnly`` node instead of Edit Studio, so no
+    LoRA descriptor is available.  ModelPatcher clones retain patch entries by
+    reference; subtract the entries already present on the sampler branch and
+    append only the edit loader's additional entries to a clone of that branch.
+    If a Comfy version exposes a different patch representation, retain the
+    historical edit-model selection rather than guessing.
+    """
+    base_patches = getattr(model, "patches", None)
+    edit_patches = getattr(edit_model, "patches", None)
+    extras = {}
+    comparable_patches = isinstance(base_patches, dict) and isinstance(edit_patches, dict)
+    if comparable_patches:
+        for key, entries in edit_patches.items():
+            remaining = list(base_patches.get(key, ()))
+            for entry in entries:
+                match = next((index for index, candidate in enumerate(remaining)
+                              if candidate is entry), None)
+                if match is None:
+                    extras.setdefault(key, []).append(entry)
+                else:
+                    remaining.pop(match)
+    base_injections = getattr(model, "injections", None)
+    edit_injections = getattr(edit_model, "injections", None)
+    extra_injections = {}
+    if isinstance(base_injections, dict) and isinstance(edit_injections, dict):
+        extra_injections = {
+            key: value for key, value in edit_injections.items()
+            if key not in base_injections
+        }
+    if not extras and not extra_injections:
+        return model if comparable_patches else edit_model
+    if not hasattr(model, "clone"):
+        return edit_model
+    patched = model.clone()
+    if extras and not isinstance(getattr(patched, "patches", None), dict):
+        return edit_model
+    if extra_injections and not hasattr(patched, "set_injections"):
+        return edit_model
+    for key, entries in extras.items():
+        patched.patches.setdefault(key, []).extend(entries)
+    if extra_injections and hasattr(patched, "set_injections"):
+        for key, value in extra_injections.items():
+            patched.set_injections(key, value)
+    if hasattr(patched, "patches_uuid"):
+        patched.patches_uuid = uuid.uuid4()
+    return patched
+
+
+def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True):
+    """Keep upstream model patches while adding Edit Studio's adapter.
+
+    The Edit Studio output is a separate ModelPatcher clone.  Using it as the
+    sampler model drops wrappers/injections installed on the sampler branch
+    (notably Fusion Control and UncensorFix).  When both branches share the
+    same underlying diffusion module, reapply the recorded Edit Studio LoRA
+    to the sampler branch instead.  Unknown/external edit models retain the
+    historical behaviour and are used as-is.  Set ``fallback_to_edit_model``
+    false for secondary model phases, which should only receive the recorded
+    adapter and otherwise keep their own model branch.
+    """
+    if edit_model is None:
+        return model
+    metadata = _edit_lora_metadata(edit_model)
+    if metadata is None:
+        if not fallback_to_edit_model and _same_model_root(model, edit_model):
+            return model
+        if fallback_to_edit_model and _same_model_root(model, edit_model):
+            return _merge_legacy_edit_patches(model, edit_model)
+        return edit_model if fallback_to_edit_model else model
+    if model is edit_model or _edit_lora_metadata(model) == metadata:
+        return model
+    if not _same_model_root(model, edit_model):
+        if fallback_to_edit_model:
+            return edit_model
+        name, strength, execution_mode = metadata
+        return apply_krea2_edit_lora(model, name, strength, execution_mode)
+    name, strength, execution_mode = metadata
+    return apply_krea2_edit_lora(model, name, strength, execution_mode)
 
 
 def scale_image_to_megapixels(image, megapixels=1.0):
@@ -317,6 +463,26 @@ def _remove_edit_wrapper(model, key):
     wrappers.get(wrapper_type, {}).pop(key, None)
 
 
+def _prepend_wrapper_key(model, wrapper_type, key):
+    """Put one wrapper key before existing wrappers on all Comfy storage paths."""
+    owners = [getattr(model, "wrappers", None)]
+    model_options = getattr(model, "model_options", {})
+    transformer_options = (
+        model_options.get("transformer_options", {})
+        if isinstance(model_options, dict) else {}
+    )
+    if isinstance(transformer_options, dict):
+        owners.append(transformer_options.get("wrappers"))
+    for wrappers in owners:
+        if not isinstance(wrappers, dict):
+            continue
+        keyed = wrappers.get(wrapper_type)
+        if not isinstance(keyed, dict) or key not in keyed:
+            continue
+        value = keyed.pop(key)
+        wrappers[wrapper_type] = {key: value, **keyed}
+
+
 def patch_krea2_edit_model(model, source_latent, target_batch=None):
     """Patch one model with a LATENT or ordered [scene, subject] LATENT list."""
     if not _is_krea2_model(model):
@@ -341,6 +507,13 @@ def patch_krea2_edit_model(model, source_latent, target_batch=None):
         comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
         _EDIT_WRAPPER_KEY,
         _Krea2EditWrapper(source_samples, target_batch),
+    )
+    # The edit wrapper supplies the terminal Krea2 forward.  It must therefore
+    # run before Fusion (and any other composable diffusion wrappers), so those
+    # wrappers remain in the executor's remaining chain around the edit pass.
+    _prepend_wrapper_key(
+        patched, comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+        _EDIT_WRAPPER_KEY,
     )
     return patched
 

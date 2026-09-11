@@ -143,6 +143,25 @@ class EditStudioTests(unittest.TestCase):
         self.assertEqual(result[6], "edit model")
         fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.assert_called_once_with("base", settings["lora_name"], 1)
 
+    def test_edit_lora_output_records_metadata_for_downstream_model_branches(self):
+        name = self.reference((80, 60))
+        settings = self.settings(enabled=True, image_a=name)
+        source = types.SimpleNamespace(model_options={"donut_lora_execution_mode": "Comfy patches"})
+        edited = types.SimpleNamespace(model_options={})
+        fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.return_value = (edited,)
+
+        result = module.DonutEditStudio().prepare(**settings, model=source)
+
+        self.assertIs(result[6], edited)
+        self.assertEqual(
+            edited.model_options[module._EDIT_LORA_METADATA_KEY],
+            {
+                "name": settings["lora_name"],
+                "strength": 1.0,
+                "execution_mode": "Comfy patches",
+            },
+        )
+
     def test_exif_orientation_is_normalized_in_persistent_preview_and_crop(self):
         source = Image.new("RGB", (120, 80), "blue"); exif = Image.Exif(); exif[274] = 6
         data = io.BytesIO(); source.save(data, format="JPEG", exif=exif); data.seek(0)

@@ -31,6 +31,7 @@ try:
         make_krea2_edit_target,
         patch_krea2_edit_model,
         prepare_krea2_edit,
+        resolve_krea2_edit_model,
         validate_krea2_edit_target,
     )
 except ImportError:
@@ -38,6 +39,7 @@ except ImportError:
         make_krea2_edit_target,
         patch_krea2_edit_model,
         prepare_krea2_edit,
+        resolve_krea2_edit_model,
         validate_krea2_edit_target,
     )
 
@@ -1158,8 +1160,9 @@ class DonutSampler(_DonutSamplerEngine):
             target_samples, target_width, target_height = validate_krea2_edit_target(
                 latent_image, source_image, mode, denoise, add_noise, start_at_step,
             )
+            edit_sampling_model = resolve_krea2_edit_model(model, edit_model)
             model, positive, negative, source_latent, conditioning_image = prepare_krea2_edit(
-                edit_model if edit_model is not None else model,
+                edit_sampling_model,
                 clip, vae, source_image, edit_prompt,
                 edit_negative_prompt, grounding_px,
                 target_width, target_height,
@@ -1170,10 +1173,16 @@ class DonutSampler(_DonutSamplerEngine):
             latent_image = make_krea2_edit_target(latent_image)
             if mode == "multi_model":
                 if model_2 is not None:
+                    model_2 = resolve_krea2_edit_model(
+                        model_2, edit_model, fallback_to_edit_model=False,
+                    )
                     model_2 = patch_krea2_edit_model(
                         model_2, source_latent, target_batch=int(target_samples.shape[0]),
                     )
                 if model_3 is not None:
+                    model_3 = resolve_krea2_edit_model(
+                        model_3, edit_model, fallback_to_edit_model=False,
+                    )
                     model_3 = patch_krea2_edit_model(
                         model_3, source_latent, target_batch=int(target_samples.shape[0]),
                     )

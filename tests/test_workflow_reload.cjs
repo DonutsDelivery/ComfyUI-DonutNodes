@@ -9,6 +9,7 @@ const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringi
 const context = vm.createContext({console});
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/donut_workflow_repair.js'),'utf8').replace(/export function /g,'function '),context);
 const repair = context.repairStreamlinedWorkflow;
+const repairLegacy = context.repairLegacyFusionModelRouting;
 const guard = context.installWorkflowSerializationGuard;
 function fixture() {
     return {
@@ -48,6 +49,45 @@ function semanticLinks(workflow) {
         return [g.id,e.id,e.origin_id,a.name,a.type,e.target_id,b.name,b.type];
     }));
 }
+function legacyFusionFixture() {
+    const stage = {
+        id:'legacy-stage', inputs:[
+            {name:'unused',type:'STRING'}, {name:'model',type:'MODEL',linkIds:[101,102]}, {name:'model_1',type:'MODEL',linkIds:[100]}
+        ], outputs:[], nodes:[
+            {id:10,type:'DonutKrea2FusionControl',inputs:[{name:'model',type:'MODEL',link:100}],outputs:[{name:'model',type:'MODEL',links:[]}]},
+            {id:20,type:'DonutSampler',inputs:[{name:'model',type:'MODEL',link:101}],outputs:[]},
+            {id:21,type:'DifferentialDiffusion',inputs:[{name:'model',type:'MODEL',link:102}],outputs:[{name:'MODEL',type:'MODEL',links:[]}]}
+        ], links:[
+            {id:100,origin_id:-10,origin_slot:2,target_id:10,target_slot:0,type:'MODEL'},
+            {id:101,origin_id:-10,origin_slot:1,target_id:20,target_slot:0,type:'MODEL'},
+            {id:102,origin_id:-10,origin_slot:1,target_id:21,target_slot:0,type:'MODEL'}
+        ]
+    };
+    return {
+        last_link_id:102,
+        nodes:[{id:1,type:'legacy-stage',inputs:[{name:'model',link:1},{name:'model_1',link:null}]}],
+        links:[{id:1,origin_id:99,origin_slot:0,target_id:1,target_slot:0,type:'MODEL'}],
+        definitions:{subgraphs:[stage]}
+    };
+}
+test('legacy V3 Fusion model output is routed to every model stage',()=>{
+    const w=legacyFusionFixture();
+    assert.equal(repairLegacy(w),true);
+    const stage=w.definitions.subgraphs[0], fusion=stage.nodes[0];
+    assert.equal(fusion.inputs[0].link,103);
+    assert.deepEqual(Array.from(fusion.outputs[0].links),[104,105]);
+    assert.equal(stage.nodes[1].inputs[0].link,104);
+    assert.equal(stage.nodes[2].inputs[0].link,105);
+    assert.deepEqual(Array.from(stage.inputs[1].linkIds),[103]);
+    assert.deepEqual(Array.from(stage.inputs[2].linkIds),[]);
+    assert.deepEqual(stage.links.map(e=>e.id),[103,104,105]);
+    assert.equal(w.last_link_id,105);
+    assert.equal(repairLegacy(w),false);
+});
+test('legacy routing leaves explicitly connected model_1 workflows unchanged',()=>{
+    const w=legacyFusionFixture();w.nodes[0].inputs[1].link=2;
+    const before=clone(w);assert.equal(repair(w),false);assert.deepEqual(w,before);
+});
 test('sparse schema-2 stage ports expand without changing cable meanings or values',()=>{
     const w=fixture(), before=semanticLinks(w), old=clone(w.nodes[1]);
     assert.equal(repair(w),true);

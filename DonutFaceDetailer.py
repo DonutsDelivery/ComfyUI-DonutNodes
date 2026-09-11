@@ -31,13 +31,25 @@ try:
         crop_image_padding,
         pad_image_to_multiple,
         prepare_krea2_edit,
+        resolve_krea2_edit_model,
     )
 except ImportError:
-    from krea2_edit_integration import (
-        crop_image_padding,
-        pad_image_to_multiple,
-        prepare_krea2_edit,
-    )
+    try:
+        from krea2_edit_integration import (
+            crop_image_padding,
+            pad_image_to_multiple,
+            prepare_krea2_edit,
+            resolve_krea2_edit_model,
+        )
+    except ImportError:
+        from krea2_edit_integration import (
+            crop_image_padding,
+            pad_image_to_multiple,
+            prepare_krea2_edit,
+        )
+        resolve_krea2_edit_model = lambda model, edit_model=None: (
+            edit_model if edit_model is not None else model
+        )
 
 try:
     from .krea2_variance_integration import reapply_edit_variance
@@ -277,7 +289,10 @@ class DonutFaceDetailer:
         source_latent = None
         target_image = scaled_image
         target_padding = (0, 0, 0, 0)
-        sampling_model = edit_model if edit_mode and edit_model is not None else model
+        sampling_model = (
+            resolve_krea2_edit_model(model, edit_model)
+            if edit_mode else model
+        )
         sampling_positive = positive
         sampling_negative = negative
         wildcard_positive = None

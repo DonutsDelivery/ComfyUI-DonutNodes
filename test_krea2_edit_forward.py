@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 import torch
 
@@ -186,6 +187,59 @@ def all_diffusion_wrappers(model_patcher):
 
 
 class Krea2EditForwardTests(unittest.TestCase):
+    def test_edit_lora_metadata_reapplies_to_sampler_branch(self):
+        base = FakeModelPatcher()
+        edit = base.clone()
+        edit.model = base.model
+        edit.model_options[module._EDIT_LORA_METADATA_KEY] = {
+            "name": "krea2/identity.safetensors",
+            "strength": 0.75,
+            "execution_mode": "Comfy patches",
+        }
+
+        with patch.object(
+            module, "apply_krea2_edit_lora", return_value="resolved"
+        ) as apply:
+            resolved = module.resolve_krea2_edit_model(base, edit)
+
+        self.assertEqual(resolved, "resolved")
+        apply.assert_called_once_with(
+            base, "krea2/identity.safetensors", 0.75, "Comfy patches"
+        )
+
+    def test_external_edit_model_keeps_historical_selection(self):
+        base = FakeModelPatcher()
+        edit = FakeModelPatcher()
+        edit.model_options[module._EDIT_LORA_METADATA_KEY] = {
+            "name": "identity.safetensors",
+            "strength": 1.0,
+            "execution_mode": "Comfy patches",
+        }
+        self.assertIs(module.resolve_krea2_edit_model(base, edit), edit)
+        with patch.object(module, "apply_krea2_edit_lora", return_value="phase") as apply:
+            self.assertEqual(
+                module.resolve_krea2_edit_model(
+                    base, edit, fallback_to_edit_model=False,
+                ),
+                "phase",
+            )
+        apply.assert_called_once_with(base, "identity.safetensors", 1.0, "Comfy patches")
+
+    def test_legacy_edit_loader_merges_only_its_extra_patch_entries(self):
+        base = FakeModelPatcher()
+        shared = object()
+        extra = object()
+        base.model = object()
+        base.patches = {"weight": [shared]}
+        edit = base.clone()
+        edit.model = base.model
+        edit.patches = {"weight": [shared, extra]}
+
+        resolved = module.resolve_krea2_edit_model(base, edit)
+
+        self.assertIsNot(resolved, base)
+        self.assertEqual(resolved.patches["weight"], [shared, extra])
+
     def test_two_references_keep_order_frames_and_target_slice_with_cfg_batch(self):
         model = FakeDiffusionModel()
         target = torch.tensor([[[[30.0]]], [[[40.0]]]])
@@ -356,6 +410,10 @@ class Krea2EditForwardTests(unittest.TestCase):
         ]
         self.assertNotIn("krea2_edit", nested_keyed)
         self.assertEqual(len(keyed[module._EDIT_WRAPPER_KEY]), 1)
+        self.assertEqual(
+            list(keyed),
+            [module._EDIT_WRAPPER_KEY, "before", "after", "trailing"],
+        )
 
         diffusion_model = FakeDiffusionModel()
         executor = FakeWrapperExecutor.new_class_executor(
@@ -380,6 +438,34 @@ class Krea2EditForwardTests(unittest.TestCase):
             ],
         )
         self.assertEqual(float(output.item()), 30.0)
+
+    def test_edit_wrapper_keeps_fusion_wrapper_in_the_remaining_chain(self):
+        events = []
+
+        def fusion(executor, *args, **kwargs):
+            events.append("fusion:in")
+            result = executor(*args, **kwargs)
+            events.append("fusion:out")
+            return result
+
+        base = FakeModelPatcher()
+        base.add_wrapper_with_key("diffusion_model", "fusion", fusion)
+        patched = module.patch_krea2_edit_model(
+            base, {"samples": torch.tensor([[[[20.0]]]])}, target_batch=1,
+        )
+        diffusion_model = FakeDiffusionModel()
+        executor = FakeWrapperExecutor.new_class_executor(
+            lambda *args, **kwargs: self.fail("native forward should be replaced"),
+            diffusion_model, all_diffusion_wrappers(patched),
+        )
+
+        output = executor.execute(
+            torch.tensor([[[[30.0]]]]), torch.tensor([2.0]),
+            torch.tensor([[[10.0]]]),
+        )
+
+        self.assertEqual(float(output.item()), 30.0)
+        self.assertEqual(events, ["fusion:in", "fusion:out"])
 
     def test_wrapper_forwards_ref_latents_in_current_comfyui_signature(self):
         received = {}

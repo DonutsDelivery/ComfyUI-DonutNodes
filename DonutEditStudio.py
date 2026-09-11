@@ -33,6 +33,7 @@ ASPECT_RATIOS = {
     "21:9 Ultrawide": (21, 9),
 }
 RESOLUTION_MODES = ["Preset", "Reference A · megapixels", "Reference A · crop only", "Custom"]
+_EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
 
 
 def _reference_root():
@@ -143,7 +144,11 @@ def _crop_reference(image, size, x, y, crop_only=False):
 
 
 def _load_edit_lora(model, lora_name, strength):
-    mode = getattr(model, "model_options", {}).get("donut_lora_execution_mode", "Comfy patches")
+    model_options = getattr(model, "model_options", {})
+    mode = (
+        model_options.get("donut_lora_execution_mode", "Comfy patches")
+        if isinstance(model_options, dict) else "Comfy patches"
+    )
     if mode == "Experimental bypass":
         import comfy.utils
         from .DonutSafeApplyLoRAStack import _apply_bypass_applications
@@ -151,6 +156,19 @@ def _load_edit_lora(model, lora_name, strength):
         lora = comfy.utils.load_torch_file(path, safe_load=True)
         return _apply_bypass_applications(model, [(lora, strength, ",".join(["1"] * 29))])
     return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, strength)[0]
+
+
+def _record_edit_lora(model, lora_name, strength, execution_mode):
+    """Tag the clone so downstream edit samplers can preserve model branches."""
+    options = getattr(model, "model_options", None)
+    if not isinstance(options, dict):
+        return model
+    options[_EDIT_LORA_METADATA_KEY] = {
+        "name": str(lora_name),
+        "strength": float(strength),
+        "execution_mode": execution_mode,
+    }
+    return model
 
 
 class DonutEditStudio:
@@ -240,6 +258,17 @@ class DonutEditStudio:
             edit_model = model
             if lora_name and lora_name != "None" and lora_strength != 0:
                 edit_model = _load_edit_lora(model, lora_name, lora_strength)
+                if edit_model is model and hasattr(model, "clone"):
+                    edit_model = model.clone()
+                source_options = getattr(model, "model_options", {})
+                execution_mode = (
+                    source_options.get("donut_lora_execution_mode", "Comfy patches")
+                    if isinstance(source_options, dict) else "Comfy patches"
+                )
+                edit_model = _record_edit_lora(
+                    edit_model, lora_name, lora_strength,
+                    execution_mode,
+                )
         return (reference_a, reference_b, bool(enabled), *size, int(grounding_px), edit_model, prompt)
 
 

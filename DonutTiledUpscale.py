@@ -15,9 +15,15 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 try:
-    from .krea2_edit_integration import prepare_krea2_edit
+    from .krea2_edit_integration import prepare_krea2_edit, resolve_krea2_edit_model
 except ImportError:
-    from krea2_edit_integration import prepare_krea2_edit
+    try:
+        from krea2_edit_integration import prepare_krea2_edit, resolve_krea2_edit_model
+    except ImportError:
+        from krea2_edit_integration import prepare_krea2_edit
+        resolve_krea2_edit_model = lambda model, edit_model=None: (
+            edit_model if edit_model is not None else model
+        )
 
 try:
     from .krea2_variance_integration import reapply_edit_variance
@@ -659,7 +665,7 @@ class DonutTiledUpscale:
                     if edit_source_image_b is not None:
                         reference_b = edit_source_image_b[min(b, len(edit_source_image_b) - 1)].unsqueeze(0)
                     sampling_model, sampling_positive, sampling_negative, _source_latent, _conditioning_image = prepare_krea2_edit(
-                        edit_model if edit_model is not None else model,
+                        resolve_krea2_edit_model(model, edit_model),
                         clip, vae, reference_tile, edit_prompt,
                         edit_negative_prompt, grounding_px,
                         tile_width, tile_height,

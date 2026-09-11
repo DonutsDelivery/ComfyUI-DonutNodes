@@ -29,9 +29,89 @@ function scalar(value, type) {
     return typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value));
 }
 
+function edgeForm(edge, values) {
+    return Array.isArray(edge) ? values : { id: values[0], origin_id: values[1], origin_slot: values[2], target_id: values[3], target_slot: values[4], type: values[5] };
+}
+
+// V3 placed Fusion Control inside the generation subgraph but left its model
+// output disconnected.  Its conditioning outputs still reached every stage,
+// which made the model-side UncensorFix/Fusion changes disappear whenever an
+// edit model was selected. Repair only the untagged legacy shape where the
+// optional model_1 input is empty and all stage model inputs are promoted from
+// the normal model input. V4 has a tagged workflow and an already-connected
+// Fusion output, so it is left untouched.
+export function repairLegacyFusionModelRouting(workflow) {
+    const definitions = workflow?.definitions?.subgraphs;
+    if (!Array.isArray(definitions) || !Array.isArray(workflow.nodes)) return false;
+    const byId = new Map(definitions.map(graph => [key(graph.id), graph]));
+    const instances = new Map();
+    for (const node of workflow.nodes) {
+        const graph = byId.get(key(node.type));
+        if (!graph) continue;
+        if (!(graph.inputs || []).some(input => input.name === "model_1")) continue;
+        const model1 = (node.inputs || []).find(input => input.name === "model_1");
+        if (model1 && model1.link != null) continue;
+        instances.set(key(graph.id), (instances.get(key(graph.id)) || []).concat(node));
+    }
+    if (!instances.size) return false;
+
+    let maxLink = Number(workflow.last_link_id) || 0;
+    for (const graph of [workflow, ...definitions]) {
+        for (const raw of graph.links || []) maxLink = Math.max(maxLink, Number(edgeData(raw).id) || 0);
+    }
+    let changed = false;
+    for (const graph of definitions) {
+        const hosts = instances.get(key(graph.id));
+        if (!hosts || hosts.length !== workflow.nodes.filter(node => key(node.type) === key(graph.id)).length) continue;
+        const modelSlot = (graph.inputs || []).findIndex(input => input.name === "model");
+        if (modelSlot < 0) continue;
+        const nodes = indexed(graph.nodes, "id", "node IDs");
+        const links = (graph.links || []).map(edgeData);
+        const byLink = new Map(links.map(edge => [key(edge.id), edge]));
+        const fusion = (graph.nodes || []).find(node => node.type === "DonutKrea2FusionControl");
+        if (!fusion || !Array.isArray(fusion.outputs) || !fusion.outputs[0]
+            || (fusion.outputs[0].links || []).length) continue;
+        const fusionInput = (fusion.inputs || []).find(input => input.name === "model");
+        const fusionEdge = fusionInput && byLink.get(key(fusionInput.link));
+        if (!fusionEdge || fusionEdge.origin_id !== -10 || fusionEdge.origin_slot === modelSlot) continue;
+        const consumers = links.filter(edge => edge.origin_id === -10 && edge.origin_slot === modelSlot && edge.type === "MODEL" && key(edge.id) !== key(fusionEdge.id))
+            .map(edge => ({ edge, node: nodes.get(key(edge.target_id)) }))
+            .filter(item => item.node && item.node !== fusion && item.node.inputs?.[item.edge.target_slot]?.type === "MODEL");
+        if (!consumers.length) continue;
+
+        const arrayEdges = (graph.links || []).some(Array.isArray);
+        const removed = new Set([key(fusionEdge.id), ...consumers.map(item => key(item.edge.id))]);
+        graph.links = (graph.links || []).filter(raw => !removed.has(key(edgeData(raw).id)));
+        const newIds = [];
+        const add = (originId, originSlot, targetId, targetSlot) => {
+            const id = ++maxLink; newIds.push(id);
+            graph.links.push(edgeForm(arrayEdges ? [] : {}, [id, originId, originSlot, targetId, targetSlot, "MODEL"]));
+            return id;
+        };
+        fusionInput.link = add(-10, modelSlot, fusion.id, fusion.inputs.indexOf(fusionInput));
+        for (const { edge, node } of consumers) {
+            node.inputs[edge.target_slot].link = add(fusion.id, 0, node.id, edge.target_slot);
+        }
+        const modelPort = graph.inputs[modelSlot];
+        const fusionPort = graph.inputs[fusionEdge.origin_slot];
+        if (Array.isArray(modelPort?.linkIds)) {
+            const consumed = new Set(consumers.map(item => key(item.edge.id)));
+            modelPort.linkIds = modelPort.linkIds.filter(id => !consumed.has(key(id)));
+            modelPort.linkIds.push(newIds[0]);
+        }
+        if (Array.isArray(fusionPort?.linkIds)) {
+            fusionPort.linkIds = fusionPort.linkIds.filter(id => key(id) !== key(fusionEdge.id));
+        }
+        fusion.outputs[0].links = [...(fusion.outputs[0].links || []), ...newIds.slice(1)];
+        changed = true;
+    }
+    if (changed) workflow.last_link_id = maxLink;
+    return changed;
+}
+
 export function repairStreamlinedWorkflow(workflow) {
     const tag = workflow?.extra?.donut_streamlining;
-    if (!schemas.has(tag?.schema)) return false;
+    if (!schemas.has(tag?.schema)) return repairLegacyFusionModelRouting(workflow);
     const definitions = indexed(workflow.definitions?.subgraphs, "id", "subgraph IDs");
     if (!definitions.size) return false;
     const contexts = new Map();
