@@ -55,21 +55,24 @@ app.registerExtension({
                     this.graph?.afterChange();
                     refresh();
                 };
-                const receive = ({detail}) => {
-                    const expanded = detail.output?.donut_final_prompt;
-                    if (detail.prompt_id && Array.isArray(expanded) && typeof expanded[0] === "string") {
+                const receive = ({detail} = {}) => {
+                    // A few older frontend builds dispatch an empty `executed`
+                    // event while their graph is being restored. Ignore it;
+                    // there is no result to display yet.
+                    const expanded = detail?.output?.donut_final_prompt;
+                    if (detail?.prompt_id && Array.isArray(expanded) && typeof expanded[0] === "string") {
                         promptsByRun.set(detail.prompt_id, expanded[0]);
                         if (promptsByRun.size > 32) promptsByRun.delete(promptsByRun.keys().next().value);
                     }
-                    const id = String(detail.display_node ?? detail.node);
+                    const id = String(detail?.display_node ?? detail?.node ?? "");
                     const stage = this.properties.sources?.[id];
-                    const images = detail.output?.images;
+                    const images = detail?.output?.images;
                     if (!stage || !Array.isArray(images) || !images.length) return;
                     const file = images.at(-1);
                     if (!file?.filename) return;
                     this.properties.last_image = file;
                     this.properties.last_stage = stage;
-                    this.properties.last_prompt = promptsByRun.get(detail.prompt_id) ?? null;
+                    this.properties.last_prompt = promptsByRun.get(detail?.prompt_id) ?? null;
                     this.properties.stage_prompts ||= {};
                     this.properties.stage_prompts[id] = this.properties.last_prompt;
                     this.properties.stage_images ||= {};

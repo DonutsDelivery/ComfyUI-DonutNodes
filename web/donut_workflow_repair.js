@@ -97,6 +97,10 @@ export function repairStreamlinedWorkflow(workflow) {
                 }
             }
             const named = { ...positional, ...(node.widgets_values_named || {}) };
+            // Do not add an empty metadata object to a subgraph that has no
+            // promoted values. ComfyUI treats absent metadata differently
+            // from an explicitly saved empty object during some reloads.
+            const saveNamed = Object.hasOwn(node, "widgets_values_named") || Object.keys(named).length > 0;
             if (tag.schema === 1 && graph.nodes.some(n => n.type === "DonutPromptConditioning")) {
                 for (const name of ["prompt", "prompt_1", "text"]) if (!order.includes(name)) delete named[name];
             }
@@ -149,8 +153,8 @@ export function repairStreamlinedWorkflow(workflow) {
             const nextValues = order.map(name => named[name]);
             // Keep unknown named metadata; only the positional array is restricted
             // to actual promoted controls. No authoring text/settings are reset.
-            if (!same(inputs, oldInputs) || !same(outputs, oldOutputs) || !same(values, nextValues) || !same(props, node.properties) || !same(named, node.widgets_values_named) || remaps.length) {
-                changes.push({ node, inputs, outputs, named, nextValues, props, remaps });
+            if (!same(inputs, oldInputs) || !same(outputs, oldOutputs) || !same(values, nextValues) || !same(props, node.properties) || (saveNamed && !same(named, node.widgets_values_named)) || remaps.length) {
+                changes.push({ node, inputs, outputs, named: saveNamed ? named : undefined, nextValues, props, remaps });
             }
         }
     }
@@ -158,7 +162,8 @@ export function repairStreamlinedWorkflow(workflow) {
     // No mutation until ALL scopes and instances have passed validation.
     for (const c of changes) {
         Object.assign(c.node, { inputs: c.inputs, outputs: c.outputs, widgets_values: c.nextValues,
-            widgets_values_named: c.named, properties: c.props });
+            properties: c.props });
+        if (c.named !== undefined) c.node.widgets_values_named = c.named;
         for (const { raw, field, index } of c.remaps) {
             if (Array.isArray(raw)) raw[fields.indexOf(field)] = index;
             else raw[field] = index;

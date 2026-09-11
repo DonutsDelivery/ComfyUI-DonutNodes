@@ -74,6 +74,7 @@ const element = (tag, text) => {
     if (text !== undefined) result.textContent = text;
     return result;
 };
+const newLoraRowId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
 function resolve(path) {
     let graph = app.rootGraph, node;
     for (const id of path) {
@@ -255,7 +256,15 @@ function install(node, appOnly = false) {
         add.type = "button";
         let catalog = ["None"], presets = ["None"], last;
         const information = new Map();
-        function save(rows, rebuild = true) { commit(target, state, JSON.stringify(rows)); target._donutNativeLoras.restore(); last = state.value; if (rebuild) render(); }
+        function save(rows, rebuild = true) {
+            commit(target, state, JSON.stringify(rows));
+            // The App Mode panel can finish loading before the native node
+            // extension. Persist the row either way; its native editor will
+            // restore from slots_json once it is ready.
+            target._donutNativeLoras?.restore?.();
+            last = state.value;
+            if (rebuild) render();
+        }
         function render() {
             last = state.value; list.replaceChildren();
             let rows;
@@ -346,7 +355,7 @@ function install(node, appOnly = false) {
                 list.append(box);
             });
         }
-        add.onclick = () => save([...decodeRows(state.value), {id:crypto.randomUUID(), enabled:true, lora_name:"None", model_weight:1, clip_weight:0, inherit_block_vector:true}]);
+        add.onclick = () => save([...decodeRows(state.value), {id:newLoraRowId(), enabled:true, lora_name:"None", model_weight:1, clip_weight:0, inherit_block_vector:true}]);
         const refreshList = element("button", "Refresh installed LoRAs"); refreshList.type = "button";
         refreshList.onclick = async () => {
             refreshList.disabled = true;

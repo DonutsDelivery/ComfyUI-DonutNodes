@@ -118,3 +118,46 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   assert.equal(method.value, "capitan01R Krea2T-Enhancer operation");
   assert.equal(composition.value, "Fusion only");
 });
+
+test("App Mode adds a LoRA before its native editor has initialized", () => {
+  let extension, Panel;
+  const state = { name: "slots_json", value: "[]", callback() {} };
+  const target = {
+    widgets: [state, { name: "model_type", value: "Auto" }, { name: "civitai_lookup", value: "Off" }],
+    graph: { beforeChange() {}, afterChange() {} }, setDirtyCanvas() {},
+  };
+  const stage = { subgraph: { getNodeById: id => id === 1055 ? target : undefined } };
+  const rootGraph = { getNodeById: id => id === 1138 ? stage : undefined };
+  class LGraphNode {
+    constructor(title) { this.title = title; this.widgets = []; this.properties = {}; this.size = [460, 510]; }
+    addDOMWidget(name, type, element, options) { const widget = { name, type, element, options }; this.widgets.push(widget); return widget; }
+    setDirtyCanvas() {}
+  }
+  const context = vm.createContext({
+    app: { rootGraph, registerExtension(value) { extension = value; } },
+    api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
+    document: { activeElement: null, createElement: tag => new Element(tag) },
+    IntersectionObserver: class { observe() {} disconnect() {} }, queueMicrotask() {},
+    createLoraService: () => ({ catalog: async () => ({ loras: ["None", "example.safetensors"], presets: ["None"] }) }),
+    decodeRows: value => JSON.parse(value || "[]"), moveRow: rows => rows,
+    createLoraToolbar: () => new Element("div"), renderLoraInformation: () => ({}),
+    weightControl: () => ({ element: new Element("input"), refresh() {} }), vectorControl: () => ({}),
+    promptTools: () => ({}), wildcardLibrary: () => new Element("div"),
+    fitModule() {}, fitTextarea() {}, scheduleLayout() {},
+  });
+  const source = fs.readFileSync(new URL("../web/donut_app_controls.js", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  vm.runInContext(source, context);
+  extension.registerCustomNodes();
+  const panel = new Panel();
+  panel.properties.donut_app_controls = { groups: [{ title: "LoRAs", loras: [1138, 1055] }] };
+  panel._donutAppControls.render();
+  const walk = value => [value, ...value.children.flatMap(walk)];
+  const add = walk(panel._donutAppControls.root).find(item => item.textContent === "Add LoRA");
+  assert.ok(add);
+  assert.doesNotThrow(() => add.onclick());
+  const rows = JSON.parse(state.value);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].lora_name, "None");
+  assert.ok(rows[0].id);
+});

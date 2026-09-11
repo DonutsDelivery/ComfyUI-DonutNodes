@@ -122,7 +122,7 @@ test('real PNG workflow preserves layout, prompts, LoRAs and all semantic links'
     for(const [id,n] of all(before)){
         const a=after.get(id);for(const k of ['pos','size','title','mode','type','widgets_values','widgets_values_named']) assert.deepEqual(clone(a[k]),n[k],`${id} ${k}`);
     }
-    const stage=w.nodes.find(n=>n.id===1014);assert.equal(stage.inputs.length,37);assert.equal(stage.widgets_values.length,25);assert.equal(repair(w),false);
+    const stage=w.nodes.find(n=>n.id===1014);assert.equal(stage.inputs.length,45);assert.equal(stage.widgets_values.length,29);assert.equal(repair(w),false);
 });
 
 test('connected seeds may omit their unused cache and survive JSON reload',()=>{

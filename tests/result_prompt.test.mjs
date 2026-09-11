@@ -30,3 +30,22 @@ test('result keeps the expanded prompt for its run and selected stage', () => {
     node.root.children[1].value='912'; node.root.children[1].onchange();
     assert.equal(text.textContent,'woman holding a donut');
 });
+
+test('empty execution events do not interrupt the workflow UI', () => {
+    let extension, Node;
+    const listeners = {};
+    const el = () => ({children: [], append(...items) {this.children.push(...items);}, setAttribute() {}});
+    const sandbox = {URLSearchParams, document: {createElement:el},
+        app: {registerExtension: value => extension=value},
+        api: {apiURL: x=>x, addEventListener:(name, fn)=>listeners[name]=fn},
+        createProgress: () => ({element: {style: {}}, attach() {}, detach() {}}),
+        fitModule() {},
+        LGraphNode: class {addDOMWidget(name,type,root) {this.root=root; return {options:{}};}},
+        LiteGraph: {registerNodeType:(name, cls)=>Node=cls}};
+    vm.createContext(sandbox);
+    vm.runInContext(fs.readFileSync(new URL('../web/donut_latest_preview.js', import.meta.url),'utf8').replace(/^import .*;\n/gm,''),sandbox);
+    extension.registerCustomNodes();
+    const node = new Node(); node.onAdded();
+    assert.doesNotThrow(() => listeners.executed({}));
+    assert.doesNotThrow(() => listeners.executed());
+});

@@ -26,3 +26,9 @@ At 2026-09-10T15:51:37Z, the exact-version Registry check returned
 approval is unverified. Because this release changes package contents, a
 five-minute follow-up is scheduled until the exact version becomes Active or
 Flagged.
+
+At 2026-09-10T17:02:56Z, the exact-version Registry check returned
+`NodeVersionStatusActive`. The published ZIP was downloaded again, passed
+archive integrity validation, and retained SHA-256
+`8015ffaea69d5b065946063f6f88739e80580f0e6240e60deb4c900866f7ff2d`.
+Registry approval is verified.
