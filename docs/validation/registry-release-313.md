@@ -54,3 +54,8 @@ Follow-up check at 2026-09-11T21:37:31Z returned the same
 `NodeVersionStatusPending` status and empty reason. The published ZIP passed
 `unzip -t` and retained SHA-256
 `c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
+
+Follow-up check at 2026-09-11T21:43:01Z returned the same
+`NodeVersionStatusPending` status and empty reason. The published ZIP passed
+`unzip -t` and retained SHA-256
+`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
