@@ -140,6 +140,8 @@ class FakePatcher:
         clone = FakePatcher(self.model, self._key_patches)
         clone.injections = {key: list(value) for key, value in self.injections.items()}
         clone.patches_uuid = self.patches_uuid
+        if hasattr(self, "model_options"):
+            clone.model_options = dict(self.model_options)
         clone.attachments = dict(self.attachments)
         clone.additional_models = {
             key: [model.clone() for model in models]
@@ -186,6 +188,27 @@ class InputSchemaTests(unittest.TestCase):
         ]
         self.assertEqual(required, expected)
         self.assertEqual(inputs['optional']['execution_mode'][1]['default'], 'Comfy patches')
+
+    def test_conflicting_input_modes_are_rejected(self):
+        model1 = FakePatcher(TinyKrea())
+        model2 = FakePatcher(TinyKrea())
+        model1.model_options = {"donut_lora_execution_mode": "Comfy patches"}
+        model2.model_options = {"donut_lora_execution_mode": "Experimental bypass"}
+        with self.assertRaisesRegex(ValueError, "Global LoRA execution mode differs"):
+            module.DonutModelMergeKrea2().merge(model1, model2)
+
+    def test_input_mode_is_inherited_and_published_on_merge_output(self):
+        model1 = FakePatcher(TinyKrea())
+        model2 = FakePatcher(TinyKrea())
+        model1.model_options = {"donut_lora_execution_mode": "Experimental bypass"}
+        merged, = module.DonutModelMergeKrea2().merge(
+            model1, model2, execution_mode="Comfy patches",
+            **{"first.": 1.0, "blocks.0.": 1.0},
+        )
+        self.assertEqual(
+            merged.model_options["donut_lora_execution_mode"],
+            "Experimental bypass",
+        )
 
 
 class AdapterTests(unittest.TestCase):

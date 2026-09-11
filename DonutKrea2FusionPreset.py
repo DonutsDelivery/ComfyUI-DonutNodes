@@ -10,6 +10,7 @@ import math
 import uuid
 
 from . import DonutKrea2FusionControl as base
+from .donut_lora_execution import EXECUTION_MODES, publish_execution_mode, resolve_execution_mode
 
 
 UI_MODE_SIMPLE = "Simple"
@@ -55,7 +56,7 @@ UNCENSORFIX_CONTROL_MODES = (UNCENSORFIX_LORA_ONLY, UNCENSORFIX_WITH_CONTROLS)
 FUSION_ONLY = "Fusion only"
 FUSION_WITH_LORA = "Fusion + LoRA"
 FUSION_WITH_WEIGHTS = "Fusion + UncensorFix weights"
-UNCENSORFIX_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
+UNCENSORFIX_EXECUTION_MODES = EXECUTION_MODES
 _UNCENSORFIX_SOURCE_ID_PREFIX = "donut_uncensorfix_source_identity:"
 
 
@@ -75,8 +76,7 @@ def _uncensorfix_factors():
 
 def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
     """Apply embedded factors using the selected Donut LoRA execution path."""
-    if execution_mode not in UNCENSORFIX_EXECUTION_MODES:
-        raise ValueError(f"Unknown UncensorFix execution mode: {execution_mode}")
+    execution_mode = resolve_execution_mode(model, execution_mode)
     strength = float(strength)
     if not math.isfinite(strength):
         raise ValueError("UncensorFix strength must be finite")
@@ -181,6 +181,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
             f"; uncensorfix_bypass_source_targets={len(source_keys)}"
             f"; uncensorfix_model_targets={len(main_patches)}"
         )
+    publish_execution_mode(patched, execution_mode)
     return patched, len(loaded), source_details
 
 
@@ -243,7 +244,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         })
         optional["execution_mode"] = (list(UNCENSORFIX_EXECUTION_MODES), {
             "default": "Comfy patches",
-            "tooltip": "UncensorFix only: match Donut Apply LoRA Stack's execution_mode. "
+            "tooltip": "Inherited from the upstream global LoRA execution mode; this legacy "
+            "widget is ignored when the model already carries a selection. "
                        "Experimental bypass reuses its forward-adapter path and compatibility fallbacks. "
                        "The two execution modes are not numerically interchangeable, especially with quantization.",
         })
@@ -275,6 +277,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             result = list(super().apply(**delegated))
             result[-1] = _rewrite_preset_diagnostics(result[-1], base.PRESET_MANUAL, preset)
             if uncensorfix_controls in (FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
+                execution_mode = resolve_execution_mode(kwargs.get("model"), execution_mode)
                 fallback = kwargs.get("tap_strength", 1.0) if uncensorfix_controls == FUSION_WITH_LORA else 1.0
                 strength = float(fallback if uncensorfix_strength is None else uncensorfix_strength)
                 result[0], count, source = _apply_uncensorfix(result[0], strength, execution_mode)
@@ -303,6 +306,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             return (inputs["model"], *conditionings, diagnostics)
 
         if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
+            execution_mode = resolve_execution_mode(kwargs.get("model"), execution_mode)
             if uncensorfix_controls not in UNCENSORFIX_CONTROL_MODES:
                 raise ValueError(f"Unknown UncensorFix controls mode: {uncensorfix_controls}")
             strength = float(kwargs.get("tap_strength", 1.0) if uncensorfix_strength is None else uncensorfix_strength)

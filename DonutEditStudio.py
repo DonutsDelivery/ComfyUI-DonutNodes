@@ -35,6 +35,11 @@ ASPECT_RATIOS = {
 RESOLUTION_MODES = ["Preset", "Reference A · megapixels", "Reference A · crop only", "Custom"]
 _EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
 
+try:
+    from .donut_lora_execution import publish_execution_mode, resolve_execution_mode
+except ImportError:
+    from donut_lora_execution import publish_execution_mode, resolve_execution_mode
+
 
 def _reference_root():
     return Path(folder_paths.get_user_directory()) / "donut" / "edit_references"
@@ -144,11 +149,7 @@ def _crop_reference(image, size, x, y, crop_only=False):
 
 
 def _load_edit_lora(model, lora_name, strength):
-    model_options = getattr(model, "model_options", {})
-    mode = (
-        model_options.get("donut_lora_execution_mode", "Comfy patches")
-        if isinstance(model_options, dict) else "Comfy patches"
-    )
+    mode = resolve_execution_mode(model)
     if mode == "Experimental bypass":
         import comfy.utils
         from .DonutSafeApplyLoRAStack import _apply_bypass_applications
@@ -160,6 +161,7 @@ def _load_edit_lora(model, lora_name, strength):
 
 def _record_edit_lora(model, lora_name, strength, execution_mode):
     """Tag the clone so downstream edit samplers can preserve model branches."""
+    publish_execution_mode(model, execution_mode)
     options = getattr(model, "model_options", None)
     if not isinstance(options, dict):
         return model
@@ -260,11 +262,7 @@ class DonutEditStudio:
                 edit_model = _load_edit_lora(model, lora_name, lora_strength)
                 if edit_model is model and hasattr(model, "clone"):
                     edit_model = model.clone()
-                source_options = getattr(model, "model_options", {})
-                execution_mode = (
-                    source_options.get("donut_lora_execution_mode", "Comfy patches")
-                    if isinstance(source_options, dict) else "Comfy patches"
-                )
+                execution_mode = resolve_execution_mode(model)
                 edit_model = _record_edit_lora(
                     edit_model, lora_name, lora_strength,
                     execution_mode,

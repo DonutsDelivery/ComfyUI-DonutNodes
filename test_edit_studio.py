@@ -161,6 +161,7 @@ class EditStudioTests(unittest.TestCase):
                 "execution_mode": "Comfy patches",
             },
         )
+        self.assertEqual(edited.model_options["donut_lora_execution_mode"], "Comfy patches")
 
     def test_exif_orientation_is_normalized_in_persistent_preview_and_crop(self):
         source = Image.new("RGB", (120, 80), "blue"); exif = Image.Exif(); exif[274] = 6

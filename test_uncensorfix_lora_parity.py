@@ -205,6 +205,20 @@ class UncensorFixParityTests(unittest.TestCase):
             self.assertIn("uncensorfix_controls=LoRA only", result[-1])
         self.assertEqual(self.base_calls, [])
 
+    def test_upstream_mode_controls_uncensorfix_execution(self):
+        self.model.model_options["donut_lora_execution_mode"] = "Comfy patches"
+        result = self.apply(execution_mode="Experimental bypass")
+        self.assertEqual(len(result[0].patches), 33)
+        self.shared_bypass.assert_not_called()
+        self.assertIn("uncensorfix_execution_mode=Comfy patches", result[-1])
+
+    def test_uncensorfix_publishes_selected_mode_for_downstream_nodes(self):
+        result = self.apply(execution_mode="Experimental bypass")
+        self.assertEqual(
+            result[0].model_options["donut_lora_execution_mode"],
+            "Experimental bypass",
+        )
+
     def test_inactive_malformed_controls_do_not_affect_lora_only(self):
         result = self.apply(per_layer_weights="not a profile", projector_strength=float("nan"))
         self.assertIs(result[1], self.cond)

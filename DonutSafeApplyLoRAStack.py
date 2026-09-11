@@ -30,6 +30,11 @@ from .donut_lora_nodes import (
 from .lora_block_weight import LoraLoaderBlockWeight
 from .donut_model_patch_routing import add_model_patch_components
 from .donut_krea2_merge_serialization import KREA2_MERGE_SOURCE_KEY, get_krea2_merge_bypass_info
+from .donut_lora_execution import (
+    EXECUTION_MODES,
+    publish_execution_mode,
+    resolve_execution_mode,
+)
 
 
 _KREA_BLOCK_RE = re.compile(r"(?<![a-z_])blocks\.(\d+)")
@@ -38,7 +43,7 @@ _KREA_VECTOR_SIZE = _KREA_BLOCK_COUNT + 1  # non-block bucket + 28 blocks
 _SAFE_ENERGY_BUDGET = 1.0
 _FUSION_BUDGET_KEY = "donut_krea2_fusion_budget"
 _FUSION_AWARE_MODES = ("Off", "Attenuate only", "Use headroom")
-_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
+_EXECUTION_MODES = EXECUTION_MODES
 _KREA_TEXT_RE = re.compile(r"txt(?:fusion|mlp)|text_(?:fusion|mlp)")
 _PROJECTOR_RE = re.compile(r"(?:txtfusion|text_fusion).*projector")
 _PROJECTOR_COLUMN_COUNT = 12
@@ -875,6 +880,8 @@ class DonutApplyLoRAStackSafe:
                 "execution_mode": (list(_EXECUTION_MODES), {
                     "default": "Comfy patches",
                     "tooltip": (
+                        "Global for the connected Donut model path: downstream edit and "
+                        "UncensorFix nodes inherit this selection. "
                         "Experimental bypass computes base(x) + LoRA(x) without rebuilding "
                         "quantized model weights. Supports linear LoRA, LoHa, LoKr, and "
                         "ungrouped zero-padded Conv1d/2d/3d LoRA/LoCon. LoHa builds a dense "
@@ -906,11 +913,10 @@ class DonutApplyLoRAStackSafe:
             "wiki/LoRA-Nodes#cr-apply-lora-stack"
         )
 
-        if execution_mode not in _EXECUTION_MODES:
-            raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
+        execution_mode = resolve_execution_mode(model, execution_mode)
         model = model.clone()
         model.model_options = dict(getattr(model, "model_options", {}))
-        model.model_options["donut_lora_execution_mode"] = execution_mode
+        publish_execution_mode(model, execution_mode)
         if lora_stack is None or len(lora_stack) == 0:
             return (model, clip, help_url)
         if fusion_aware not in _FUSION_AWARE_MODES:

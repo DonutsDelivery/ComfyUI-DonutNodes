@@ -207,6 +207,17 @@ class Krea2EditForwardTests(unittest.TestCase):
             base, "krea2/identity.safetensors", 0.75, "Comfy patches"
         )
 
+    def test_conflicting_edit_metadata_is_rejected(self):
+        base = FakeModelPatcher({"donut_lora_execution_mode": "Experimental bypass"})
+        edit = base.clone()
+        edit.model_options[module._EDIT_LORA_METADATA_KEY] = {
+            "name": "identity.safetensors",
+            "strength": 1.0,
+            "execution_mode": "Comfy patches",
+        }
+        with self.assertRaisesRegex(ValueError, "Global LoRA execution mode differs"):
+            module.resolve_krea2_edit_model(base, edit)
+
     def test_external_edit_model_keeps_historical_selection(self):
         base = FakeModelPatcher()
         edit = FakeModelPatcher()
@@ -215,7 +226,9 @@ class Krea2EditForwardTests(unittest.TestCase):
             "strength": 1.0,
             "execution_mode": "Comfy patches",
         }
-        self.assertIs(module.resolve_krea2_edit_model(base, edit), edit)
+        resolved = module.resolve_krea2_edit_model(base, edit)
+        self.assertIs(resolved, edit)
+        self.assertEqual(resolved.model_options["donut_lora_execution_mode"], "Comfy patches")
         with patch.object(module, "apply_krea2_edit_lora", return_value="phase") as apply:
             self.assertEqual(
                 module.resolve_krea2_edit_model(
@@ -224,6 +237,16 @@ class Krea2EditForwardTests(unittest.TestCase):
                 "phase",
             )
         apply.assert_called_once_with(base, "identity.safetensors", 1.0, "Comfy patches")
+
+    def test_reapplied_edit_lora_publishes_mode_on_result(self):
+        base = FakeModelPatcher()
+        loader = types.SimpleNamespace(load_lora_model_only=lambda *args: (base.clone(),))
+        with patch.object(module.nodes, "LoraLoaderModelOnly", return_value=loader, create=True):
+            result = module.apply_krea2_edit_lora(base, "identity.safetensors", 1.0, "Comfy patches")
+        self.assertEqual(
+            result.model_options["donut_lora_execution_mode"],
+            "Comfy patches",
+        )
 
     def test_legacy_edit_loader_merges_only_its_extra_patch_entries(self):
         base = FakeModelPatcher()

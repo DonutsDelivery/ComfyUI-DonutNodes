@@ -27,8 +27,22 @@ try:
 except ImportError:  # Older ComfyUI versions keep the regular merge available.
     PatcherInjection = None
 
+try:
+    from .donut_lora_execution import (
+        EXECUTION_MODES,
+        get_execution_mode,
+        publish_execution_mode,
+        resolve_execution_mode,
+    )
+except ImportError:
+    from donut_lora_execution import (
+        EXECUTION_MODES,
+        get_execution_mode,
+        publish_execution_mode,
+        resolve_execution_mode,
+    )
 
-_EXECUTION_MODES = ("Comfy patches", "Experimental bypass")
+_EXECUTION_MODES = EXECUTION_MODES
 _DIFFUSION_PREFIX = "diffusion_model."
 _INJECTION_KEY = "donut_krea2_model_merge_bypass"
 _SOURCE_MODELS_KEY = "donut_krea2_model_merge_sources"
@@ -501,6 +515,7 @@ class DonutModelMergeKrea2:
                 "execution_mode": (list(_EXECUTION_MODES), {
                     "default": "Comfy patches",
                     "tooltip": (
+                        "Sets the global mode for the connected Donut model path. "
                         "Experimental bypass is hybrid: exact 0.0 model2 swaps use "
                         "runtime forwarding for compatible linear layers, while "
                         "partial ratios use normal Comfy merged weights so inference "
@@ -522,10 +537,16 @@ class DonutModelMergeKrea2:
     )
 
     def merge(self, model1, model2, execution_mode="Comfy patches", **ratios):
-        if execution_mode not in _EXECUTION_MODES:
-            raise ValueError(f"Unknown Krea2 merge execution mode: {execution_mode}")
+        mode1 = get_execution_mode(model1)
+        mode2 = get_execution_mode(model2)
+        if mode1 is not None and mode2 is not None and mode1 != mode2:
+            raise ValueError(
+                "Global LoRA execution mode differs between the two merge inputs: "
+                f"{mode1} vs {mode2}"
+            )
+        execution_mode = mode1 or mode2 or resolve_execution_mode(model1, execution_mode)
         if execution_mode == "Comfy patches":
-            return (_regular_merge(model1, model2, ratios),)
+            return (publish_execution_mode(_regular_merge(model1, model2, ratios), execution_mode),)
 
         prerequisite_error = _bypass_prerequisite_error(model1, model2)
         if prerequisite_error is not None:
@@ -533,7 +554,7 @@ class DonutModelMergeKrea2:
                 "[DonutModelMergeKrea2] Experimental bypass used the regular "
                 f"compatibility path: {prerequisite_error}"
             )
-            return (_regular_merge(model1, model2, ratios),)
+            return (publish_execution_mode(_regular_merge(model1, model2, ratios), execution_mode),)
 
         merged = model1.clone()
         source = model2.clone()
@@ -563,7 +584,7 @@ class DonutModelMergeKrea2:
                 "[DonutModelMergeKrea2] Experimental bypass used Comfy patches "
                 f"for {partial_count} partial state key(s); no runtime swaps needed"
             )
-            return (merged,)
+            return (publish_execution_mode(merged, execution_mode),)
 
         merged.set_additional_models(_SOURCE_MODELS_KEY, [source])
         merged.set_injections(
@@ -580,7 +601,7 @@ class DonutModelMergeKrea2:
             f"{len(plans)} exact model2 swap hook(s); kept {regular_count} "
             f"state key(s) on Comfy's regular path ({partial_count} partial)"
         )
-        return (merged,)
+        return (publish_execution_mode(merged, execution_mode),)
 
 
 NODE_CLASS_MAPPINGS = {

@@ -59,3 +59,10 @@ Follow-up check at 2026-09-11T21:43:01Z returned the same
 `NodeVersionStatusPending` status and empty reason. The published ZIP passed
 `unzip -t` and retained SHA-256
 `c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
+
+Follow-up check at 2026-09-11T22:23:55Z returned
+`NodeVersionStatusActive` for exact version `3.0.13` with status reason
+`Passed automated checks`. The published ZIP returned HTTP 200, passed
+`unzip -t`, and retained SHA-256
+`c6cc3503fbae6fdd750e05450559ff652d4fb595ba394b3a41c0188b35c62d42`.
+Registry approval is confirmed.

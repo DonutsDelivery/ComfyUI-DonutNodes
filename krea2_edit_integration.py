@@ -23,6 +23,21 @@ _EDIT_WRAPPER_KEY = "donut_krea2_edit"
 _LEGACY_EDIT_WRAPPER_KEY = "krea2_edit"
 _EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
 
+try:
+    from .donut_lora_execution import (
+        EXECUTION_MODES,
+        get_execution_mode,
+        publish_execution_mode,
+        resolve_execution_mode,
+    )
+except ImportError:
+    from donut_lora_execution import (
+        EXECUTION_MODES,
+        get_execution_mode,
+        publish_execution_mode,
+        resolve_execution_mode,
+    )
+
 
 def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
     """Apply the Edit Studio LoRA to an already-prepared model branch.
@@ -32,11 +47,7 @@ def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
     that branch carries Fusion Control, UncensorFix, or another upstream
     patch that the Edit Studio clone did not receive.
     """
-    model_options = getattr(model, "model_options", {})
-    if not isinstance(model_options, dict):
-        model_options = {}
-    if execution_mode is None:
-        execution_mode = model_options.get("donut_lora_execution_mode", "Comfy patches")
+    execution_mode = resolve_execution_mode(model, execution_mode)
     if execution_mode == "Experimental bypass":
         import folder_paths
         import comfy.utils
@@ -46,14 +57,16 @@ def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
             from .DonutSafeApplyLoRAStack import _apply_bypass_applications
         except ImportError:
             from DonutSafeApplyLoRAStack import _apply_bypass_applications
-        return _apply_bypass_applications(
+        result = _apply_bypass_applications(
             model, [(lora, float(strength), ",".join(["1"] * 29))],
         )
-    if execution_mode != "Comfy patches":
-        raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
-    return nodes.LoraLoaderModelOnly().load_lora_model_only(
-        model, lora_name, float(strength),
-    )[0]
+    else:
+        if execution_mode != "Comfy patches":
+            raise ValueError(f"Unknown LoRA execution mode: {execution_mode}")
+        result = nodes.LoraLoaderModelOnly().load_lora_model_only(
+            model, lora_name, float(strength),
+        )[0]
+    return publish_execution_mode(result, execution_mode)
 
 
 def _edit_lora_metadata(model):
@@ -66,7 +79,7 @@ def _edit_lora_metadata(model):
     name = metadata.get("name")
     strength = metadata.get("strength")
     mode = metadata.get("execution_mode", "Comfy patches")
-    if not isinstance(name, str) or not name or mode not in ("Comfy patches", "Experimental bypass"):
+    if not isinstance(name, str) or not name or mode not in EXECUTION_MODES:
         return None
     try:
         strength = float(strength)
@@ -151,6 +164,12 @@ def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True
     if edit_model is None:
         return model
     metadata = _edit_lora_metadata(edit_model)
+    target_mode = get_execution_mode(model)
+    if metadata is not None and target_mode is not None and target_mode != metadata[2]:
+        raise ValueError(
+            "Global LoRA execution mode differs between the edit and sampler branches: "
+            f"{metadata[2]} vs {target_mode}"
+        )
     if metadata is None:
         if not fallback_to_edit_model and _same_model_root(model, edit_model):
             return model
@@ -158,10 +177,10 @@ def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True
             return _merge_legacy_edit_patches(model, edit_model)
         return edit_model if fallback_to_edit_model else model
     if model is edit_model or _edit_lora_metadata(model) == metadata:
-        return model
+        return publish_execution_mode(model, metadata[2])
     if not _same_model_root(model, edit_model):
         if fallback_to_edit_model:
-            return edit_model
+            return publish_execution_mode(edit_model, metadata[2])
         name, strength, execution_mode = metadata
         return apply_krea2_edit_lora(model, name, strength, execution_mode)
     name, strength, execution_mode = metadata

@@ -406,6 +406,25 @@ class SafetyCompatibilityTests(unittest.TestCase):
             self.assertEqual(output.model_options["donut_lora_execution_mode"], mode)
             self.assertEqual(original.model_options, {})
 
+    def test_upstream_mode_overrides_a_downstream_widget_selection(self):
+        original = types.SimpleNamespace(model_options={
+            "donut_lora_execution_mode": "Experimental bypass",
+        })
+        original.clone = lambda: types.SimpleNamespace(
+            model_options=dict(original.model_options),
+        )
+        output = module.DonutApplyLoRAStackSafe().apply_stack(
+            original, None, [], execution_mode="Comfy patches",
+        )[0]
+        self.assertEqual(
+            output.model_options["donut_lora_execution_mode"],
+            "Experimental bypass",
+        )
+        self.assertEqual(
+            original.model_options["donut_lora_execution_mode"],
+            "Experimental bypass",
+        )
+
     def test_bypass_uses_regular_path_with_existing_runtime_injections(self):
         cloned = types.SimpleNamespace(
             model=types.SimpleNamespace(state_dict=lambda: {}),
