@@ -1,0 +1,85 @@
+{
+  "captured_on": "2026-09-12",
+  "timezone_for_local_times": "Europe/Copenhagen",
+  "runs": [
+    {
+      "kind": "historical_baseline_success",
+      "prompt_id": "5ac2a4c5-955b-43bf-aea6-00f968ed1977",
+      "workflow_sha256": "093581cfb61bb5a494e70ed51317ff980f4fe2ae02e3e5c8a316aebefc3b2a71",
+      "seed": 453968006882751,
+      "edit_studio_enabled": false,
+      "execution_start_utc": "2026-09-11T22:18:16.772Z",
+      "execution_success_utc": "2026-09-11T22:19:40.327Z",
+      "elapsed_seconds": 83.555,
+      "status": "success"
+    },
+    {
+      "kind": "historical_edit_enabled_success",
+      "prompt_id": "f5f7114d-cc07-4532-a0b7-b2fc4a733b4c",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "edit_studio_enabled": true,
+      "execution_start_utc": "2026-09-11T22:22:07.134Z",
+      "execution_success_utc": "2026-09-11T22:25:34.726Z",
+      "elapsed_seconds": 207.592,
+      "status": "success"
+    },
+    {
+      "kind": "historical_edit_enabled_success",
+      "prompt_id": "e22c77c6-96f5-47df-b4ff-c2fecf0f9b6c",
+      "workflow_sha256": "3836b9e93f1acf7b8ea72c16c01e346cc11a2c0f8ec91fd3d7b5df241733ba4f",
+      "seed": 878619610593303,
+      "edit_studio_enabled": true,
+      "execution_start_utc": "2026-09-11T22:28:11.600Z",
+      "execution_success_utc": "2026-09-11T22:31:30.099Z",
+      "elapsed_seconds": 198.499,
+      "status": "success"
+    },
+    {
+      "kind": "instrumented_exact_graph_oom",
+      "prompt_id": "44963eab-4df9-4216-925d-a14c776f903c",
+      "execution_start_utc": "2026-09-11T23:05:07.343Z",
+      "execution_error_utc": "2026-09-11T23:07:42.991Z",
+      "elapsed_seconds": 155.648,
+      "status": "error",
+      "node": "1014:989 DonutTiledUpscale",
+      "exception": "torch.OutOfMemoryError",
+      "failure_site": "krea2_nag.py:_nag_edit_block line 173, block.postnorm(positive)"
+    },
+    {
+      "kind": "instrumented_exact_graph_success",
+      "prompt_id": "60d9980a-8dcb-4e58-8d23-18bdb33f97a9",
+      "execution_start_utc": "2026-09-11T23:08:56.672Z",
+      "execution_success_utc": "2026-09-11T23:11:06.472Z",
+      "elapsed_seconds": 129.800,
+      "status": "success",
+      "cache_note": "ComfyUI reported execution_cached for the upstream nodes; this is not a clean cold-run measurement."
+    }
+  ],
+  "nag_profile": {
+    "captured_file_mtime_local": "2026-09-12T01:37:14+02:00",
+    "input_shape": [1, 16, 1, 216, 168],
+    "before_allocated_bytes": 2820154502,
+    "after_allocated_bytes": 2821315718,
+    "max_allocated_bytes": 6713547142,
+    "before_reserved_bytes": 2952790016,
+    "after_reserved_bytes": 7952400384,
+    "max_reserved_bytes": 7952400384,
+    "self_cuda_seconds": 32.931,
+    "self_cpu_seconds": 25.818,
+    "trace_id": "742775DC6F0C4887A8E77E014AEB4FFA",
+    "trace_sha256_gzip": "949107a9f2ead7beedf570e5fe73b9cbf7a4fafc4ed6386a646f987fc81a6080"
+  },
+  "failed_experiments": [
+    {
+      "name": "NAG normalization chunk size 256",
+      "result": "failed at the same RMSNorm allocation site; no reported memory relief",
+      "elapsed_seconds": 140.07
+    },
+    {
+      "name": "ComfyUI --vram-headroom 0.5",
+      "result": "failed at the same full-frame NAG RMSNorm site",
+      "elapsed_seconds": 100.50
+    }
+  ]
+}
