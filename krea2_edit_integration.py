@@ -22,6 +22,7 @@ _REQUIRED_NODE_IDS = ("Krea2EditGroundedEncode",)
 _EDIT_WRAPPER_KEY = "donut_krea2_edit"
 _LEGACY_EDIT_WRAPPER_KEY = "krea2_edit"
 _EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
+_EDIT_BRANCH_METADATA_KEY = "donut_krea2_edit_branch"
 
 try:
     from .donut_lora_execution import (
@@ -66,7 +67,16 @@ def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
         result = nodes.LoraLoaderModelOnly().load_lora_model_only(
             model, lora_name, float(strength),
         )[0]
-    return publish_execution_mode(result, execution_mode)
+    result = publish_execution_mode(result, execution_mode)
+    options = getattr(result, "model_options", None)
+    if isinstance(options, dict):
+        options[_EDIT_BRANCH_METADATA_KEY] = True
+        options[_EDIT_LORA_METADATA_KEY] = {
+            "name": str(lora_name),
+            "strength": float(strength),
+            "execution_mode": execution_mode,
+        }
+    return result
 
 
 def _edit_lora_metadata(model):
@@ -88,6 +98,11 @@ def _edit_lora_metadata(model):
     if not math.isfinite(strength) or strength == 0.0:
         return None
     return name, strength, mode
+
+
+def _is_edit_studio_branch(model):
+    options = getattr(model, "model_options", None)
+    return isinstance(options, dict) and options.get(_EDIT_BRANCH_METADATA_KEY) is True
 
 
 def _same_model_root(first, second):
@@ -171,6 +186,15 @@ def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True
             f"{metadata[2]} vs {target_mode}"
         )
     if metadata is None:
+        # Edit Studio explicitly marks its output even when identity
+        # preservation is disabled.  That output is an adapter side branch,
+        # not an authoritative replacement for the sampler branch.  Fusion
+        # Control can give the sampler a different root object (notably on
+        # ROCm), so root identity cannot decide ownership here.
+        if _is_edit_studio_branch(edit_model):
+            if not fallback_to_edit_model:
+                return model
+            return _merge_legacy_edit_patches(model, edit_model)
         if not fallback_to_edit_model and _same_model_root(model, edit_model):
             return model
         if fallback_to_edit_model and _same_model_root(model, edit_model):
@@ -178,11 +202,6 @@ def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True
         return edit_model if fallback_to_edit_model else model
     if model is edit_model or _edit_lora_metadata(model) == metadata:
         return publish_execution_mode(model, metadata[2])
-    if not _same_model_root(model, edit_model):
-        if fallback_to_edit_model:
-            return publish_execution_mode(edit_model, metadata[2])
-        name, strength, execution_mode = metadata
-        return apply_krea2_edit_lora(model, name, strength, execution_mode)
     name, strength, execution_mode = metadata
     return apply_krea2_edit_lora(model, name, strength, execution_mode)
 

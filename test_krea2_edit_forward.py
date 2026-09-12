@@ -218,7 +218,7 @@ class Krea2EditForwardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Global LoRA execution mode differs"):
             module.resolve_krea2_edit_model(base, edit)
 
-    def test_external_edit_model_keeps_historical_selection(self):
+    def test_recorded_edit_lora_reapplies_across_different_model_roots(self):
         base = FakeModelPatcher()
         edit = FakeModelPatcher()
         edit.model_options[module._EDIT_LORA_METADATA_KEY] = {
@@ -226,17 +226,17 @@ class Krea2EditForwardTests(unittest.TestCase):
             "strength": 1.0,
             "execution_mode": "Comfy patches",
         }
-        resolved = module.resolve_krea2_edit_model(base, edit)
-        self.assertIs(resolved, edit)
-        self.assertEqual(resolved.model_options["donut_lora_execution_mode"], "Comfy patches")
-        with patch.object(module, "apply_krea2_edit_lora", return_value="phase") as apply:
-            self.assertEqual(
-                module.resolve_krea2_edit_model(
-                    base, edit, fallback_to_edit_model=False,
-                ),
-                "phase",
-            )
+        with patch.object(module, "apply_krea2_edit_lora", return_value="resolved") as apply:
+            resolved = module.resolve_krea2_edit_model(base, edit)
+
+        self.assertEqual(resolved, "resolved")
         apply.assert_called_once_with(base, "identity.safetensors", 1.0, "Comfy patches")
+
+    def test_unknown_external_edit_model_keeps_historical_selection(self):
+        base = FakeModelPatcher()
+        edit = FakeModelPatcher()
+
+        self.assertIs(module.resolve_krea2_edit_model(base, edit), edit)
 
     def test_reapplied_edit_lora_publishes_mode_on_result(self):
         base = FakeModelPatcher()
@@ -247,6 +247,31 @@ class Krea2EditForwardTests(unittest.TestCase):
             result.model_options["donut_lora_execution_mode"],
             "Comfy patches",
         )
+        self.assertEqual(
+            result.model_options[module._EDIT_LORA_METADATA_KEY],
+            {
+                "name": "identity.safetensors",
+                "strength": 1.0,
+                "execution_mode": "Comfy patches",
+            },
+        )
+
+    def test_resolving_an_already_reapplied_edit_lora_is_idempotent(self):
+        base = FakeModelPatcher()
+        metadata = {
+            "name": "identity.safetensors",
+            "strength": 1.0,
+            "execution_mode": "Comfy patches",
+        }
+        base.model_options[module._EDIT_LORA_METADATA_KEY] = dict(metadata)
+        edit = FakeModelPatcher()
+        edit.model_options[module._EDIT_LORA_METADATA_KEY] = dict(metadata)
+
+        with patch.object(module, "apply_krea2_edit_lora") as apply:
+            resolved = module.resolve_krea2_edit_model(base, edit)
+
+        self.assertIs(resolved, base)
+        apply.assert_not_called()
 
     def test_legacy_edit_loader_merges_only_its_extra_patch_entries(self):
         base = FakeModelPatcher()
@@ -262,6 +287,17 @@ class Krea2EditForwardTests(unittest.TestCase):
 
         self.assertIsNot(resolved, base)
         self.assertEqual(resolved.patches["weight"], [shared, extra])
+
+    def test_marked_edit_branch_without_identity_keeps_sampler_branch_across_roots(self):
+        base = FakeModelPatcher()
+        edit = FakeModelPatcher()
+        edit.model_options[module._EDIT_BRANCH_METADATA_KEY] = True
+        base.patches = {}
+        edit.patches = {}
+
+        resolved = module.resolve_krea2_edit_model(base, edit)
+
+        self.assertIs(resolved, base)
 
     def test_two_references_keep_order_frames_and_target_slice_with_cfg_batch(self):
         model = FakeDiffusionModel()

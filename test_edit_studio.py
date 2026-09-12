@@ -162,6 +162,23 @@ class EditStudioTests(unittest.TestCase):
             },
         )
         self.assertEqual(edited.model_options["donut_lora_execution_mode"], "Comfy patches")
+        self.assertTrue(edited.model_options[module._EDIT_BRANCH_METADATA_KEY])
+
+    def test_disabled_identity_lora_marks_a_cloned_edit_side_branch(self):
+        source = types.SimpleNamespace(
+            model_options={"transformer_options": {}},
+            clone=lambda: types.SimpleNamespace(model_options={"transformer_options": {}}),
+        )
+        studio = module.DonutEditStudio()
+        with patch.object(module, "_open_reference", return_value=Image.new("RGB", (64, 64))), \
+             patch.object(module, "_crop_reference", return_value="reference"):
+            result = studio.prepare(
+                True, "a", "", False, "prompt", "Preset", "1:1 Square",
+                1.0, 64, 64, "64", 64, "None", 0.0, model=source,
+            )
+
+        self.assertIsNot(result[6], source)
+        self.assertTrue(result[6].model_options[module._EDIT_BRANCH_METADATA_KEY])
 
     def test_exif_orientation_is_normalized_in_persistent_preview_and_crop(self):
         source = Image.new("RGB", (120, 80), "blue"); exif = Image.Exif(); exif[274] = 6

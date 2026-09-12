@@ -34,6 +34,7 @@ ASPECT_RATIOS = {
 }
 RESOLUTION_MODES = ["Preset", "Reference A · megapixels", "Reference A · crop only", "Custom"]
 _EDIT_LORA_METADATA_KEY = "donut_krea2_edit_lora"
+_EDIT_BRANCH_METADATA_KEY = "donut_krea2_edit_branch"
 
 try:
     from .donut_lora_execution import publish_execution_mode, resolve_execution_mode
@@ -165,11 +166,20 @@ def _record_edit_lora(model, lora_name, strength, execution_mode):
     options = getattr(model, "model_options", None)
     if not isinstance(options, dict):
         return model
+    options[_EDIT_BRANCH_METADATA_KEY] = True
     options[_EDIT_LORA_METADATA_KEY] = {
         "name": str(lora_name),
         "strength": float(strength),
         "execution_mode": execution_mode,
     }
+    return model
+
+
+def _record_edit_branch(model):
+    """Mark Edit Studio's side branch when identity preservation is off."""
+    options = getattr(model, "model_options", None)
+    if isinstance(options, dict):
+        options[_EDIT_BRANCH_METADATA_KEY] = True
     return model
 
 
@@ -267,6 +277,10 @@ class DonutEditStudio:
                     edit_model, lora_name, lora_strength,
                     execution_mode,
                 )
+            else:
+                if hasattr(model, "clone"):
+                    edit_model = model.clone()
+                edit_model = _record_edit_branch(edit_model)
         return (reference_a, reference_b, bool(enabled), *size, int(grounding_px), edit_model, prompt)
 
 
