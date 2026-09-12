@@ -34,6 +34,22 @@ class MemoryTests(unittest.TestCase):
         torch.testing.assert_close(actual, expected)
         self.assertEqual(seen, [4, 4, 4, 4, 3])
 
+    def test_reuse_stages_and_releases_once_per_chunked_call(self):
+        torch.manual_seed(9)
+        mlp = MLP()
+        x = torch.randn(2, 19, 8)
+        wrapped = TokenChunkedMLP(mlp.forward, 4, reuse_weights=True)
+        staged = []
+        released = []
+        wrapped._stage_weights = lambda value: staged.append(tuple(value.shape)) or object()
+        wrapped._release_weights = lambda value: released.append(value)
+        with torch.inference_mode():
+            expected = mlp(x)
+            actual = wrapped(x)
+        torch.testing.assert_close(actual, expected)
+        self.assertEqual(staged, [(2, 19, 8)])
+        self.assertEqual(len(released), 1)
+
     def test_object_patches_are_clone_local_and_idempotent(self):
         mlp = MLP()
         root = types.SimpleNamespace(blocks=[types.SimpleNamespace(mlp=mlp)], txtfusion=None, tproj=None)

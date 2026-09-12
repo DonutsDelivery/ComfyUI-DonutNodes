@@ -51,7 +51,7 @@
       "prompt_id": "60d9980a-8dcb-4e58-8d23-18bdb33f97a9",
       "execution_start_utc": "2026-09-11T23:08:56.672Z",
       "execution_success_utc": "2026-09-11T23:11:06.472Z",
-      "elapsed_seconds": 129.800,
+      "elapsed_seconds": 129.8,
       "status": "success",
       "cache_note": "ComfyUI reported execution_cached for the upstream nodes; this is not a clean cold-run measurement."
     },
@@ -92,11 +92,61 @@
       "elapsed_seconds": 130.71,
       "status": "error",
       "exception": "torch.OutOfMemoryError at DonutTiledUpscale full-frame NAG RMSNorm"
+    },
+    {
+      "kind": "measured_reuse_baseline_completed",
+      "prompt_id": "00c3c9c2-472e-4ac1-8c0d-353016b95f61",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "launch": "vram-headroom=2; disable-async-offload; disable-manager-ui; database-url=sqlite:////tmp/comfy-profile.db",
+      "reuse_setting": "DONUT_KREA2_REUSE_CHUNK_WEIGHTS unset",
+      "execution_start_local": "2026-09-12T03:02:48.356+02:00",
+      "execution_success_local": "2026-09-12T03:06:56.565+02:00",
+      "elapsed_seconds": 248.2,
+      "sampler_stage_seconds": {
+        "base": 86.21,
+        "first_upscale": 100.94,
+        "face_detailer": 36.64
+      },
+      "peak_memory_bytes": null,
+      "status": "success",
+      "outputs": {
+        "final_webp": "Final/6810394308996126.webp",
+        "preview_png": "ComfyUI_00712_.png"
+      }
+    },
+    {
+      "kind": "measured_reuse_candidate_completed",
+      "prompt_id": "b23901ef-4c64-4aed-8749-124a63879227",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "launch": "vram-headroom=2; disable-async-offload; disable-manager-ui; database-url=sqlite:////tmp/comfy-profile.db",
+      "reuse_setting": "DONUT_KREA2_REUSE_CHUNK_WEIGHTS=1",
+      "execution_start_local": "2026-09-12T03:08:17.522+02:00",
+      "execution_success_local": "2026-09-12T03:11:57.918+02:00",
+      "elapsed_seconds": 220.39,
+      "sampler_stage_seconds": {
+        "base": 84.14,
+        "first_upscale": 82.36,
+        "face_detailer": 35.31
+      },
+      "peak_memory_bytes": null,
+      "status": "success",
+      "outputs": {
+        "final_webp": "Final/6810394308996127.webp",
+        "preview_png": "ComfyUI_00713_.png"
+      }
     }
   ],
   "nag_profile": {
     "captured_file_mtime_local": "2026-09-12T01:37:14+02:00",
-    "input_shape": [1, 16, 1, 216, 168],
+    "input_shape": [
+      1,
+      16,
+      1,
+      216,
+      168
+    ],
     "before_allocated_bytes": 2820154502,
     "after_allocated_bytes": 2821315718,
     "max_allocated_bytes": 6713547142,
@@ -117,14 +167,95 @@
     {
       "name": "ComfyUI --vram-headroom 0.5",
       "result": "failed at the same full-frame NAG RMSNorm site",
-      "elapsed_seconds": 100.50
+      "elapsed_seconds": 100.5
     }
   ],
   "candidate_experiment": {
-    "change": "--disable-async-offload",
-    "reason": "directly changes the dynamic weight-staging scheduler implicated by trace attribution",
-    "result": "completed at 258.06 s while two restored-baseline attempts OOMed at 128.17 s and 130.71 s; no speedup claim",
-    "peak_memory_bytes": null,
-    "output_comparison": "unavailable because the successful candidate output was not retained after restart"
+    "change": "DONUT_KREA2_REUSE_CHUNK_WEIGHTS=1",
+    "implementation": "TokenChunkedMLP prefetches each MLP gate/up/down module once before the 1024-token chunk loop and cleans the prefetched state in finally",
+    "reason": "trace maps 94.7% of profiled HtoD time to repeated FP8 feed-forward weight staging",
+    "fixed_launch": "--vram-headroom 2 --disable-async-offload --disable-manager-ui --database-url sqlite:////tmp/comfy-profile.db",
+    "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+    "seed": 681039430899612,
+    "baseline_elapsed_seconds": 248.2,
+    "candidate_elapsed_seconds": 220.39,
+    "elapsed_delta_seconds": -27.81,
+    "elapsed_delta_percent": -11.2,
+    "sampler_stage_seconds": {
+      "baseline": {
+        "base": 86.21,
+        "first_upscale": 100.94,
+        "face_detailer": 36.64
+      },
+      "candidate": {
+        "base": 84.14,
+        "first_upscale": 82.36,
+        "face_detailer": 35.31
+      }
+    },
+    "peak_memory_bytes": {
+      "baseline": null,
+      "candidate": null
+    },
+    "output_comparison": {
+      "final_webp": {
+        "baseline": {
+          "path": "Final/6810394308996126.webp",
+          "bytes": 460012,
+          "sha256": "b2bffaaddd8a08f703d9fac1e1c94e1c1c60f0fc0f9880a097fb6b2980380ae4"
+        },
+        "candidate": {
+          "path": "Final/6810394308996127.webp",
+          "bytes": 460012,
+          "sha256": "b2bffaaddd8a08f703d9fac1e1c94e1c1c60f0fc0f9880a097fb6b2980380ae4"
+        },
+        "decoded": {
+          "size": [
+            1344,
+            1728
+          ],
+          "mode": "RGB",
+          "dtype": "uint8",
+          "finite": true,
+          "min": 0,
+          "max": 255
+        }
+      },
+      "preview_png": {
+        "baseline": {
+          "path": "ComfyUI_00712_.png",
+          "bytes": 147593,
+          "sha256": "b2ad1ff077f6aa5d67493a76ee7cdaff0502af4a24e3ffdb6088a7c3fbc54c41"
+        },
+        "candidate": {
+          "path": "ComfyUI_00713_.png",
+          "bytes": 147593,
+          "sha256": "b2ad1ff077f6aa5d67493a76ee7cdaff0502af4a24e3ffdb6088a7c3fbc54c41"
+        },
+        "decoded": {
+          "size": [
+            224,
+            288
+          ],
+          "mode": "RGB",
+          "dtype": "uint8",
+          "finite": true,
+          "min": 0,
+          "max": 255
+        }
+      },
+      "status": "byte-identical and finite for both fixed-seed outputs"
+    },
+    "result": "matched pair completed; candidate was 27.81 s faster; candidate retained as opt-in pending broader memory testing"
+  },
+  "transfer_measurement": {
+    "profile_trace_variant": "representative baseline; profiler capture used async offload enabled and was separate from the A/B pair",
+    "profiled_h2d_count": 2034,
+    "profiled_h2d_seconds": 7.52232,
+    "profiled_100664320_byte_count": 1680,
+    "profiled_100664320_byte_seconds": 7.122655,
+    "candidate_h2d_count": null,
+    "candidate_h2d_seconds": null,
+    "status": "A/B runs were not profiled; source-level staging lifetime changed, but hardware transfer reduction is unmeasured"
   }
 }
