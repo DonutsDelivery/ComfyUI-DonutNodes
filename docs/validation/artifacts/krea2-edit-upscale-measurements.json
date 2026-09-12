@@ -54,6 +54,44 @@
       "elapsed_seconds": 129.800,
       "status": "success",
       "cache_note": "ComfyUI reported execution_cached for the upstream nodes; this is not a clean cold-run measurement."
+    },
+    {
+      "kind": "measured_candidate_completed",
+      "prompt_id": "f8180f69-09c6-47ab-b599-10f84442bb98",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "launch_change": "--disable-async-offload",
+      "execution_start_local": "2026-09-12T02:38:31.188+02:00",
+      "execution_success_local": "2026-09-12T02:42:49.248+02:00",
+      "elapsed_seconds": 258.06,
+      "sampler_seconds": {
+        "base": 88.32,
+        "upscale": 109.77,
+        "face_detailer": 33.72
+      },
+      "peak_memory_bytes": null,
+      "status": "success",
+      "output_comparison": "not available; output was not retained after the candidate server restart"
+    },
+    {
+      "kind": "measured_restored_baseline_oom",
+      "prompt_id": "e68eaef6-8318-4ec2-a644-288e0641aca7",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "launch_change": "none (async offload enabled)",
+      "elapsed_seconds": 128.17,
+      "status": "error",
+      "exception": "torch.OutOfMemoryError at DonutTiledUpscale full-frame NAG RMSNorm"
+    },
+    {
+      "kind": "measured_restored_baseline_oom",
+      "prompt_id": "9a577781-3b3f-47d8-a76d-cdfa85724d39",
+      "workflow_sha256": "70ab95c7db13e3d23d75a7b2fb483000c52cc3b8b9582125f5ab4295b920409f",
+      "seed": 681039430899612,
+      "launch_change": "none (async offload enabled)",
+      "elapsed_seconds": 130.71,
+      "status": "error",
+      "exception": "torch.OutOfMemoryError at DonutTiledUpscale full-frame NAG RMSNorm"
     }
   ],
   "nag_profile": {
@@ -81,5 +119,12 @@
       "result": "failed at the same full-frame NAG RMSNorm site",
       "elapsed_seconds": 100.50
     }
-  ]
+  ],
+  "candidate_experiment": {
+    "change": "--disable-async-offload",
+    "reason": "directly changes the dynamic weight-staging scheduler implicated by trace attribution",
+    "result": "completed at 258.06 s while two restored-baseline attempts OOMed at 128.17 s and 130.71 s; no speedup claim",
+    "peak_memory_bytes": null,
+    "output_comparison": "unavailable because the successful candidate output was not retained after restart"
+  }
 }

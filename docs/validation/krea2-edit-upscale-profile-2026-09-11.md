@@ -30,6 +30,22 @@ The machine-local profiler capture was written at `2026-09-12T01:37:14+02:00`. I
 
 The top reported CUDA totals were `aten::linear` 18.412 s, Flash attention 9.238 s, pinned host-to-device copies 7.522 s, `aten::matmul` 7.928 s, `aten::mm` 7.672 s, and `aten::copy_` 10.091 s. These profiler totals are inclusive and can overlap; they are not an additive elapsed-time breakdown. The trace already shows Flash attention active. The linear total does not identify how much belongs to any proposed redundant projection until those projections are isolated and an A/B run completes.
 
+## Trace attribution and measured candidate
+
+The compressed Chrome trace was parsed by correlating each host-to-device copy with the next dequantization and linear operation on the same execution lane. Of the 2,034 transfers (7.522320 s, 178.6368 GB), 1,680 are 100,664,320-byte copies consuming 7.122655 s (94.7% of transfer time). Those copies feed `comfy_kitchen::dequantize_fp8` for `(6144, 16384)` weights and then `aten::linear` with `(1, 1024, 16384)` inputs (1,512 copies), `(1, 613, 16384)` inputs (84), and `(1, 43, 16384)` inputs (84). This is repeated FP8 feed-forward weight staging under dynamic offload, rather than image-input movement. The 37,749,760-byte and 9,438,208-byte groups similarly map to `(6144, 6144)` attention projections. The trace establishes the caller and transfer cost; it does not establish that eliminating the copies is numerically safe.
+
+The outermost `aten::linear` hierarchy contains 10,676 calls and 12.969 s inclusive CPU time. The largest attributed group is 1,008 `(1, 1024, 16384) × (6144, 16384)` calls: 6.503 s inclusive CPU, 2.915 s descendant kernel time, and 5.930 s in dequantization. Descendant times overlap across the hierarchy. The trace also reports 24.305 s of `Command Buffer Full` self CPU time across 16,645 events (94.14% of self CPU time), which means the host was blocked submitting more CUDA work; it is not 24.305 s of Python computation or an automatically recoverable amount.
+
+The measured candidate was ComfyUI's `--disable-async-offload`, chosen because the attributed cost is dynamic weight staging and the option changes its scheduling directly. The exact saved edit workflow and seed `681039430899612` were used. The candidate completed in 258.06 s, with log boundaries of 88.32 s for the base eight-step sampler, 109.77 s for the three-step 1.5× upscale sampler, and 33.72 s for the three-step face-detailer sampler. A restored baseline launch (`--vram-headroom 2`, async offload enabled) was run with the same payload twice during this check and both failed at the full-frame NAG RMSNorm allocation after 128.17 s and 130.71 s. The candidate therefore demonstrates a completion/reliability difference under the current GPU state, not a speedup; its end-to-end time is slower than the earlier historical successes. Peak allocator values were not emitted by these unprofiled successful runs, and the candidate output was not retained after the server restart, so no quality or pixel comparison is claimed.
+
+| A/B check | Launch change | Prompt/seed | Result | Elapsed |
+| --- | --- | --- | --- | ---: |
+| Restored baseline | async offload enabled | exact edit payload / 681039430899612 | OOM in full-frame NAG RMSNorm | 128.17 s |
+| Restored baseline | async offload enabled | exact edit payload / 681039430899612 | OOM in full-frame NAG RMSNorm | 130.71 s |
+| Candidate | `--disable-async-offload` | exact edit payload / 681039430899612 | success; output not retained for comparison | 258.06 s |
+
+Because the restored baseline did not complete, the candidate is not promoted as a performance change and no source patch is kept for it. The existing historical completed runs (207.592 s and 198.499 s) remain the only completed edit timings with async offload, but they used different seeds and were not a matched A/B pair.
+
 ## Failed experiments
 
 Two experiments did not produce a demonstrated optimization:
