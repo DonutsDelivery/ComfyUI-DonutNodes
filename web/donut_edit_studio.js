@@ -5,6 +5,7 @@ import { promptTools } from "./donut_wildcards.js";
 import { fitModule, fitTextarea } from "./donut_layout.js?v=15";
 
 const studios = new Set();
+let activeStudio = null;
 const CSS = `
 .donut-edit-studio { --de-bg:#14191f; --de-card:#1b222a; --de-line:#34404d; --de-text:#e8edf3; --de-dim:#9caebb; --de-accent:#92e4c7;
     box-sizing:border-box; width:100%; height:auto; overflow:visible; padding:16px; background:var(--de-bg); color:var(--de-text); border-radius:12px;
@@ -83,6 +84,17 @@ function button(text, label, action) {
     return value;
 }
 function textTarget(target) { return target?.closest?.("input,textarea,select,[contenteditable=true]"); }
+function clipboardImage(data) {
+    const files = [...(data?.files || [])];
+    const direct = files.find(file => file?.type?.startsWith("image/"));
+    if (direct) return direct;
+    for (const item of [...(data?.items || [])]) {
+        if (!item?.type?.startsWith("image/")) continue;
+        const file = item.getAsFile?.();
+        if (file) return file;
+    }
+    return null;
+}
 
 export function installEditStudio(node, definition) {
     if (node._donutEditStudio) return;
@@ -137,9 +149,10 @@ export function installEditStudio(node, definition) {
     function field(label, input) {
         const wrap = element("label", "de-field"); wrap.append(element("span", "", label), input); return wrap;
     }
-    function activate(key) {
+    function activate(key, claim = true) {
         activeSlot = key;
         for (const [name, slot] of Object.entries(slots)) slot.card.classList.toggle("de-active", name === key);
+        if (claim) activeStudio = studio;
     }
     function outputSize() {
         const image = get("enabled") && slots.a?.image;
@@ -230,7 +243,7 @@ export function installEditStudio(node, definition) {
         } catch { status("Click an image slot and press Ctrl+V, or use Upload.", true); }
     }
     function paste(event) {
-        const file = [...(event.clipboardData?.items || [])].find(item => item.type.startsWith("image/"))?.getAsFile();
+        const file = clipboardImage(event.clipboardData);
         if (!file) return false;
         event.preventDefault(); event.stopImmediatePropagation(); upload(activeSlot, file); return true;
     }
@@ -262,7 +275,7 @@ export function installEditStudio(node, definition) {
         stage.addEventListener("dragleave", () => stage.classList.remove("de-dragover"));
         stage.addEventListener("drop", event => {
             event.preventDefault(); event.stopPropagation(); stage.classList.remove("de-dragover"); activate(key);
-            const file = [...(event.dataTransfer?.files || [])].find(file => file.type.startsWith("image/")); if (file) upload(key, file);
+            const file = clipboardImage(event.dataTransfer); if (file) upload(key, file);
         });
         let drag;
         function moveCrop(event) {
@@ -391,8 +404,8 @@ export function installEditStudio(node, definition) {
     node.onAdded = function() { const result = added?.apply(this, arguments); disposed = false; studios.add(studio); observer.observe(root); render(); return result; };
     const observer = new ResizeObserver(() => { if (!disposed) for (const key of ["a", "b"]) draw(key); }); observer.observe(root);
     node.onRemoved = function() { disposed = true; studios.delete(studio); observer.disconnect(); return removed?.apply(this, arguments); };
-    root.addEventListener("paste", event => { if (!textTarget(event.target)) paste(event); });
-    activate("a"); render();
+    root.addEventListener("paste", event => { if (!textTarget(event.target)) paste(event); }, true);
+    activate("a", false); render();
 }
 
 app.registerExtension({
@@ -401,8 +414,14 @@ app.registerExtension({
         if (!document.getElementById("donut-edit-studio-style")) {
             const style = element("style"); style.id = "donut-edit-studio-style"; style.textContent = CSS; document.head.append(style);
         }
-        document.addEventListener("paste", event => {
-            if (textTarget(event.target) || event.target?.closest?.(".donut-edit-studio")) return;
+        window.addEventListener("paste", event => {
+            if (textTarget(event.target)) return;
+            const containing = [...studios].find(studio => studio.root.contains?.(event.target));
+            if (containing) { containing.paste(event); return; }
+            if (activeStudio && studios.has(activeStudio)
+                && activeStudio.root.contains?.(document.activeElement)) {
+                activeStudio.paste(event); return;
+            }
             const selected = Object.values(app.canvas?.selected_nodes || {});
             if (selected.length !== 1) return;
             const studio = selected[0]._donutEditStudio;
