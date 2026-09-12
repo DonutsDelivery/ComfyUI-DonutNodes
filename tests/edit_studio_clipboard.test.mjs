@@ -32,3 +32,9 @@ test("Edit Studio captures paste before ComfyUI document handlers", () => {
     assert.match(source, /window\.addEventListener\("paste",[\s\S]*?}, true\);/);
     assert.match(source, /activeStudio\.root\.contains\?\.\(document\.activeElement\)/);
 });
+
+test("Paste button arms the selected slot when browser clipboard access is blocked", () => {
+    assert.match(source, /typeof navigator\.clipboard\?\.read !== "function"/);
+    assert.match(source, /pasteButton\.classList\.add\("de-awaiting-paste"\)/);
+    assert.match(source, /browser blocked clipboard access, press Ctrl\+V now/);
+});

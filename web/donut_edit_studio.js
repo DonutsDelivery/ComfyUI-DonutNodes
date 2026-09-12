@@ -41,6 +41,7 @@ const CSS = `
 .donut-edit-studio .de-ref-meta { color:var(--de-dim); min-height:30px; padding:6px 10px 3px; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .donut-edit-studio .de-ref-actions { display:flex; gap:5px; padding:3px 9px 10px; }
 .donut-edit-studio .de-ref-actions button { font-size:12px; padding:5px 8px; }
+.donut-edit-studio .de-ref-actions button.de-awaiting-paste { border-color:var(--de-accent); background:#285044; }
 .donut-edit-studio .de-ref-actions .de-clear { margin-left:auto; color:var(--de-dim); }
 .donut-edit-studio .de-caption { color:var(--de-dim); display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; margin:9px 1px 15px; }
 .donut-edit-studio .de-crop-key { display:inline-block; width:10px; height:10px; border:2px solid #ff6c75; margin-right:5px; vertical-align:-1px; }
@@ -215,6 +216,7 @@ export function installEditStudio(node, definition) {
     async function upload(key, file) {
         if (!file?.type?.startsWith("image/")) { status("Choose an image file.", true); return; }
         const slot = slots[key], epoch = ++slot.uploadEpoch;
+        slot.pasteButton?.classList.remove("de-awaiting-paste");
         slot.uploading = true; slot.actions.forEach(action => { action.disabled = true; });
         status(`Saving reference ${key.toUpperCase()}…`);
         try {
@@ -232,15 +234,24 @@ export function installEditStudio(node, definition) {
         finally { if (!disposed && epoch === slot.uploadEpoch) { slot.uploading = false; slot.actions.forEach(action => { action.disabled = false; }); } }
     }
     async function pasteFromButton(key) {
-        activate(key); slots[key].stage.focus();
+        activate(key);
+        const pasteButton = slots[key].pasteButton;
         try {
+            if (typeof navigator.clipboard?.read !== "function") {
+                throw new DOMException("Clipboard image reads are unavailable", "NotSupportedError");
+            }
             const entries = await navigator.clipboard.read();
             for (const item of entries) {
                 const type = item.types.find(type => type.startsWith("image/"));
                 if (type) { await upload(key, await item.getType(type)); return; }
             }
             status("The clipboard has no image. Copy an image, then paste again.", true);
-        } catch { status("Click an image slot and press Ctrl+V, or use Upload.", true); }
+        } catch (error) {
+            slots[key].stage.focus();
+            pasteButton.classList.add("de-awaiting-paste");
+            status(`Reference ${key.toUpperCase()} selected · browser blocked clipboard access, press Ctrl+V now.`, true);
+            console.debug("[Donut Edit Studio] Clipboard button fallback:", error);
+        }
     }
     function paste(event) {
         const file = clipboardImage(event.clipboardData);
@@ -269,7 +280,8 @@ export function installEditStudio(node, definition) {
             ++slots[key].uploadEpoch; commitValues({[`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {})}); render();
         }); clear.className = "de-clear";
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
-        slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0, actions:[uploadButton, pasteButton, clear]};
+        slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
+            pasteButton, actions:[uploadButton, pasteButton, clear]};
         stage.addEventListener("focus", () => activate(key));
         stage.addEventListener("dragover", event => { event.preventDefault(); event.stopPropagation(); stage.classList.add("de-dragover"); });
         stage.addEventListener("dragleave", () => stage.classList.remove("de-dragover"));
