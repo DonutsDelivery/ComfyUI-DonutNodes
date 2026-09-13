@@ -1142,6 +1142,7 @@
             {
               "title": "Prompt",
               "color": "#bea8ff",
+              "shared_prompt_tools": true,
               "controls": [
                 {
                   "path": [
@@ -1152,7 +1153,8 @@
                   "title": "Face and general style",
                   "ui": {
                     "prompt": true,
-                    "height": 330
+                    "autosize": true,
+                    "min_height": 90
                   }
                 },
                 {
@@ -1164,7 +1166,8 @@
                   "title": "Prompt · subject and scene",
                   "ui": {
                     "prompt": true,
-                    "height": 420
+                    "autosize": true,
+                    "min_height": 90
                   }
                 },
                 {
@@ -1176,10 +1179,56 @@
                   "title": "Negative prompt",
                   "ui": {
                     "prompt": true,
-                    "height": 200
+                    "autosize": true,
+                    "min_height": 90
                   }
                 }
               ]
+            },
+            {
+              "title": "Prompt variants",
+              "description": "Prompt is set 1. Variants use the same face, subject/scene and negative fields as Prompt. Add a blank variant or duplicate Prompt, then keep the active index fixed or increment it after each generation.",
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    996
+                  ],
+                  "widget": "prompt_set_index",
+                  "title": "Active prompt"
+                },
+                {
+                  "path": [
+                    1014,
+                    996
+                  ],
+                  "widget": "control_after_generate",
+                  "title": "After generation",
+                  "choices": [
+                    "fixed",
+                    "increment"
+                  ]
+                }
+              ],
+              "prompt_sets": [
+                1014,
+                996
+              ],
+              "prompt_source_paths": [
+                [
+                  1138,
+                  1125
+                ],
+                [
+                  1138,
+                  1126
+                ],
+                [
+                  1138,
+                  1127
+                ]
+              ],
+              "color": "#bea8ff"
             },
             {
               "title": "Advanced · Subject and scene expansion",
@@ -6058,6 +6107,20 @@
                 "widget": {
                   "name": "native_reference_enabled"
                 }
+              },
+              {
+                "name": "prompt_sets_json",
+                "type": "STRING",
+                "widget": {
+                  "name": "prompt_sets_json"
+                }
+              },
+              {
+                "name": "prompt_set_index",
+                "type": "INT",
+                "widget": {
+                  "name": "prompt_set_index"
+                }
               }
             ],
             "outputs": [
@@ -6156,7 +6219,10 @@
               false,
               "uniform",
               "values",
-              false
+              false,
+              "[]",
+              1,
+              "fixed"
             ],
             "widgets_values_named": {
               "edit_negative": "",
@@ -6174,7 +6240,10 @@
               "variance_log_to_console": false,
               "variance_noise_distribution": "uniform",
               "variance_granularity": "values",
-              "native_reference_enabled": false
+              "native_reference_enabled": false,
+              "prompt_sets_json": "[]",
+              "prompt_set_index": 1,
+              "control_after_generate": "fixed"
             }
           },
           {

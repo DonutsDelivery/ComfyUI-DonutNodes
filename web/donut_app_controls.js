@@ -140,7 +140,7 @@ function install(node, appOnly = false) {
     function refreshControls() {
         refreshers.forEach(refresh => refresh());
     }
-    function field(parent, path, name, title, choices, weightOptions, ui, modeControl, fallbackType, unavailableMessage) {
+    function field(parent, path, name, title, choices, weightOptions, ui, modeControl, fallbackType, unavailableMessage, sharedPromptTools) {
         // Node IDs inside a serialized subgraph can be remapped by a frontend
         // migration. A control with a declared type still resolves to its one
         // intended node instead of silently disappearing from the panel.
@@ -206,7 +206,10 @@ function install(node, appOnly = false) {
             if (widget.options?.max !== undefined) input.max = widget.options.max;
         }
         input.setAttribute("aria-label", title);
-        if (ui?.prompt) { input.classList.add("donut-long-prompt"); input.style.minHeight = `${ui.height || 300}px`; }
+        if (ui?.prompt) {
+            input.classList.add("donut-long-prompt");
+            input.style.minHeight = `${ui.autosize ? (ui.min_height || 90) : (ui.height || 300)}px`;
+        }
         const refresh = () => {
             if (document.activeElement === input) return;
             if (boolean) input.checked = widget.value;
@@ -241,12 +244,19 @@ function install(node, appOnly = false) {
         if (name === "uncensorfix_controls" && target.widgets?.some(item => item.name === "uncensorfix_strength")) {
             field(parent, path, "uncensorfix_strength", "UncensorFix weight strength");
         }
-        if (ui?.prompt) {
+        if (ui?.prompt && !sharedPromptTools) {
             const tools = promptTools(input, value => commit(target, widget, value), () => {
                 const seedNode = resolve(node.properties?.donut_app_controls?.seed_path || []);
                 return seedNode?.widgets?.find(w => w.name === "seed")?.value ?? 0;
             });
             parent.append(tools.element); refreshers.push(tools.refresh);
+        }
+        if (ui?.prompt && sharedPromptTools) {
+            return {
+                textarea: input,
+                commit: value => commit(target, widget, value),
+                label: title,
+            };
         }
     }
     function loras(parent, path) {
@@ -367,6 +377,98 @@ function install(node, appOnly = false) {
         service.catalog().then(data => { catalog = data.loras; presets = data.presets; render(); }).catch(error => { status.textContent = error.message; });
         refreshers.push(() => { if (last !== state.value && !list.contains(document.activeElement)) render(); });
     }
+    function promptSets(parent, path, sourcePaths = [], baseSection = null) {
+        const target = resolve(path), state = target?.widgets?.find(w => w.name === "prompt_sets_json");
+        if (!state) { parent.append(element("p", "Prompt sets: control unavailable")); return; }
+        const list = element("div"), status = element("p"), add = element("button", "Add prompt"), duplicateBase = element("button", "Duplicate Prompt");
+        [add, duplicateBase].forEach(button => { button.type = "button"; });
+        const indexWidget = target.widgets?.find(widget => widget.name === "prompt_set_index");
+        let last, activeLast;
+        const parse = () => {
+            const rows = JSON.parse(state.value || "[]");
+            if (!Array.isArray(rows)) throw new Error("Prompt sets must be an array.");
+            return rows;
+        };
+        const save = (rows, rebuild = true) => {
+            commitWidget(target, state, JSON.stringify(rows)); last = state.value;
+            if (rebuild) render();
+        };
+        const move = (rows, at, destination) => {
+            if (destination < 0 || destination >= rows.length) return rows;
+            const [row] = rows.splice(at, 1); rows.splice(destination, 0, row); return rows;
+        };
+        const activeSet = count => {
+            if (count <= 0) return 1;
+            const raw = Number(indexWidget?.value);
+            const index = Number.isFinite(raw) ? Math.max(1, Math.trunc(raw)) : 1;
+            return ((index - 1) % count) + 1;
+        };
+        const markActive = count => {
+            const active = activeSet(count);
+            baseSection?.classList.toggle("donut-prompt-active", active === 1);
+            list.querySelectorAll(".donut-prompt-set-row").forEach((box, index) =>
+                box.classList.toggle("donut-prompt-active", active === index + 2));
+            activeLast = active;
+        };
+        function render() {
+            last = state.value; list.replaceChildren();
+            let rows;
+            try { rows = parse(); } catch (error) { status.textContent = error.message; markActive(1); return; }
+            if (!rows.length) list.append(element("p", "No variants yet. Prompt 1 is the connected Prompt; add a blank variant or duplicate it."));
+            rows.forEach((row, index) => {
+                if (!row || typeof row !== "object" || Array.isArray(row)) {
+                    row = {}; rows[index] = row;
+                }
+                const box = element("fieldset"); box.className = "donut-prompt-set-row";
+                const heading = element("div"), title = element("strong", `Prompt ${index + 2}`);
+                const up = element("button", "↑"), down = element("button", "↓"), duplicate = element("button", "Duplicate"), remove = element("button", "Remove");
+                [up, down, duplicate, remove].forEach(button => { button.type = "button"; });
+                up.disabled = index === 0; down.disabled = index === rows.length - 1;
+                up.onclick = () => save(move(rows, index, index - 1));
+                down.onclick = () => save(move(rows, index, index + 1));
+                duplicate.onclick = () => { rows.splice(index + 1, 0, {...row, id:newLoraRowId()}); save(rows); };
+                remove.onclick = () => { rows.splice(index, 1); save(rows); };
+                heading.append(title, up, down, duplicate, remove); box.append(heading);
+                const fields = [];
+                for (const [key, label] of [["face", "Face and general style"], ["scene", "Prompt · subject and scene"], ["negative", "Negative prompt"]]) {
+                    const field = element("label"), caption = element("span", label), input = element("textarea");
+                    input.className = "donut-long-prompt"; input.value = typeof row[key] === "string" ? row[key] : "";
+                    input.setAttribute("aria-label", `${label} prompt ${index + 2}`);
+                    input.addEventListener("input", () => { row[key] = input.value; save(rows, false); fitTextarea(input); });
+                    field.append(caption, input); box.append(field); fields.push({textarea:input, commit:value => { row[key] = value; save(rows, false); }, label});
+                }
+                const tools = promptTools(fields, null, () => {
+                    const seedNode = resolve(node.properties?.donut_app_controls?.seed_path || []);
+                    return seedNode?.widgets?.find(w => w.name === "seed")?.value ?? 0;
+                });
+                box.append(tools.element); refreshers.push(tools.refresh);
+                list.append(box);
+            });
+            list.querySelectorAll("textarea").forEach(fitTextarea);
+            markActive(rows.length + 1);
+        }
+        add.onclick = () => {
+            let rows; try { rows = parse(); } catch (error) { status.textContent = error.message; return; }
+            rows.push({id:newLoraRowId(), face:"", scene:"", negative:""}); save(rows);
+        };
+        duplicateBase.onclick = () => {
+            let rows; try { rows = parse(); } catch (error) { status.textContent = error.message; return; }
+            const values = sourcePaths.map(path => resolve(path)?.widgets?.find(widget => widget.name === "Text")?.value);
+            if (values.length !== 3 || values.some(value => typeof value !== "string")) {
+                status.textContent = "The connected Prompt fields are unavailable.";
+                return;
+            }
+            rows.push({id:newLoraRowId(), face:values[0], scene:values[1], negative:values[2]}); save(rows);
+        };
+        parent.append(add, duplicateBase, status, list); render();
+        refreshers.push(() => {
+            let rows;
+            try { rows = parse(); } catch { rows = []; }
+            const active = activeSet(rows.length + 1);
+            if (active !== activeLast) markActive(rows.length + 1);
+            if (last !== state.value && !list.contains(document.activeElement)) render();
+        });
+    }
     function render() {
         root.replaceChildren(); refreshers.length = 0;
         root.classList.toggle("donut-section-columns", node.properties?.donut_columns === "sections");
@@ -375,6 +477,7 @@ function install(node, appOnly = false) {
         if (!config) return;
         if (appOnly) root.append(element("h2", "Create"), element("p", "Everyday controls, with advanced settings grouped by purpose."));
         else { root.append(element("h2", node.title)); dom.label = node.title; }
+        let promptBaseSection;
         for (const group of config.groups) {
             const section = element(group.advanced ? "details" : "section");
             section.append(element(group.advanced ? "summary" : "h3", group.title));
@@ -382,11 +485,22 @@ function install(node, appOnly = false) {
             if (group.color) section.style.setProperty("--donut-accent", group.color);
             if (group.description) section.append(element("p", group.description));
             let bank;
+            const promptFields = [];
             for (const item of group.controls || []) {
                 if (item.weights?.vertical && !bank) { bank = element("div"); bank.className = "donut-weight-bank"; section.append(bank); }
-                field(item.weights?.vertical ? bank : section, item.path, item.widget, item.title, item.choices, item.weights, item.ui, item.mode, item.fallback_type, item.unavailable_message);
+                const promptField = field(item.weights?.vertical ? bank : section, item.path, item.widget, item.title, item.choices, item.weights, item.ui, item.mode, item.fallback_type, item.unavailable_message, group.shared_prompt_tools);
+                if (promptField) promptFields.push(promptField);
+            }
+            if (group.shared_prompt_tools && promptFields.length) {
+                const tools = promptTools(promptFields, null, () => {
+                    const seedNode = resolve(node.properties?.donut_app_controls?.seed_path || []);
+                    return seedNode?.widgets?.find(w => w.name === "seed")?.value ?? 0;
+                });
+                section.append(tools.element); refreshers.push(tools.refresh);
+                promptBaseSection ||= section;
             }
             if (group.loras) loras(section, group.loras);
+            if (group.prompt_sets) promptSets(section, group.prompt_sets, group.prompt_source_paths, promptBaseSection);
             if (group.wildcard_library) section.append(wildcardLibrary());
             if (group.visible_when) {
                 const condition = group.visible_when;
@@ -458,6 +572,12 @@ app.registerExtension({
 .donut-app-controls .donut-wildcard-library>select{width:65%}
 .donut-app-controls .donut-wildcard-library textarea{min-height:320px;font-size:16px;line-height:1.6}
 .donut-app-controls .donut-wildcard-library>p:last-child{font-size:12px;overflow-wrap:anywhere}
+.donut-app-controls .donut-prompt-set-row>div:first-child{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.donut-app-controls .donut-prompt-set-row>div:first-child strong{margin-right:auto}
+.donut-app-controls .donut-prompt-set-row>div:first-child button{margin:0;padding:4px 8px;font-size:12px}
+.donut-app-controls .donut-prompt-active{border-color:var(--donut-accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--donut-accent) 45%,transparent);background:color-mix(in srgb,var(--donut-accent) 7%,transparent)}
+.donut-app-controls section.donut-prompt-active{border-radius:10px;padding-left:12px;padding-right:12px}
+.donut-app-controls .donut-prompt-set-row textarea{min-height:90px;font-size:16px;line-height:1.5}
 .lg-node:has(.donut-section-controls) .lg-node-header,.lg-node:has(.donut-edit-studio) .lg-node-header,.lg-node:has(.donut-reference-studio) .lg-node-header{color:#f5f7fb!important;font-weight:750}
 .lg-node:has(.donut-section-controls) [data-testid=node-title],.lg-node:has(.donut-edit-studio) [data-testid=node-title],.lg-node:has(.donut-reference-studio) [data-testid=node-title]{color:#f5f7fb!important}
 .donut-edit-studio textarea{min-height:240px;font-size:16px;line-height:1.6}

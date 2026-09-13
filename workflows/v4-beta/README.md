@@ -53,7 +53,10 @@ Numbered cards expose everyday controls, with additional controls under **Advanc
 - **Models:** choose a single model or two-model merge, encoder, VAE and upscaler.
 - **LoRAs & block weights:** add, remove, reorder and enable LoRAs; edit strengths and block weights through sliders or numeric fields.
 - **Image setup & editing:** set the output size and optional editing references.
-- **Prompts:** edit the general/face, scene and negative text, with wildcard tools.
+- **Prompts:** edit the general/face, scene and negative text with autosizing
+  editors and a shared wildcard tool. The connected Prompt card is prompt 1;
+  add blank variants or duplicate it, then set **Active prompt** to a fixed
+  1-based set or choose **increment** to advance after each generation.
 - **Seed & guidance:** control the shared seed, NAG and seed variance.
 - **Generate & finish:** adjust sampling, first/second upscale and face detail.
 - **Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.

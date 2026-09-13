@@ -34,6 +34,11 @@ editing/control additions, not a claim of universally smarter face detailing.
 
 - Added a persistent **Wildcard library**, picker and expanded-text preview;
   explicit wildcard tokens replace the old automatic prompt-addition controls.
+- Prompt editors now grow with their content, and each prompt card uses one
+  shared wildcard picker that can target any of its text fields.
+- Added **Prompt variants** as additional sets using the same three fields as
+  Prompt 1, with blank and duplicate actions. Choose a 1-based active set and
+  keep it fixed or increment it after each generation.
 - Added shared seed-variance controls for general and face positives, including
   reapplication to freshly encoded edit conditioning.
 - Integrated NAG controls into the sampler, upscale and face-detail paths,

@@ -19,6 +19,7 @@ except ImportError:
     from krea2_variance_integration import enhance_prompt_pair, variance_input_types
 
 MAX_TEXT = 1_000_000
+MAX_PROMPT_SETS = 128
 MAX_EXPANSIONS = 10_000
 FILE_TOKEN = re.compile(r"(?:(\d+)\$\$)?__([!+*\-]?)([^|\n]*?)(\|[^\n]*?)?__|(?<![\w/*])([A-Za-z][\w/-]*)\*(?![\w*])")
 CHOICE = re.compile(r"\{([^{}]*)\}")
@@ -199,6 +200,39 @@ def expand_text(text, seed=0, max_depth=128, missing="error", *, roots=None, pro
     raise ValueError(f"Wildcard expansion exceeds max_depth={max_depth}")
 
 
+def select_prompt_set(prompt_sets_json, index, fallback):
+    """Select the base Prompt or one of its additional variants.
+
+    The connected Prompt card is set 1. JSON rows are additional sets starting
+    at set 2, so the active integer has one consistent meaning in the UI.
+    """
+    if not prompt_sets_json or prompt_sets_json == "[]":
+        return dict(fallback), None
+    try:
+        rows = json.loads(prompt_sets_json)
+    except (TypeError, json.JSONDecodeError) as error:
+        raise ValueError("Prompt sets must be a JSON array.") from error
+    if not isinstance(rows, list) or len(rows) > MAX_PROMPT_SETS:
+        raise ValueError(f"Prompt sets must contain between 1 and {MAX_PROMPT_SETS} entries.")
+    if not rows:
+        return dict(fallback), None
+    # The connected Prompt card is position zero; JSON rows follow it. The
+    # one-based control wraps safely when incrementing after the last set.
+    position = max(0, int(index) - 1) % (len(rows) + 1)
+    if position == 0:
+        return dict(fallback), 0
+    row = rows[position - 1]
+    if not isinstance(row, dict):
+        raise ValueError(f"Prompt set {position + 1} must be an object.")
+    selected = dict(fallback)
+    for key in ("face", "scene", "negative"):
+        value = row.get(key, selected[key])
+        if not isinstance(value, str):
+            raise ValueError(f"Prompt set {position + 1} field {key!r} must be text.")
+        selected[key] = value
+    return selected, position
+
+
 class DonutText:
     @classmethod
     def INPUT_TYPES(cls):
@@ -247,6 +281,8 @@ class DonutPromptConditioning:
         }, "optional": {**variance_input_types(),
             "native_reference_enabled": ("BOOLEAN", {"default": False}),
             "native_reference_a": ("IMAGE",), "native_reference_b": ("IMAGE",),
+            "prompt_sets_json": ("STRING", {"default": "[]", "multiline": True, "dynamicPrompts": False}),
+            "prompt_set_index": ("INT", {"default": 1, "min": 1, "max": 2**53 - 1, "control_after_generate": True}),
         }}
     RETURN_TYPES = ("STRING", "STRING", "STRING", "CONDITIONING", "CONDITIONING", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("full_text", "face_text", "edit_negative", "positive", "face_positive", "negative_zeroed", "negative_raw")
@@ -255,8 +291,18 @@ class DonutPromptConditioning:
     OUTPUT_NODE = True
 
     def encode(self, clip, face, scene, negative, edit_negative="", separator="", text_seed=0,
-               native_reference_enabled=False, native_reference_a=None, native_reference_b=None, **variance_options):
+               native_reference_enabled=False, native_reference_a=None, native_reference_b=None,
+               prompt_sets_json="[]", prompt_set_index=0, **variance_options):
         from nodes import CLIPTextEncode, ConditioningZeroOut
+        selected, selected_index = select_prompt_set(
+            prompt_sets_json, prompt_set_index,
+            {"face": face, "scene": scene, "negative": negative},
+        )
+        if selected_index and selected_index > 0:
+            face, scene, negative = (
+                expand_text(selected[key], text_seed)
+                for key in ("face", "scene", "negative")
+            )
         full = face + separator + scene  # Do not strip/normalise the user's text.
         edit_negative = expand_text(edit_negative, text_seed)
         encoder, cache = CLIPTextEncode(), {}
@@ -281,11 +327,23 @@ class DonutPromptConditioning:
         raw = encode_once(negative)
         positive, face_positive = enhance_prompt_pair(positive, face_positive, **variance_options)
         zeroed = ConditioningZeroOut().zero_out(raw)[0]
-        return {"ui": {"text": [full], "donut_final_prompt": [full]}, "result": (full, face, edit_negative, positive, face_positive, zeroed, raw)}
+        ui = {"text": [full], "donut_final_prompt": [full]}
+        if selected_index is not None:
+            ui["donut_prompt_set"] = [selected_index + 1]
+        return {"ui": ui, "result": (full, face, edit_negative, positive, face_positive, zeroed, raw)}
 
     @classmethod
-    def IS_CHANGED(cls, edit_negative="", text_seed=0, **kwargs):
-        return directory_fingerprint(), expand_text(edit_negative or "", text_seed or 0)
+    def IS_CHANGED(cls, edit_negative="", text_seed=0, prompt_sets_json="[]", prompt_set_index=0, **kwargs):
+        selected, selected_index = select_prompt_set(
+            prompt_sets_json, prompt_set_index,
+            {"face": kwargs.get("face", ""), "scene": kwargs.get("scene", ""), "negative": kwargs.get("negative", "")},
+        )
+        expanded = (
+            tuple(expand_text(selected[key], text_seed or 0) for key in ("face", "scene", "negative"))
+            if selected_index and selected_index > 0 else
+            tuple(selected[key] for key in ("face", "scene", "negative"))
+        )
+        return directory_fingerprint(), selected_index, expanded, expand_text(edit_negative or "", text_seed or 0)
 
 
 NODE_CLASS_MAPPINGS = {"DonutText": DonutText, "DonutPromptConditioning": DonutPromptConditioning}

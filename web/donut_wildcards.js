@@ -20,38 +20,51 @@ async function populate(select, placeholder = "Choose a wildcard…") {
     return data;
 }
 export function promptTools(textarea, commit, getSeed) {
-    const root = el("div"), select = el("select"), insert = el("button", "Insert wildcard"), preview = el("button", "Preview expanded"), status = el("p"), result = el("textarea");
+    const fields = Array.isArray(textarea)
+        ? textarea.map(item => ({textarea: item.textarea || item, commit: item.commit || commit, label: item.label}))
+        : [{textarea, commit, label: textarea.getAttribute("aria-label")}];
+    let active = fields[0];
+    const root = el("div"), target = el("select"), select = el("select"), insert = el("button", "Insert wildcard"), preview = el("button", "Preview expanded"), status = el("p"), result = el("textarea");
     root.className = "donut-prompt-tools";
     let previewText, previewSeed, expanded = false, revision = 0;
+    if (fields.length > 1) {
+        const first = el("option", "Insert into…"); first.value = ""; target.append(first);
+        fields.forEach((field, index) => {
+            const option = el("option", field.label || `Prompt ${index + 1}`); option.value = String(index); target.append(option);
+        });
+        target.value = "0";
+        target.setAttribute("aria-label", "Prompt target for wildcard");
+        target.onchange = () => { if (target.value !== "") active = fields[Number(target.value)]; collapse(); };
+    } else target.hidden = true;
     const collapse = () => {
         expanded = false; ++revision; result.hidden = true;
         preview.textContent = "Preview expanded";
         preview.setAttribute("aria-expanded", "false");
         status.textContent = ""; scheduleLayout();
     };
-    const refresh = () => { if (expanded && (previewText !== textarea.value || previewSeed !== getSeed())) collapse(); };
-    textarea.addEventListener("input", collapse);
+    const refresh = () => { if (expanded && (previewText !== active.textarea.value || previewSeed !== getSeed())) collapse(); };
+    fields.forEach(field => field.textarea.addEventListener("input", collapse));
     preview.setAttribute("aria-expanded", "false");
-    select.setAttribute("aria-label", `Wildcard for ${textarea.getAttribute("aria-label")}`);
+    select.setAttribute("aria-label", "Wildcard to insert");
     insert.type = preview.type = "button"; result.readOnly = true; result.hidden = true;
-    result.className = "donut-prompt-preview"; result.setAttribute("aria-label", `Expanded ${textarea.getAttribute("aria-label")}`);
+    result.className = "donut-prompt-preview"; result.setAttribute("aria-label", "Expanded prompt preview");
     const update = () => populate(select).catch(error => { status.textContent = error.message; });
     select.onfocus = update; update();
     insert.onclick = () => {
         if (!select.value) { status.textContent = "Choose a wildcard to insert."; return; }
-        const start = textarea.selectionStart, end = textarea.selectionEnd;
-        const before = textarea.value.slice(0, start), after = textarea.value.slice(end);
+        const input = active.textarea, start = input.selectionStart, end = input.selectionEnd;
+        const before = input.value.slice(0, start), after = input.value.slice(end);
         const token = `${before && !/\s$/.test(before) ? " " : ""}${select.value}*${after && !/^\s/.test(after) ? " " : ""}`;
-        textarea.value = before + token + after; commit(textarea.value); textarea.focus();
+        input.value = before + token + after; active.commit(input.value); input.focus();
         collapse();
-        textarea.setSelectionRange(before.length + token.length, before.length + token.length);
+        input.setSelectionRange(before.length + token.length, before.length + token.length);
         status.textContent = "Token inserted. Fixed seed keeps its choice repeatable.";
     };
     preview.onclick = async () => {
         if (expanded) { collapse(); return; }
         expanded = true;
         const current = ++revision;
-        const text = textarea.value, seed = getSeed();
+        const text = active.textarea.value, seed = getSeed();
         previewText = text; previewSeed = seed;
         preview.textContent = "Hide preview";
         preview.setAttribute("aria-expanded", "true");
@@ -59,7 +72,7 @@ export function promptTools(textarea, commit, getSeed) {
         try {
             const data = await request("/donut/wildcards/preview", {text, seed});
             if (current !== revision) return;
-            if (text !== textarea.value || seed !== getSeed()) { collapse(); return; }
+            if (text !== active.textarea.value || seed !== getSeed()) { collapse(); return; }
             previewText = text; previewSeed = seed;
             result.value = data.text; result.hidden = false; status.textContent = `Preview for seed ${seed}.`;
             fitTextarea(result); scheduleLayout();
@@ -68,7 +81,7 @@ export function promptTools(textarea, commit, getSeed) {
             collapse(); status.textContent = error.message;
         }
     };
-    root.append(select, insert, preview, status, result);
+    root.append(target, select, insert, preview, status, result);
     return {element:root, refresh};
 }
 export function wildcardLibrary() {

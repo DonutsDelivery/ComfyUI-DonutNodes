@@ -12,6 +12,43 @@ import krea2_variance_integration as variance
 
 
 class SeedVarianceTests(unittest.TestCase):
+    def test_prompt_sets_select_one_triplet_and_wrap_index(self):
+        selected, index = donut_prompt.select_prompt_set(
+            '[{"face":"face A","scene":"scene A","negative":"bad A"},'
+            '{"face":"face B","scene":"scene B","negative":"bad B"}]',
+            3,
+            {"face": "fallback", "scene": "fallback", "negative": "fallback"},
+        )
+        self.assertEqual(index, 2)
+        self.assertEqual(selected, {"face": "face B", "scene": "scene B", "negative": "bad B"})
+
+    def test_empty_prompt_sets_keep_connected_inputs(self):
+        fallback = {"face": "face", "scene": "scene", "negative": "negative"}
+        selected, index = donut_prompt.select_prompt_set("[]", 99, fallback)
+        self.assertIsNone(index)
+        self.assertEqual(selected, fallback)
+
+    def test_prompt_one_remains_the_connected_prompt_when_variants_exist(self):
+        fallback = {"face": "base face", "scene": "base scene", "negative": "base negative"}
+        selected, index = donut_prompt.select_prompt_set(
+            '[{"face":"variant face","scene":"variant scene","negative":"variant negative"}]',
+            1,
+            fallback,
+        )
+        self.assertEqual(index, 0)
+        self.assertEqual(selected, fallback)
+
+    def test_prompt_conditioning_uses_selected_set(self):
+        encoded = []
+        with patch.object(nodes.CLIPTextEncode, 'encode', side_effect=lambda _clip, text: (encoded.append(text) or [[torch.ones(1, 1, 1), {}]],)):
+            result = donut_prompt.DonutPromptConditioning().encode(
+                object(), "connected face", "connected scene", "connected negative",
+                prompt_sets_json='[{"face":"variant face","scene":"variant scene","negative":"variant negative"}]',
+                prompt_set_index=2,
+            )["result"]
+        self.assertEqual(encoded, ["variant facevariant scene", "variant face", "variant negative"])
+        self.assertEqual(result[:3], ("variant facevariant scene", "variant face", ""))
+
     @classmethod
     def setUpClass(cls):
         candidates = [Path(root) / 'krea-seed-variance-enhancer' / 'krea_seed_variance_enhancer.py'
