@@ -10,13 +10,13 @@ discovery.
 
 - Immediately check the exact version at
   `https://api.comfy.org/nodes/donutnodes/versions?include_status_reason=true` and verify its published ZIP.
-- If its status is Pending and the release changes scan-sensitive code or
-  package contents, arrange a recurring follow-up in the current task (every
-  five minutes when automation tools are available). Keep checking until it
+- If its status is Pending, ask the user a simple yes-or-no question about
+  whether they want recurring review checks. Do not create a recurring monitor
+  unless the user answers yes. When requested, check hourly until the version
   becomes Active or Flagged. Stay quiet while it remains Pending; notify the
   user when it passes, is flagged, or checking fails and needs action.
-- For a Pending release without scan-sensitive changes, record that approval is
-  unverified in the release notes but do not schedule recurring checks.
+- If the user declines recurring checks, record that approval is unverified in
+  the release notes and do not schedule a monitor.
 - If Flagged, promptly notify the user and investigate the registry report and
   relevant package changes. Do not guess the cause or silently abandon the
   release. A replacement release requires the same verification.

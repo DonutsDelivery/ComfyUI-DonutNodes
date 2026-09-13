@@ -11,8 +11,9 @@ https://api.comfy.org/nodes/donutnodes/versions?include_status_reason=true
 The `status_reason` field may contain a JSON-encoded list of findings with file,
 line, matched pattern, scanner, and severity. If a cached listing omits a new
 release, check `/nodes/donutnodes/versions/<version>` as well. Record the status
-and UTC check time. While Pending, schedule five-minute follow-ups until Active
-or Flagged. Never describe Pending as approved or assume it means manual review.
+and UTC check time. While Pending, ask the user whether they want hourly
+follow-ups, and create them only after an explicit yes. Never describe Pending
+as approved or assume it means manual review.
 
 ## Scan triggers and false positives
 
