@@ -43,3 +43,7 @@ pending and will be checked until the version becomes Active or Flagged.
 The direct exact-version readback at `2026-09-13T00:20:26Z` returned the same
 `NodeVersionStatusPending` status, a null status reason, and the published ZIP
 URL above.
+
+Follow-up exact-version check at `2026-09-13T00:27:13Z` returned the same
+`NodeVersionStatusPending` status with a null status reason. Approval remains
+pending.
