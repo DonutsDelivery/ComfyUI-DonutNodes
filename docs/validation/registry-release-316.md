@@ -48,3 +48,7 @@ pending.
 Follow-up exact-version check at `2026-09-13T20:30:54Z` returned the same
 `NodeVersionStatusPending` status with an empty status reason. Approval remains
 pending.
+
+Follow-up exact-version check at `2026-09-13T20:36:24Z` returned the same
+`NodeVersionStatusPending` status with an empty status reason. Approval remains
+pending.
