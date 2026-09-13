@@ -29,5 +29,14 @@ downloader backend and publishing guide. The fresh Registry staging directory
 `/tmp/donut-registry-release-316` substitutes the manual model-download UI and
 passed `comfy node validate`.
 
-Registry upload, published ZIP verification and exact-version review status are
-not yet recorded.
+The exact published ZIP was downloaded from
+`https://cdn.comfy.org/donutsdelivery/donutnodes/3.0.16/node.zip`, passed
+`unzip -t`, and contained the same 160 payload files as the validated staging
+directory byte-for-byte. Its downloaded ZIP SHA-256 is
+`b42d0e08d98c12eb5611945708e301ace73ccc075f750b72149eec92187596c7`.
+
+At `2026-09-13T20:17:01Z`, the exact versions listing returned `3.0.16` as
+`NodeVersionStatusPending` with an empty status reason and the published ZIP URL
+above. Registry upload and ZIP verification are complete; Registry approval is
+pending. A five-minute follow-up is active until the version becomes Active or
+Flagged.
