@@ -1,8 +1,8 @@
 {
   "id": "af40cf96-e217-4ea4-ac49-1fe5b69d531a",
   "revision": 9,
-  "last_node_id": 1157,
-  "last_link_id": 1115397,
+  "last_node_id": 1163,
+  "last_link_id": 1115407,
   "nodes": [
     {
       "id": 912,
@@ -404,6 +404,13 @@
           "name": "edit_prompt",
           "type": "STRING",
           "links": []
+        },
+        {
+          "name": "inpaint",
+          "type": "DONUT_INPAINT",
+          "links": [
+            1115398
+          ]
         }
       ],
       "title": "03 · Image setup & editing",
@@ -437,7 +444,10 @@
         0.5,
         0.5,
         0.5,
-        0.5
+        0.5,
+        false,
+        "",
+        8
       ],
       "widgets_values_named": {
         "enabled": false,
@@ -457,7 +467,10 @@
         "crop_a_x": 0.5,
         "crop_a_y": 0.5,
         "crop_b_x": 0.5,
-        "crop_b_y": 0.5
+        "crop_b_y": 0.5,
+        "inpaint_enabled": false,
+        "mask_data": "",
+        "mask_feather": 8
       },
       "color": "#223e33",
       "bgcolor": "#1b222b"
@@ -823,6 +836,11 @@
           "widget": {
             "name": "native_reference_enabled"
           }
+        },
+        {
+          "name": "edit_inpaint",
+          "type": "DONUT_INPAINT",
+          "link": 1115398
         }
       ],
       "outputs": [
@@ -4134,6 +4152,14 @@
       64,
       1,
       "STRING"
+    ],
+    [
+      1115398,
+      881,
+      8,
+      1014,
+      45,
+      "DONUT_INPAINT"
     ]
   ],
   "groups": [],
@@ -4144,8 +4170,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 1137,
-          "lastLinkId": 1115395,
+          "lastNodeId": 1163,
+          "lastLinkId": 1115407,
           "lastRerouteId": 1
         },
         "revision": 2,
@@ -4785,6 +4811,22 @@
               -500,
               980
             ]
+          },
+          {
+            "id": "3de3045a-4201-4362-9b72-37f0f35a4bcd",
+            "name": "edit_inpaint",
+            "type": "DONUT_INPAINT",
+            "linkIds": [
+              1115399,
+              1115401,
+              1115403,
+              1115405,
+              1115407
+            ],
+            "pos": [
+              -500,
+              1000
+            ]
           }
         ],
         "outputs": [
@@ -5113,6 +5155,12 @@
                 "widget": {
                   "name": "nag_alpha"
                 }
+              },
+              {
+                "name": "edit_inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115399,
+                "shape": 7
               }
             ],
             "outputs": [
@@ -5441,7 +5489,7 @@
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
-                  1079868
+                  1115406
                 ]
               },
               {
@@ -5663,10 +5711,7 @@
                 "type": "IMAGE",
                 "slot_index": 0,
                 "links": [
-                  1073505,
-                  1073578,
-                  1112199,
-                  1112200
+                  1115400
                 ]
               }
             ],
@@ -5923,8 +5968,7 @@
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
-                  1073488,
-                  1073577
+                  1115402
                 ]
               },
               {
@@ -6488,7 +6532,7 @@
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
-                  1073494
+                  1115404
                 ]
               },
               {
@@ -6733,6 +6777,182 @@
               "uncensorfix_controls": "LoRA only",
               "execution_mode": "Experimental bypass"
             }
+          },
+          {
+            "id": 1160,
+            "type": "DonutInpaintComposite",
+            "pos": [
+              2620.073153173709,
+              1735.1682095877175
+            ],
+            "size": [
+              240,
+              90
+            ],
+            "flags": {},
+            "order": 4,
+            "mode": 0,
+            "title": "Keep surroundings from A",
+            "inputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115400
+              },
+              {
+                "name": "inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115401,
+                "shape": 7
+              }
+            ],
+            "outputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1073505,
+                  1073578,
+                  1112199,
+                  1112200
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "donutnodes",
+              "Node name for S&R": "DonutInpaintComposite"
+            },
+            "widgets_values": []
+          },
+          {
+            "id": 1161,
+            "type": "DonutInpaintComposite",
+            "pos": [
+              2593.820590677034,
+              1678.4885948614835
+            ],
+            "size": [
+              240,
+              90
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "title": "Keep surroundings from A",
+            "inputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115402
+              },
+              {
+                "name": "inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115403,
+                "shape": 7
+              }
+            ],
+            "outputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1073488,
+                  1073577
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "donutnodes",
+              "Node name for S&R": "DonutInpaintComposite"
+            },
+            "widgets_values": []
+          },
+          {
+            "id": 1162,
+            "type": "DonutInpaintComposite",
+            "pos": [
+              2596.948852414256,
+              1823.4419691572855
+            ],
+            "size": [
+              240,
+              90
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "title": "Keep surroundings from A",
+            "inputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115404
+              },
+              {
+                "name": "inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115405,
+                "shape": 7
+              }
+            ],
+            "outputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1073494
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "donutnodes",
+              "Node name for S&R": "DonutInpaintComposite"
+            },
+            "widgets_values": []
+          },
+          {
+            "id": 1163,
+            "type": "DonutInpaintComposite",
+            "pos": [
+              2592.683584567737,
+              1508.62993890702
+            ],
+            "size": [
+              240,
+              90
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "title": "Keep surroundings from A",
+            "inputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115406
+              },
+              {
+                "name": "inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115407,
+                "shape": 7
+              }
+            ],
+            "outputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1079868
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "donutnodes",
+              "Node name for S&R": "DonutInpaintComposite"
+            },
+            "widgets_values": []
           }
         ],
         "groups": [
@@ -6764,7 +6984,7 @@
         "links": [
           {
             "id": 1073488,
-            "origin_id": 989,
+            "origin_id": 1161,
             "origin_slot": 0,
             "target_id": 983,
             "target_slot": 0,
@@ -6796,7 +7016,7 @@
           },
           {
             "id": 1073494,
-            "origin_id": 983,
+            "origin_id": 1162,
             "origin_slot": 0,
             "target_id": 984,
             "target_slot": 0,
@@ -6828,7 +7048,7 @@
           },
           {
             "id": 1073505,
-            "origin_id": 991,
+            "origin_id": 1160,
             "origin_slot": 0,
             "target_id": 989,
             "target_slot": 0,
@@ -7140,7 +7360,7 @@
           },
           {
             "id": 1073577,
-            "origin_id": 989,
+            "origin_id": 1161,
             "origin_slot": 0,
             "target_id": -20,
             "target_slot": 1,
@@ -7148,7 +7368,7 @@
           },
           {
             "id": 1073578,
-            "origin_id": 991,
+            "origin_id": 1160,
             "origin_slot": 0,
             "target_id": -20,
             "target_slot": 2,
@@ -7436,7 +7656,7 @@
           },
           {
             "id": 1079868,
-            "origin_id": 984,
+            "origin_id": 1163,
             "origin_slot": 0,
             "target_id": -20,
             "target_slot": 0,
@@ -7460,7 +7680,7 @@
           },
           {
             "id": 1112199,
-            "origin_id": 991,
+            "origin_id": 1160,
             "origin_slot": 0,
             "target_id": 989,
             "target_slot": 11,
@@ -7468,7 +7688,7 @@
           },
           {
             "id": 1112200,
-            "origin_id": 991,
+            "origin_id": 1160,
             "origin_slot": 0,
             "target_id": 983,
             "target_slot": 11,
@@ -7785,6 +8005,78 @@
             "target_id": 996,
             "target_slot": 11,
             "type": "BOOLEAN"
+          },
+          {
+            "id": 1115399,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 993,
+            "target_slot": 26,
+            "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115400,
+            "origin_id": 991,
+            "origin_slot": 0,
+            "target_id": 1160,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115401,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 1160,
+            "target_slot": 1,
+            "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115402,
+            "origin_id": 989,
+            "origin_slot": 0,
+            "target_id": 1161,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115403,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 1161,
+            "target_slot": 1,
+            "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115404,
+            "origin_id": 983,
+            "origin_slot": 0,
+            "target_id": 1162,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115405,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 1162,
+            "target_slot": 1,
+            "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115406,
+            "origin_id": 984,
+            "origin_slot": 0,
+            "target_id": 1163,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115407,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 1163,
+            "target_slot": 1,
+            "type": "DONUT_INPAINT"
           }
         ],
         "extra": {

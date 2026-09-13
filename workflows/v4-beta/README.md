@@ -70,6 +70,41 @@ For editing, enable **Editing**, upload/paste/drop image **A** as the base scene
 
 Save after changing references or crops. Reference images are stored separately under `ComfyUI/user/donut/edit_references/`; copy that folder too when moving a personal workflow to another installation. The distributed beta has empty reference slots.
 
+### Inpainting · edit a selected area
+
+Use the updated workflow JSON together with the accompanying node code, then
+restart ComfyUI and refresh the browser. The workflow connects Edit Studio's
+selection to the sampler and every finishing stage. Older workflow JSONs show
+a reminder to load the updated workflow instead of offering an unconnected mask.
+
+1. Add your base image to **A**, then click **Paint area…**.
+2. Paint over what should change, or use **Rectangle** and drag between two
+   corners. A circle follows the brush/eraser pointer to show its size before
+   drawing. Green is the selection; the red frame is the output crop. Use
+   **Erase**, **Undo**, or **Clear** as needed.
+   **Invert selection** protects the painted area and edits everything else.
+   Adjust **Seam width** in the painter; the amber band previews the inward
+   blend in output pixels. Zero gives a hard edge.
+3. Click **Use selection**, then describe the change in **Prompts** and run.
+   This automatically enables **Editing** and **Edit selected area**.
+
+**Edge softness** on the main card is the same setting as **Seam width** in the
+painter. Applying saves both the selection and seam width; Cancel keeps their
+previous values. The full cropped
+image still supplies context, and optional **B** supplies subject identity.
+The selection is saved inside the workflow and stays aligned when output size
+or crop changes. Replacing A resets the selection; B can change independently.
+Turn **Edit selected area** off to return to whole-image editing without losing
+the saved mask. An empty selection cannot run as an accidental whole-image edit.
+
+The sampler denoises through the mask using the encoded base image. After base
+decode, each upscale, and Face Detailer, the workflow restores A outside the
+selection. At the same size these are the original cropped pixels; at a larger
+output size they are resized pixels from A. The unselected region does not gain
+new generative upscale detail. Use PNG or lossless saving for exact pixel
+preservation in the saved file. This mode uses the existing identity-edit LoRA
+and sampler; it adds no model downloads or node-pack dependencies.
+
 ## Wildcards
 
 Use the **Wildcard library** card to create or edit one-choice-per-line text files. Insert `haircolor*` to use `user/wildcards/haircolor.txt`; nested names such as `clothes/shirt*` and `__haircolor__` syntax also work. The shared seed drives expansion, so a fixed seed keeps choices repeatable. Copy your wildcard files when moving installations; they are not embedded in the workflow JSON.

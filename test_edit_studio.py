@@ -82,6 +82,29 @@ class EditStudioTests(unittest.TestCase):
         self.assertEqual(result[:6], (None, None, False, 1152, 896, 1088))
         self.assertIsNone(result[6]); fake_nodes.LoraLoaderModelOnly.assert_not_called()
 
+    def test_selected_area_context_survives_json_reload_and_uses_output_crop(self):
+        name = self.reference((100, 80))
+        data = json.dumps({"version": 1, "image": name, "strokes": [
+            {"size": .3, "points": [[.5, .5]], "erase": False},
+        ]})
+        settings = self.settings(enabled=True, image_a=name, lora_name="None",
+            resolution_mode="Custom", width=64, height=64, inpaint_enabled=True,
+            mask_data=data, mask_feather=4)
+        result = module.DonutEditStudio().prepare(**json.loads(json.dumps(settings)), model="model")
+        context = result[8]
+        self.assertIs(context['image'], result[0])
+        self.assertEqual(tuple(context['mask'].shape), (1, 64, 64))
+        self.assertGreater(context['mask'][0, 32, 32], .5)
+        self.assertEqual(context['mask'][0, 0, 0], 0)
+        settings['enabled'] = False
+        self.assertIsNone(module.DonutEditStudio().prepare(**settings)[8])
+
+    def test_whole_image_editing_ignores_a_saved_mask(self):
+        settings = self.settings(enabled=True, image_a=self.reference((80, 80)),
+            lora_name="None", inpaint_enabled=False, mask_data="obsolete mask")
+        result = module.DonutEditStudio().prepare(**settings, model="model")
+        self.assertIsNone(result[8])
+
     def test_second_reference_only_validated_when_enabled(self):
         name = self.reference((100, 80))
         self.assertIs(module.DonutEditStudio.VALIDATE_INPUTS(True, name, "missing", False), True)
@@ -94,7 +117,7 @@ class EditStudioTests(unittest.TestCase):
         with patch.object(module, "expand_text", return_value="Use red hair") as expand:
             result = module.DonutEditStudio().prepare(**settings, model="model", text_seed=123)
         expand.assert_called_once_with("Use haircolor*", 123)
-        self.assertEqual(result[-1], "Use red hair")
+        self.assertEqual(result[7], "Use red hair")
 
     def test_storage_survives_fresh_node_and_workflow_reload_without_input_folder(self):
         name = self.reference((101, 79))

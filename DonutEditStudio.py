@@ -21,6 +21,11 @@ try:
 except ImportError:
     from donut_prompt import expand_text, directory_fingerprint
 
+try:
+    from .donut_inpaint import rasterize_mask
+except ImportError:
+    from donut_inpaint import rasterize_mask
+
 
 ASPECT_RATIOS = {
     "1:1 Square": (1, 1),
@@ -210,13 +215,17 @@ class DonutEditStudio:
         }, "optional": {
             "model": ("MODEL", {"lazy": True, "tooltip": "Base model; the edit LoRA is applied only when editing is enabled."}),
             "text_seed": ("INT", {"default": 0, "forceInput": True}),
+            # Optional, appended widgets keep older saved/API workflows valid.
+            "inpaint_enabled": ("BOOLEAN", {"default": False}),
+            "mask_data": ("STRING", {"default": "", "dynamicPrompts": False}),
+            "mask_feather": ("INT", {"default": 8, "min": 0, "max": 128, "tooltip": "Soften the inside of the selection edge, in output pixels."}),
         }}
 
-    RETURN_TYPES = ("IMAGE", "IMAGE", "BOOLEAN", "INT", "INT", "INT", "MODEL", "STRING")
-    RETURN_NAMES = ("reference_a", "reference_b", "edit_mode", "width", "height", "grounding_px", "edit_model", "edit_prompt")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "BOOLEAN", "INT", "INT", "INT", "MODEL", "STRING", "DONUT_INPAINT")
+    RETURN_NAMES = ("reference_a", "reference_b", "edit_mode", "width", "height", "grounding_px", "edit_model", "edit_prompt", "inpaint")
     FUNCTION = "prepare"
     CATEGORY = "donut/editing"
-    DESCRIPTION = "Two persistent reference slots with clipboard upload, draggable crop previews, output sizing, and Krea2 edit controls. Blank slots are allowed while editing is off."
+    DESCRIPTION = "Persistent references, crop previews, output sizing, and selected-area Krea2 editing. Connect inpaint to DonutSampler and Donut Inpaint composites, or use the supplied V4 workflow. Blank slots are allowed while editing is off."
 
     def check_lazy_status(self, enabled=False, model=None, **kwargs):
         return ["model"] if enabled and model is None else []
@@ -252,19 +261,25 @@ class DonutEditStudio:
     def prepare(self, enabled, image_a, image_b, use_reference_b, prompt, resolution_mode,
                 aspect_ratio, megapixels, width, height, multiple, grounding_px,
                 lora_name, lora_strength, crop_a_x=0.5, crop_a_y=0.5,
-                crop_b_x=0.5, crop_b_y=0.5, model=None, text_seed=0):
+                crop_b_x=0.5, crop_b_y=0.5, model=None, text_seed=0,
+                inpaint_enabled=False, mask_data="", mask_feather=8):
         source_a = _open_reference(image_a) if enabled else None
         source_b = _open_reference(image_b) if enabled and image_b and (use_reference_b or aspect_ratio == "Auto · Reference B") else None
         size = target_dimensions(resolution_mode, aspect_ratio, megapixels, width, height, multiple,
                                  source_a.size if source_a is not None else None,
                                  source_b.size if source_b is not None else None)
-        reference_a = reference_b = edit_model = None
+        reference_a = reference_b = edit_model = inpaint = None
         if enabled:
             prompt = expand_text(prompt, text_seed)
             if model is None:
                 raise ValueError("Connect a Krea2 model to Edit Studio.")
             reference_a = _crop_reference(source_a, size, crop_a_x, crop_a_y,
                                           resolution_mode == "Reference A · crop only")
+            if inpaint_enabled:
+                mask = rasterize_mask(mask_data, image_a, source_a.size,
+                    crop_box(*source_a.size, *size, crop_a_x, crop_a_y,
+                             resolution_mode == "Reference A · crop only"), size, mask_feather)
+                inpaint = {"image": reference_a, "mask": mask}
             if use_reference_b:
                 reference_b = _crop_reference(source_b, size, crop_b_x, crop_b_y)
             edit_model = model
@@ -281,7 +296,7 @@ class DonutEditStudio:
                 if hasattr(model, "clone"):
                     edit_model = model.clone()
                 edit_model = _record_edit_branch(edit_model)
-        return (reference_a, reference_b, bool(enabled), *size, int(grounding_px), edit_model, prompt)
+        return (reference_a, reference_b, bool(enabled), *size, int(grounding_px), edit_model, prompt, inpaint)
 
 
 class DonutReferenceStudio:

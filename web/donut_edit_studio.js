@@ -3,6 +3,7 @@ import { api } from "../../scripts/api.js";
 import { ASPECT_RATIOS, targetDimensions, cropBox, imageLocation } from "./donut_edit_geometry.js";
 import { promptTools } from "./donut_wildcards.js";
 import { fitModule, fitTextarea } from "./donut_layout.js?v=15";
+import { drawMask, readMask, maskInverted, openInpaintEditor } from "./donut_inpaint_editor.js";
 
 const studios = new Set();
 let activeStudio = null;
@@ -105,7 +106,7 @@ export function installEditStudio(node, definition) {
     root.setAttribute("aria-label", "Donut Edit Studio");
     const get = name => backend.get(name)?.value;
     const values = () => Object.fromEntries([...backend].map(([name, widget]) => [name, widget.value]));
-    let disposed = false, activeSlot = "a", dragging = false;
+    let disposed = false, activeSlot = "a", dragging = false, closeMaskEditor = null;
     const slots = {}, controls = new Map();
     const commitValues = changes => {
         const changed = Object.entries(changes).filter(([name, value]) => backend.has(name) && backend.get(name).value !== value);
@@ -178,6 +179,12 @@ export function installEditStudio(node, definition) {
         const ox = (width - iw) / 2, oy = (height - ih) / 2;
         slot.layout = {width, height, scale, ox, oy};
         ctx.drawImage(image, ox, oy, iw, ih);
+        if (key === "a" && get("inpaint_enabled")) {
+            const overlay = document.createElement("canvas");
+            overlay.width = Math.max(1, Math.round(iw)); overlay.height = Math.max(1, Math.round(ih));
+            drawMask(overlay.getContext("2d"), overlay.width, overlay.height, readMask(get("mask_data"), get("image_a")), maskInverted(get("mask_data"), get("image_a")));
+            ctx.globalAlpha = .5; ctx.drawImage(overlay, ox, oy, iw, ih); ctx.globalAlpha = 1;
+        }
         const [x1, y1, x2, y2] = boxFor(key), x = ox + x1 * scale, y = oy + y1 * scale, w = (x2 - x1) * scale, h = (y2 - y1) * scale;
         ctx.fillStyle = "rgba(6,10,14,.68)";
         ctx.fillRect(ox, oy, iw, y - oy); ctx.fillRect(ox, y + h, iw, oy + ih - y - h);
@@ -227,6 +234,7 @@ export function installEditStudio(node, definition) {
             const saved = await response.json();
             if (disposed || epoch !== slot.uploadEpoch) return;
             commitValues({[`image_${key}`]:saved.reference, [`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5,
+                ...(key === "a" ? {mask_data:"", inpaint_enabled:false} : {}),
                 enabled:true, ...(key === "b" ? {use_reference_b:true} : {})});
             slot.path = null; activate(key); render();
             status(`Reference ${key.toUpperCase()} saved. Save the workflow to keep this selection.`);
@@ -277,7 +285,7 @@ export function installEditStudio(node, definition) {
         const pasteButton = button("Paste", `Paste reference ${key.toUpperCase()} from clipboard`, () => pasteFromButton(key));
         const center = button("Center", `Center the crop for reference ${key.toUpperCase()}`, () => { commitValues({[`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5}); render(); });
         const clear = button("×", `Clear reference ${key.toUpperCase()}`, () => {
-            ++slots[key].uploadEpoch; commitValues({[`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {})}); render();
+            ++slots[key].uploadEpoch; commitValues({[`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {mask_data:"", inpaint_enabled:false})}); render();
         }); clear.className = "de-clear";
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
         slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
@@ -319,6 +327,21 @@ export function installEditStudio(node, definition) {
     const caption = element("div", "de-caption"), cropCaption = element("span");
     cropCaption.append(element("span", "de-crop-key"), document.createTextNode("Red frame = kept area · drag to reposition"));
     caption.append(cropCaption); root.append(caption);
+    const inpaintSection = element("div", "de-section");
+    const inpaintControls = element("div", "de-caption");
+    const paintSelection = button("Paint area…", "Paint the area to edit on image A", () => {
+        if (!slots.a.image) return;
+        commit("enabled", true); render();
+        closeMaskEditor?.();
+        closeMaskEditor = openInpaintEditor({image:slots.a.image, imageName:get("image_a"),
+            value:get("mask_data"), crop:boxFor("a"), outputSize:outputSize(), feather:get("mask_feather"), onApply:(value, feather) => {
+                commitValues({mask_data:value, mask_feather:feather, inpaint_enabled:true, enabled:true}); render();
+            }});
+    });
+    inpaintControls.append(toggle("inpaint_enabled", "Edit selected area"), paintSelection);
+    const featherField = field("Edge softness · pixels", control("mask_feather", "input", {type:"number", min:"0", max:"128", step:"1", label:"Selection edge softness"}));
+    const inpaintHelp = element("div", "de-help", "Paint on A, then describe the change in Prompts. Green changes; the surrounding image stays from A.");
+    inpaintSection.append(inpaintControls, featherField, inpaintHelp); root.append(inpaintSection);
     const promptSection = element("div"), sharedPromptHelp = element("p", "de-help", "Editing uses the subject, scene and style from Prompts.");
     promptSection.append(element("div", "de-subhead", "Edit instruction · what should change?"));
     const instruction = control("prompt", "textarea", {label:"Edit instruction", placeholder:"e.g. Place the person from B into the scene in A. Preserve their face and clothing.", rows:3});
@@ -358,6 +381,14 @@ export function installEditStudio(node, definition) {
         promptSection.hidden = !!node.properties?.donut_shared_prompt;
         sharedPromptHelp.hidden = !node.properties?.donut_shared_prompt;
         if (disposed) return;
+        inpaintSection.hidden = !backend.has("inpaint_enabled");
+        const inpaintWired = !!node.outputs?.find(output => output.name === "inpaint")?.links?.length;
+        paintSelection.disabled = !slots.a.image || !inpaintWired;
+        for (const input of controls.get("inpaint_enabled") || []) input.disabled = !inpaintWired;
+        inpaintHelp.textContent = inpaintWired
+            ? "Paint on A, then describe the change in Prompts. Green changes; the surrounding image stays from A."
+            : "Load the updated V4 workflow to connect selected-area editing and preserve the surroundings through finishing.";
+        featherField.hidden = !get("inpaint_enabled");
         for (const [name, inputs] of controls) for (const input of inputs) {
             const value = get(name);
             if (input.type === "checkbox") input.checked = Boolean(value);
@@ -384,6 +415,7 @@ export function installEditStudio(node, definition) {
             statusLine.textContent = !editing ? "Editing off · images are optional; generation controls remain active."
                 : !get("image_a") ? "Add a base image to A to start editing."
                 : get("use_reference_b") && !get("image_b") ? "Add the subject image to B, or turn Use B off."
+                : get("inpaint_enabled") ? (readMask(get("mask_data"), get("image_a")).length || maskInverted(get("mask_data"), get("image_a")) ? "Selected-area edit · green changes; unselected areas stay from A." : "Click Paint area to select what should change.")
                 : get("use_reference_b") ? "Two references · A sets the scene; B supplies subject identity."
                 : "One reference · enable B to combine two images.";
         }
@@ -415,7 +447,7 @@ export function installEditStudio(node, definition) {
     node.onConfigure = function() { const result = configured?.apply(this, arguments); render(); root.querySelectorAll('textarea').forEach(fitTextarea); return result; };
     node.onAdded = function() { const result = added?.apply(this, arguments); disposed = false; studios.add(studio); observer.observe(root); render(); return result; };
     const observer = new ResizeObserver(() => { if (!disposed) for (const key of ["a", "b"]) draw(key); }); observer.observe(root);
-    node.onRemoved = function() { disposed = true; studios.delete(studio); observer.disconnect(); return removed?.apply(this, arguments); };
+    node.onRemoved = function() { disposed = true; closeMaskEditor?.(); studios.delete(studio); observer.disconnect(); return removed?.apply(this, arguments); };
     root.addEventListener("paste", event => { if (!textTarget(event.target)) paste(event); }, true);
     activate("a", false); render();
 }

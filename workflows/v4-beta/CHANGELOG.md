@@ -1,5 +1,18 @@
 # Donut Workflow changelog
 
+## DonutNodes 3.0.17 · selected-area editing
+
+- Added **Paint area…** to Edit Studio, with brush size, erase, undo, clear,
+  a crop preview, and edge softness. Applying a selection enables inpainting.
+- Added a live brush/eraser size circle, **Rectangle** selections, and
+  **Invert selection**. The painter's **Seam width** slider shows an amber
+  preview of the inward blend and saves to the existing edge-softness setting.
+- Saved masks follow A's crop and output size. Optional B remains available
+  for identity guidance; whole-image editing is still a toggle away.
+- Added masked sampling and preservation of A outside the selection after
+  base decode, both upscale stages, and Face Detailer. Requires this updated
+  workflow JSON and node code.
+
 ## V4 Beta — compared with the original V3
 
 This comparison uses the original V3 JSON supplied by the author, not an

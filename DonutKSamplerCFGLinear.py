@@ -27,6 +27,11 @@ import comfy.k_diffusion.sampling as k_diffusion_sampling
 import latent_preview
 
 try:
+    from .donut_inpaint import masked_edit_target
+except ImportError:
+    from donut_inpaint import masked_edit_target
+
+try:
     from .krea2_edit_integration import (
         make_krea2_edit_target,
         patch_krea2_edit_model,
@@ -1105,7 +1110,7 @@ class DonutSampler(_DonutSamplerEngine):
                 "model_3": ("MODEL",),
                 "edit_mode": ("BOOLEAN", {
                     "default": False,
-                    "tooltip": "Use the supplied latent_image shape as an empty Krea2 edit target; source_image provides clean reference conditioning.",
+                    "tooltip": "Krea2 edit with clean reference conditioning. Uses an empty target for whole-image edits, or a masked base target when Edit Studio inpaint is connected.",
                 }),
                 "source_image": ("IMAGE", {"tooltip": "Required when edit_mode is enabled."}),
                 "vae": ("VAE", {"tooltip": "Required when edit_mode is enabled."}),
@@ -1124,6 +1129,7 @@ class DonutSampler(_DonutSamplerEngine):
                     "tooltip": "Optional second edit reference (subject/identity). source_image is the scene/base; both images condition the edit.",
                 }),
                 **nag_input_types(),
+                "edit_inpaint": ("DONUT_INPAINT", {"tooltip": "Selected-area mask and base image from Edit Studio."}),
             }
         }
 
@@ -1139,7 +1145,7 @@ class DonutSampler(_DonutSamplerEngine):
                randomize_seed_per_model="enable", switch_at_step_1=10, switch_at_step_2=15,
                model_2=None, model_3=None, edit_mode=False, source_image=None,
                vae=None, clip=None, edit_prompt="", edit_negative_prompt="", grounding_px=768,
-               edit_model=None, turbo_mode=False, source_image_b=None, **nag_options):
+               edit_model=None, turbo_mode=False, source_image_b=None, edit_inpaint=None, **nag_options):
         # Reset per-call state before dispatching to the selected mode.
         self.cfg_history = []
         self.model_phases = []
@@ -1157,9 +1163,13 @@ class DonutSampler(_DonutSamplerEngine):
         source_latent = None
         original_positive = positive
         if edit_mode:
+            if edit_inpaint is not None:
+                source_image = edit_inpaint["image"]
             target_samples, target_width, target_height = validate_krea2_edit_target(
                 latent_image, source_image, mode, denoise, add_noise, start_at_step,
             )
+            if edit_inpaint is not None and tuple(source_image.shape[1:3]) != (target_height, target_width):
+                raise ValueError("Connect Edit Studio width and height to the inpaint target; its mask must match image A.")
             edit_sampling_model = resolve_krea2_edit_model(model, edit_model)
             model, positive, negative, source_latent, conditioning_image = prepare_krea2_edit(
                 edit_sampling_model,
@@ -1170,7 +1180,8 @@ class DonutSampler(_DonutSamplerEngine):
                 source_image_b=source_image_b,
             )
             positive = reapply_edit_variance(positive, original_positive)
-            latent_image = make_krea2_edit_target(latent_image)
+            latent_image = (masked_edit_target(latent_image, source_latent, edit_inpaint)
+                            if edit_inpaint is not None else make_krea2_edit_target(latent_image))
             if mode == "multi_model":
                 if model_2 is not None:
                     model_2 = resolve_krea2_edit_model(

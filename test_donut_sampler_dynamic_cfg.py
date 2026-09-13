@@ -38,6 +38,24 @@ class _InstalledSamplerProbe:
 
 
 class DynamicCFGGuiderTests(unittest.TestCase):
+    def test_selected_area_edit_passes_encoded_base_and_mask_to_sampler(self):
+        sampler = sampler_module.DonutSampler()
+        target = {"samples": torch.zeros(2, 4, 8, 12)}
+        scene = torch.rand(1, 64, 96, 3)
+        base = {"samples": torch.rand(1, 16, 1, 8, 12)}
+        mask = torch.zeros(1, 64, 96); mask[:, 16:48, 24:72] = 1
+        with patch.object(sampler_module, "prepare_krea2_edit", return_value=(
+            "edit model", "positive", "negative", [base, {"samples": torch.ones_like(base['samples'])}], scene,
+        )), patch.object(sampler, "run_simple", return_value=(target, "info")) as run:
+            sampler.sample("base", 1, 8, 1, 1, 1, 4, "euler", "simple",
+                [[torch.ones(1, 2, 4), {}]], "neg", target, 1,
+                edit_mode=True, source_image=scene, vae="vae", clip="clip", edit_model="edit",
+                edit_inpaint={"image": scene, "mask": mask})
+        passed = run.call_args.args[11]
+        self.assertTrue(torch.equal(passed['samples'][1], base['samples'][0, :, 0]))
+        self.assertTrue(torch.equal(passed['noise_mask'][1], mask[0]))
+        self.assertNotIn('noise_mask', target)
+
     def test_dual_reference_edit_is_kept_across_model_switches(self):
         sampler = sampler_module.DonutSampler()
         target = {"samples": torch.ones(1, 16, 8, 12)}

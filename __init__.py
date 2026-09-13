@@ -41,7 +41,7 @@ _NODE_MODULES = (
     "DonutKrea2ImageConditioning", "DonutKrea2FusionControl", "DonutKrea2FusionPreset",
     "DonutImageAdjust", "DonutImageSave",
     "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",
-    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio",
+    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio", "donut_inpaint",
 )
 _REQUIRED_OVERRIDES = {
     "DonutSafeApplyLoRAStack": ("DonutApplyLoRAStack",),
