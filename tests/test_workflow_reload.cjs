@@ -9,6 +9,7 @@ const clone = value => value === undefined ? undefined : JSON.parse(JSON.stringi
 const context = vm.createContext({console});
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/donut_workflow_repair.js'),'utf8').replace(/export function /g,'function '),context);
 const repair = context.repairStreamlinedWorkflow;
+const repairSafely = context.repairStreamlinedWorkflowSafely;
 const repairLegacy = context.repairLegacyFusionModelRouting;
 const guard = context.installWorkflowSerializationGuard;
 function fixture() {
@@ -108,6 +109,11 @@ test('unknown input names fail atomically rather than guessing a replacement',()
     const w=fixture();w.nodes[1].inputs[1].name='unknown';const before=clone(w);
     assert.throws(()=>repair(w),/unknown input/);assert.deepEqual(w,before);
 });
+test('safe browser repair reports invalid metadata and allows the original workflow to load',()=>{
+    const w=fixture();w.nodes[1].inputs[1].name='unknown';const before=clone(w);let reported;
+    assert.equal(repairSafely(w,error=>{reported=error;}),false);
+    assert.match(reported.message,/unknown input/);assert.deepEqual(w,before);
+});
 test('ambiguous link indices and input link claims fail atomically',()=>{
     const w=fixture();w.links[1][4]=0;const before=clone(w);
     assert.throws(()=>repair(w),/ambiguous destination/);assert.deepEqual(w,before);
@@ -150,6 +156,15 @@ test('export guard repairs detached metadata without mutating live graph data',(
     const g={marker:42,serialize(option){assert.equal(this.marker,42);assert.equal(option,'arg');calls++;return clone(live);}};
     assert.equal(guard(g),true);assert.equal(guard(g),false);
     const saved=g.serialize('arg');assert.equal(saved.nodes[1].inputs.length,3);assert.deepEqual(live,before);assert.equal(calls,1);
+});
+test('export guard preserves detached data when strict repair rejects it',()=>{
+    const broken=fixture();broken.nodes[1].inputs[1].name='unknown';const expected=clone(broken);
+    const originalError=console.error;let reported;
+    console.error=(...args)=>{reported=args;};
+    try {
+        const g={serialize(){return clone(broken);}};guard(g);assert.deepEqual(g.serialize(),expected);
+    } finally { console.error=originalError; }
+    assert.equal(reported[0],'[Donut workflow] Repair skipped:');assert.match(reported[1].message,/unknown input/);
 });
 test('schema-3 exports still repair sockets trimmed by another serializer',()=>{
     const w=fixture();w.extra.donut_streamlining.schema=3;assert.equal(repair(w),true);assert.equal(w.nodes[1].inputs.length,3);

@@ -254,6 +254,18 @@ export function repairStreamlinedWorkflow(workflow) {
     return upgraded || changes.length > 0;
 }
 
+// Loading a workflow must remain possible even when strict repair validation
+// rejects data written by another frontend extension. The validator is atomic,
+// so a failure here leaves the original workflow untouched for ComfyUI to load.
+export function repairStreamlinedWorkflowSafely(workflow, onError = error => console.error("[Donut workflow] Repair skipped:", error)) {
+    try {
+        return repairStreamlinedWorkflow(workflow);
+    } catch (error) {
+        onError(error);
+        return false;
+    }
+}
+
 const guarded = new WeakMap();
 export function installWorkflowSerializationGuard(graph) {
     if (!graph || typeof graph.serialize !== "function") return false;
@@ -263,7 +275,7 @@ export function installWorkflowSerializationGuard(graph) {
         const result = original.apply(this, args);
         // Work on the detached serialized data, never reorder live socket arrays
         // without their live links. Covers JSON saves and PNG workflow metadata.
-        repairStreamlinedWorkflow(result);
+        repairStreamlinedWorkflowSafely(result);
         return result;
     };
     graph.serialize = wrapper;

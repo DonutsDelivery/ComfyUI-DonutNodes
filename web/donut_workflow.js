@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { createLoraService, installNativeLoras, setHidden } from "./donut_native_lora.js";
-import { repairStreamlinedWorkflow, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=3";
+import { repairStreamlinedWorkflowSafely, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=4";
 export { decodeRows, moveRow } from "./donut_native_lora.js";
 
 const service = createLoraService(api);
@@ -17,7 +17,7 @@ function connectedControls(node) {
 }
 app.registerExtension({
     name: "Donut.WorkflowStreamlining",
-    beforeConfigureGraph(graphData) { repairStreamlinedWorkflow(graphData); },
+    beforeConfigureGraph(graphData) { repairStreamlinedWorkflowSafely(graphData); },
     afterConfigureGraph() { installWorkflowSerializationGuard(app.graph); },
     loadedGraphNode(node) {
         if (!node.properties?.donut_stage_controls) return;
