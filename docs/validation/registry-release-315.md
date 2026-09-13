@@ -47,3 +47,7 @@ URL above.
 Follow-up exact-version check at `2026-09-13T00:27:13Z` returned the same
 `NodeVersionStatusPending` status with a null status reason. Approval remains
 pending.
+
+Follow-up exact-version check at `2026-09-13T00:33:14Z` returned the same
+`NodeVersionStatusPending` status with a null status reason. Approval remains
+pending.
