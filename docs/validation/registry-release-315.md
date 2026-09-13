@@ -55,3 +55,8 @@ pending.
 Follow-up exact-version check at `2026-09-13T00:38:43Z` returned the same
 `NodeVersionStatusPending` status with a null status reason. Approval remains
 pending.
+
+Final exact-version check at `2026-09-13T01:03:54Z` returned `3.0.15` as
+`NodeVersionStatusActive`. The versions listing reported the status reason
+`Passed automated checks` and the exact published ZIP URL above. Registry
+review is complete and version 3.0.15 is approved for normal discovery.
