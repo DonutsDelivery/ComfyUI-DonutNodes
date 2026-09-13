@@ -39,3 +39,7 @@ At `2026-09-13T00:19:11Z`, the exact version endpoint
 returned `3.0.15` as `NodeVersionStatusPending` with an empty status reason.
 Registry upload and ZIP verification are complete; Registry approval remains
 pending and will be checked until the version becomes Active or Flagged.
+
+The direct exact-version readback at `2026-09-13T00:20:26Z` returned the same
+`NodeVersionStatusPending` status, a null status reason, and the published ZIP
+URL above.
