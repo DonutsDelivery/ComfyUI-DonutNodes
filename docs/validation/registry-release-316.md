@@ -40,3 +40,7 @@ At `2026-09-13T20:17:01Z`, the exact versions listing returned `3.0.16` as
 above. Registry upload and ZIP verification are complete; Registry approval is
 pending. A five-minute follow-up is active until the version becomes Active or
 Flagged.
+
+Follow-up exact-version check at `2026-09-13T20:25:00Z` returned the same
+`NodeVersionStatusPending` status with an empty status reason. Approval remains
+pending.
