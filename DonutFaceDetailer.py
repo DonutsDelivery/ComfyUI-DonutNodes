@@ -223,7 +223,7 @@ class DonutFaceDetailer:
                 "tooltip": "Use a unique seed offset for each detected face."}),
             "turbo_mode": ("BOOLEAN", {"default": False,
                 "tooltip": "Snap denoise to a valid Turbo scheduler point."}),
-            "face_reference_b": ("IMAGE", {"tooltip": "Optional subject/identity image for two-reference edits. When connected, faces are extracted from this image instead of the scene in face_reference."}),
+            "face_reference_b": ("IMAGE", {"tooltip": "Optional subject/identity image for two-reference edits. Faces are extracted from this image when possible; if it has no detectable face, the detailer falls back to face_reference."}),
             **nag_input_types(),
         }}
 
@@ -405,7 +405,8 @@ class DonutFaceDetailer:
         noise_mask_feather=0, scheduler_func_opt=None, edit_mode=False,
         edit_prompt="Enhance facial details while preserving identity.",
         edit_negative_prompt="", grounding_px=768, edit_model=None,
-        face_reference=None, vary_seed_per_face=False, turbo_mode=False, **nag_options,
+        face_reference=None, vary_seed_per_face=False, turbo_mode=False,
+        face_reference_b=None, **nag_options,
     ):
         if turbo_mode:
             supported_steps = steps
@@ -413,7 +414,7 @@ class DonutFaceDetailer:
             logging.info("[DonutFaceDetailer] Turbo: %d supported steps -> %d steps at scheduler denoise=%.3f (ComfyUI denoise=%.3f)",
                          supported_steps, steps, matched_denoise, denoise)
         offload_model_for_auxiliary_stage(model, comfy.model_management)
-        if edit_mode and face_reference is None:
+        if edit_mode and face_reference is None and face_reference_b is None:
             raise ValueError("DonutFaceDetailer edit_mode requires face_reference.")
 
         bbox_detector.setAux("face")
@@ -447,15 +448,25 @@ class DonutFaceDetailer:
         final_faces.sort(key=segment_area, reverse=True)
         segs = (segs[0], final_faces[:max_faces])
         reference_faces = []
+        reference_image = face_reference_b if face_reference_b is not None else face_reference
         if edit_mode and segs[1]:
-            bbox_detector.setAux("face")
-            try:
-                reference_segs = bbox_detector.detect(face_reference, bbox_threshold, bbox_dilation,
-                                                      bbox_crop_factor, drop_size, detailer_hook=detailer_hook)
-            finally:
-                bbox_detector.setAux(None)
-            reference_faces = sorted([seg for seg in reference_segs[1] if has_nonzero_mask(seg)],
-                                     key=segment_area, reverse=True)
+            def detect_reference_faces(image):
+                if image is None:
+                    return []
+                bbox_detector.setAux("face")
+                try:
+                    detected = bbox_detector.detect(image, bbox_threshold, bbox_dilation,
+                                                    bbox_crop_factor, drop_size, detailer_hook=detailer_hook)
+                finally:
+                    bbox_detector.setAux(None)
+                return sorted([seg for seg in detected[1] if has_nonzero_mask(seg)],
+                              key=segment_area, reverse=True)
+
+            reference_faces = detect_reference_faces(reference_image)
+            if not reference_faces and face_reference_b is not None and face_reference is not None:
+                logging.warning("[DonutFaceDetailer] No face detected in face_reference_b; falling back to face_reference.")
+                reference_image = face_reference
+                reference_faces = detect_reference_faces(reference_image)
             if not reference_faces:
                 raise ValueError("DonutFaceDetailer found no face in face_reference.")
 
@@ -479,7 +490,7 @@ class DonutFaceDetailer:
                     reference_seg = reference_faces[min(face_index, len(reference_faces) - 1)]
                     face_reference_crop = reference_seg.cropped_image
                     if face_reference_crop is None:
-                        face_reference_crop = impact_utils.crop_image(face_reference, reference_seg.crop_region)
+                        face_reference_crop = impact_utils.crop_image(reference_image, reference_seg.crop_region)
                 noise_mask = (_resize_mask(cropped_mask, cropped_image.shape[1], cropped_image.shape[2])
                               if noise_mask_enabled and cropped_mask is not None else None)
 
@@ -551,8 +562,6 @@ class DonutFaceDetailer:
         face_reference_b=None, **nag_options,
     ):
         _ensure_impact()
-        if edit_mode and face_reference_b is not None:
-            face_reference = face_reference_b
         resolution *= resolution
         result_img = result_mask = None
         result_cropped_enhanced, result_cropped_enhanced_alpha, result_cnet_images = [], [], []
@@ -563,6 +572,10 @@ class DonutFaceDetailer:
             if face_reference is not None:
                 reference_index = min(index, len(face_reference) - 1)
                 single_face_reference = face_reference[reference_index].unsqueeze(0)
+            single_face_reference_b = None
+            if face_reference_b is not None:
+                reference_index = min(index, len(face_reference_b) - 1)
+                single_face_reference_b = face_reference_b[reference_index].unsqueeze(0)
             enhanced_img, cropped_enhanced, cropped_enhanced_alpha, mask, cnet_pil_list = DonutFaceDetailer.enhance_face(
                 single_image.unsqueeze(0), model, clip, vae, resolution, max_resolution,
                 guide_size_for, seed + index, steps, cfg, sampler_name, scheduler,
@@ -575,7 +588,8 @@ class DonutFaceDetailer:
                 scheduler_func_opt=scheduler_func_opt, edit_mode=edit_mode,
                 edit_prompt=edit_prompt, edit_negative_prompt=edit_negative_prompt,
                 grounding_px=grounding_px, edit_model=edit_model,
-                face_reference=single_face_reference, vary_seed_per_face=vary_seed_per_face,
+                face_reference=single_face_reference, face_reference_b=single_face_reference_b,
+                vary_seed_per_face=vary_seed_per_face,
                 turbo_mode=turbo_mode, **nag_options)
             result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
             result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask

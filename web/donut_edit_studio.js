@@ -98,10 +98,62 @@ function clipboardImage(data) {
     return null;
 }
 
+function normalizeEditStudioValue(name, value) {
+    if (name === "inpaint_enabled") {
+        if (typeof value === "string") return ["true", "1", "on", "yes"].includes(value.trim().toLowerCase());
+        return value === true || value === 1;
+    }
+    if (name === "mask_data") return value == null ? "" : String(value);
+    if (name === "mask_feather") {
+        if (value === "" || value == null) return 8;
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.min(128, Math.max(0, Math.round(number))) : 8;
+    }
+    return value;
+}
+
+function normalizeEditStudioInpaintWidgets(backend, data = undefined) {
+    const named = data?.widgets_values_named || {};
+    const positional = Array.isArray(data?.widgets_values) ? data.widgets_values : [];
+    for (const name of ["inpaint_enabled", "mask_data", "mask_feather"]) {
+        const widget = backend.get(name);
+        if (!widget) continue;
+        const index = [...backend.keys()].indexOf(name);
+        const hasSavedValue = Object.hasOwn(named, name) || index >= 0 && index < positional.length;
+        const saved = Object.hasOwn(named, name) ? named[name] : positional[index];
+        const value = normalizeEditStudioValue(name, hasSavedValue ? saved : widget.value);
+        if (widget.value !== value) widget.value = value;
+    }
+}
+
 export function installEditStudio(node, definition) {
     if (node._donutEditStudio) return;
     const inputNames = new Set(Object.keys({...definition.input.required, ...definition.input.optional}));
     const backend = new Map(node.widgets.filter(widget => inputNames.has(widget.name)).map(widget => [widget.name, widget]));
+    // Values restored from older workflow metadata can be blank strings even
+    // though Comfy's API prompt validator expects the backend type. Normalize
+    // once at install time and again immediately before queue serialization.
+    // The latter is needed because graphToPrompt reads live widget values after
+    // restoring/configuring the node instead of using the saved metadata.
+    normalizeEditStudioInpaintWidgets(backend);
+    const maskFeather = backend.get("mask_feather");
+    if (maskFeather) {
+        const queued = maskFeather.beforeQueued;
+        maskFeather.beforeQueued = function(...args) {
+            const result = queued?.apply(this, args);
+            normalizeEditStudioInpaintWidgets(backend);
+            return result;
+        };
+        // graphToPrompt also asks individual widgets for serializeValue after
+        // the queue hooks. Guard that final read as well, so a legacy blank
+        // value cannot reach the Python INT converter through any queue path.
+        const serializedValue = maskFeather.serializeValue;
+        maskFeather.serializeValue = function(...args) {
+            const value = serializedValue ? serializedValue.apply(this, args) : this.value;
+            const normalize = value => normalizeEditStudioValue("mask_feather", value);
+            return value && typeof value.then === "function" ? value.then(normalize) : normalize(value);
+        };
+    }
     const root = element("div", "donut-edit-studio");
     root.setAttribute("aria-label", "Donut Edit Studio");
     const get = name => backend.get(name)?.value;
@@ -428,11 +480,17 @@ export function installEditStudio(node, definition) {
     }
     const dom = node.addDOMWidget("edit_studio", "custom", root, {serialize:false, hideOnZoom:false, getValue:() => "", setValue:() => {}});
     dom.label = "References and output size";
+    // LGraphNode.serialize checks the widget's own `serialize` flag. The
+    // options flag is used by graphToPrompt, but is not enough to keep this
+    // DOM-only helper from adding a trailing blank positional value to PNGs.
+    dom.serialize = false;
     dom.options.serialize = false;
     node.properties.panel_min_width = Math.max(640, node.properties.panel_min_width || 0);
     fitModule(node, dom, root);
     node.setSize([Math.max(640, node.size[0]), Math.max(1070, node.size[1])]);
-    const studio = {node, root, render, paste, upload, activate, get activeSlot() {return activeSlot;}, slots,
+    const studio = {node, root, render, paste, upload, activate,
+        prepareForQueue() { normalizeEditStudioInpaintWidgets(backend); },
+        get activeSlot() {return activeSlot;}, slots,
         refreshLoras(choices) {
             for (const input of controls.get("lora_name") || []) {
                 input.replaceChildren(...choices.map(name => {
@@ -443,8 +501,23 @@ export function installEditStudio(node, definition) {
         },
     };
     node._donutEditStudio = studio; studios.add(studio);
+    const serialized = node.onSerialize;
+    node.onSerialize = function(data) {
+        serialized?.apply(this, arguments);
+        if (!data) return;
+        normalizeEditStudioInpaintWidgets(backend);
+        // The panel DOM widget is deliberately non-serializable. Keep only the
+        // canonical backend inputs so workflow metadata can be reloaded without
+        // positional shifts or blank BOOLEAN placeholders.
+        data.widgets_values = [...backend.values()].map(widget => widget.value);
+        data.widgets_values_named = Object.fromEntries([...backend].map(([name, widget]) => [name, widget.value]));
+    };
     const configured = node.onConfigure, removed = node.onRemoved, added = node.onAdded;
-    node.onConfigure = function() { const result = configured?.apply(this, arguments); render(); root.querySelectorAll('textarea').forEach(fitTextarea); return result; };
+    node.onConfigure = function(data) {
+        const result = configured?.apply(this, arguments);
+        normalizeEditStudioInpaintWidgets(backend, data);
+        render(); root.querySelectorAll('textarea').forEach(fitTextarea); return result;
+    };
     node.onAdded = function() { const result = added?.apply(this, arguments); disposed = false; studios.add(studio); observer.observe(root); render(); return result; };
     const observer = new ResizeObserver(() => { if (!disposed) for (const key of ["a", "b"]) draw(key); }); observer.observe(root);
     node.onRemoved = function() { disposed = true; closeMaskEditor?.(); studios.delete(studio); observer.disconnect(); return removed?.apply(this, arguments); };
@@ -458,6 +531,12 @@ app.registerExtension({
         if (!document.getElementById("donut-edit-studio-style")) {
             const style = element("style"); style.id = "donut-edit-studio-style"; style.textContent = CSS; document.head.append(style);
         }
+        // Comfy dispatches this event immediately before its queue loop. Keep
+        // every installed Studio valid even for queue/API paths that do not
+        // invoke the normal widget callback sequence.
+        api.addEventListener("promptQueueing", () => {
+            for (const studio of studios) studio.prepareForQueue?.();
+        });
         window.addEventListener("paste", event => {
             if (textTarget(event.target)) return;
             const containing = [...studios].find(studio => studio.root.contains?.(event.target));

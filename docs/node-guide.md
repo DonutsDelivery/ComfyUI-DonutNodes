@@ -172,7 +172,8 @@ cell. The preview and backend use the same crop geometry.
 `DonutSampler.source_image_b` and `DonutTiledUpscale.edit_source_image_b` feed both
 images to Krea2's grounded encoder and appearance-token patch. With
 `DonutFaceDetailer.face_reference_b` connected, the detailer extracts face identity
-from B instead of A. Single-reference workflows remain supported. Editing requires
+from B when a face is detected; if B is a clothing or scene reference without a
+detectable face, it automatically falls back to A. Single-reference workflows remain supported. Editing requires
 `comfyui-krea2edit` and an identity-edit LoRA; restart ComfyUI after installing or
 updating the nodes.
 

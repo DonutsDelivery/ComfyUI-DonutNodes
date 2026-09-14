@@ -266,6 +266,63 @@ export function repairStreamlinedWorkflowSafely(workflow, onError = error => con
     }
 }
 
+const EDIT_STUDIO_WIDGET_ORDER = [
+    "enabled", "image_a", "image_b", "use_reference_b", "prompt", "resolution_mode",
+    "aspect_ratio", "megapixels", "width", "height", "multiple", "grounding_px",
+    "lora_name", "lora_strength", "crop_a_x", "crop_a_y", "crop_b_x", "crop_b_y",
+    "inpaint_enabled", "mask_data", "mask_feather",
+];
+
+function normalizeEditStudioMetadataValue(name, value) {
+    if (name === "inpaint_enabled") {
+        if (typeof value === "string") return ["true", "1", "on", "yes"].includes(value.trim().toLowerCase());
+        return value === true || value === 1;
+    }
+    if (name === "mask_data") return value == null ? "" : String(value);
+    if (name === "mask_feather") {
+        if (value === "" || value == null) return 8;
+        const number = Number(value);
+        return Number.isFinite(number) ? Math.min(128, Math.max(0, Math.round(number))) : 8;
+    }
+    return value;
+}
+
+// ComfyUI's newer DOM-widget serializer can leave the non-serializable
+// Edit Studio panel in workflow metadata. Repair that detached data before
+// graph validation so old PNG workflows do not fail type checks on reload.
+export function repairEditStudioMetadata(workflow) {
+    let changed = false;
+    const has = (object, key) => object != null && Object.prototype.hasOwnProperty.call(object, key);
+    const visit = graph => {
+        if (!graph || typeof graph !== "object") return;
+        for (const node of graph.nodes || []) {
+            if (node?.type !== "DonutEditStudio") continue;
+            const named = node.widgets_values_named;
+            const values = node.widgets_values;
+            const hasDomWidget = has(named, "edit_studio")
+                || Array.isArray(values) && values.length === EDIT_STUDIO_WIDGET_ORDER.length + 1
+                    && values.at(-1) === "";
+            if (hasDomWidget && Array.isArray(values) && values.length > EDIT_STUDIO_WIDGET_ORDER.length) {
+                values.length = EDIT_STUDIO_WIDGET_ORDER.length;
+                changed = true;
+            }
+            if (has(named, "edit_studio")) { delete named.edit_studio; changed = true; }
+            for (const name of ["inpaint_enabled", "mask_data", "mask_feather"]) {
+                const index = EDIT_STUDIO_WIDGET_ORDER.indexOf(name);
+                const hasNamed = has(named, name);
+                const hasPositional = Array.isArray(values) && index < values.length;
+                if (!hasNamed && !hasPositional) continue;
+                const value = normalizeEditStudioMetadataValue(name, hasNamed ? named[name] : values[index]);
+                if (hasNamed && named[name] !== value) { named[name] = value; changed = true; }
+                if (hasPositional && values[index] !== value) { values[index] = value; changed = true; }
+            }
+        }
+        for (const subgraph of graph.definitions?.subgraphs || []) visit(subgraph);
+    };
+    visit(workflow);
+    return changed;
+}
+
 const guarded = new WeakMap();
 export function installWorkflowSerializationGuard(graph) {
     if (!graph || typeof graph.serialize !== "function") return false;
@@ -275,6 +332,7 @@ export function installWorkflowSerializationGuard(graph) {
         const result = original.apply(this, args);
         // Work on the detached serialized data, never reorder live socket arrays
         // without their live links. Covers JSON saves and PNG workflow metadata.
+        repairEditStudioMetadata(result);
         repairStreamlinedWorkflowSafely(result);
         return result;
     };

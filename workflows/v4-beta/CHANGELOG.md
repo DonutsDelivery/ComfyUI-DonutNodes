@@ -1,5 +1,14 @@
 # Donut Workflow changelog
 
+## DonutNodes 3.0.18 · Edit Studio metadata compatibility
+
+- Fixed legacy Edit Studio workflow metadata that left the optional inpaint
+  `mask_feather` value blank. Load, save, and queue serialization now normalize
+  the inpaint controls to the backend types, and the DOM-only panel no longer
+  adds a trailing positional value to PNG workflows.
+- Kept existing masks, prompts, references, and seam-width settings intact
+  while repairing the malformed metadata.
+
 ## DonutNodes 3.0.17 · selected-area editing
 
 - Added **Paint area…** to Edit Studio, with brush size, erase, undo, clear,

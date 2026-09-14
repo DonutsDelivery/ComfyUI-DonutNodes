@@ -512,7 +512,7 @@ class DonutFaceDetailerTests(unittest.TestCase):
             detector, steps=8, denoise=0.2, turbo_mode=True))
         self.assertEqual(seen, [(2, 0.25)])
 
-    def test_second_reference_supplies_face_identity_and_disconnected_b_uses_a(self):
+    def test_second_reference_is_forwarded_separately_and_disconnected_b_uses_a(self):
         scene = torch.zeros(1, 64, 64, 3)
         subject = torch.ones(1, 32, 48, 3)
         values = self.face_kwargs(FakeDetector([]), edit_mode=True, face_reference=scene)
@@ -522,9 +522,54 @@ class DonutFaceDetailerTests(unittest.TestCase):
         result = (scene, [], [], torch.zeros(1, 64, 64), [])
         with patch.object(module.DonutFaceDetailer, "enhance_face", return_value=result) as enhance:
             module.DonutFaceDetailer().doit(**values, face_reference_b=subject)
-            self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference"], subject))
+            self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference"], scene))
+            self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference_b"], subject))
             module.DonutFaceDetailer().doit(**values)
             self.assertTrue(torch.equal(enhance.call_args.kwargs["face_reference"], scene))
+            self.assertIsNone(enhance.call_args.kwargs["face_reference_b"])
+
+    def test_face_reference_b_without_a_face_falls_back_to_scene_reference(self):
+        target = FakeSegment("target", (0, 0, 32, 32))
+        scene_face = FakeSegment("scene-face", (0, 0, 40, 40))
+
+        class Detector:
+            def __init__(self):
+                self.calls = []
+
+            def setAux(self, value):
+                pass
+
+            def detect(self, image, *args, **kwargs):
+                self.calls.append(image)
+                # Target image, clothing-only B, then the scene fallback A.
+                segments = [target] if len(self.calls) == 1 else [] if len(self.calls) == 2 else [scene_face]
+                return ((image.shape[1], image.shape[2]), segments)
+
+        detector = Detector()
+        seen = []
+
+        def enhance(image, *args, **kwargs):
+            seen.append(kwargs.get("face_reference_crop", args[26] if len(args) > 26 else None))
+            return image, None
+
+        module.DonutFaceDetailer.enhance_detail_megapixel = staticmethod(enhance)
+        scene = torch.zeros(1, 64, 64, 3)
+        clothing = torch.ones(1, 64, 64, 3)
+        module.DonutFaceDetailer.enhance_face(**self.face_kwargs(
+            detector, image=scene, edit_mode=True, face_reference=scene,
+            face_reference_b=clothing))
+        self.assertEqual(len(detector.calls), 3)
+        self.assertEqual(len(seen), 1)
+        self.assertIs(seen[0], scene_face.cropped_image)
+
+    def test_face_reference_b_alone_remains_a_valid_edit_reference(self):
+        detector = FakeDetector([FakeSegment("target", (0, 0, 32, 32))],
+                                [FakeSegment("subject-face", (0, 0, 32, 32))])
+        module.DonutFaceDetailer.enhance_detail_megapixel = staticmethod(lambda image, *args, **kwargs: (image, None))
+        module.DonutFaceDetailer.enhance_face(**self.face_kwargs(
+            detector, edit_mode=True, face_reference=None,
+            face_reference_b=torch.ones(1, 64, 64, 3)))
+        self.assertEqual(detector.calls, ["target", "reference"])
 
     def test_edit_reference_pairing_happens_after_final_face_selection(self):
         target_large, target_small = (FakeSegment("target-large", (0, 0, 35, 35)),

@@ -10,6 +10,7 @@ const context = vm.createContext({console});
 vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/donut_workflow_repair.js'),'utf8').replace(/export function /g,'function '),context);
 const repair = context.repairStreamlinedWorkflow;
 const repairSafely = context.repairStreamlinedWorkflowSafely;
+const repairEditStudio = context.repairEditStudioMetadata;
 const repairLegacy = context.repairLegacyFusionModelRouting;
 const guard = context.installWorkflowSerializationGuard;
 function fixture() {
@@ -113,6 +114,19 @@ test('safe browser repair reports invalid metadata and allows the original workf
     const w=fixture();w.nodes[1].inputs[1].name='unknown';const before=clone(w);let reported;
     assert.equal(repairSafely(w,error=>{reported=error;}),false);
     assert.match(reported.message,/unknown input/);assert.deepEqual(w,before);
+});
+test('old Edit Studio PNG metadata is repaired before input type validation',()=>{
+    const node={id:881,type:'DonutEditStudio',widgets_values:[
+        false,'','',false,'','Preset','4:3 Standard',1,1152,896,'64',1088,'None',1,.5,.5,.5,.5,'','',8,''
+    ],widgets_values_named:{inpaint_enabled:'',mask_data:'',mask_feather:8,edit_studio:''}};
+    const w={nodes:[node],definitions:{subgraphs:[]}};
+    assert.equal(repairEditStudio(w),true);
+    assert.equal(node.widgets_values.length,21);
+    assert.equal(node.widgets_values_named.inpaint_enabled,false);
+    assert.equal(node.widgets_values_named.mask_data,'');
+    assert.equal(node.widgets_values_named.mask_feather,8);
+    assert.equal('edit_studio' in node.widgets_values_named,false);
+    assert.equal(repairEditStudio(w),false);
 });
 test('ambiguous link indices and input link claims fail atomically',()=>{
     const w=fixture();w.links[1][4]=0;const before=clone(w);
