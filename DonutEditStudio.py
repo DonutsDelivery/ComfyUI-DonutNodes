@@ -46,6 +46,15 @@ try:
 except ImportError:
     from donut_lora_execution import publish_execution_mode, resolve_execution_mode
 
+try:
+    from .shared.lora_resolver import resolve_lora as _resolve_lora
+except ImportError:
+    try:
+        from shared.lora_resolver import resolve_lora as _resolve_lora
+    except ImportError:
+        def _resolve_lora(name, auto_download=True):
+            return (None, "missing")
+
 
 def _reference_root():
     return Path(folder_paths.get_user_directory()) / "donut" / "edit_references"
@@ -154,12 +163,27 @@ def _crop_reference(image, size, x, y, crop_only=False):
     return torch.from_numpy(np.asarray(cropped).astype(np.float32) / 255.0).unsqueeze(0)
 
 
+def _require_lora_path(lora_name):
+    path = folder_paths.get_full_path("loras", lora_name)
+    if not path:
+        path, source = _resolve_lora(lora_name, auto_download=False)
+        if path:
+            print(f"[DonutEditStudio] Resolved LoRA '{lora_name}' via {source} at {path}")
+    if not path:
+        raise FileNotFoundError(
+            f"LoRA '{lora_name}' was not found in your models/loras folders. "
+            "Re-download it (see the node pack's model-sources documentation for the "
+            "identity-edit LoRA) or set the Edit Studio LoRA widget to None."
+        )
+    return path
+
+
 def _load_edit_lora(model, lora_name, strength):
     mode = resolve_execution_mode(model)
+    path = _require_lora_path(lora_name)
     if mode == "Experimental bypass":
         import comfy.utils
         from .DonutSafeApplyLoRAStack import _apply_bypass_applications
-        path = folder_paths.get_full_path("loras", lora_name)
         lora = comfy.utils.load_torch_file(path, safe_load=True)
         return _apply_bypass_applications(model, [(lora, strength, ",".join(["1"] * 29))])
     return nodes.LoraLoaderModelOnly().load_lora_model_only(model, lora_name, strength)[0]
@@ -244,6 +268,11 @@ class DonutEditStudio:
                 exists = False
             if not exists:
                 return f"Add reference {label} in Edit Studio, or turn editing off."
+        lora_name = kwargs.get("lora_name")
+        if lora_name and lora_name != "None" and kwargs.get("lora_strength", 1.0) != 0 \
+                and not folder_paths.get_full_path("loras", lora_name):
+            return (f"LoRA '{lora_name}' was not found in your models/loras folders. "
+                    "Re-download it or set the Edit Studio LoRA widget to None.")
         return True
 
     @classmethod

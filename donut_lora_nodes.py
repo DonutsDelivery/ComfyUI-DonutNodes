@@ -667,6 +667,8 @@ class DonutApplyLoRAStack:
             seen.add(name)
 
             path = folder_paths.get_full_path("loras", name)
+            if not path:
+                raise FileNotFoundError(f"LoRA file not found: {name}")
             lora = comfy.utils.load_torch_file(path, safe_load=True)
 
             # Auto-detect block count from LoRA keys if no vector provided

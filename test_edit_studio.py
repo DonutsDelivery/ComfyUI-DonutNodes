@@ -15,6 +15,7 @@ import torch
 
 fake_paths = types.ModuleType("folder_paths")
 fake_paths.get_filename_list = lambda kind: ["krea2/krea2_identity_edit_v1_2.safetensors"]
+fake_paths.get_full_path = lambda kind, name: name
 fake_paths.get_user_directory = lambda: "unused"
 fake_paths.get_annotated_filepath = Mock(side_effect=ValueError("Invalid file path"))
 fake_nodes = types.ModuleType("nodes")
@@ -61,6 +62,43 @@ class EditStudioTests(unittest.TestCase):
         fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.return_value = ("regular",)
         module._load_edit_lora(model, "edit", .7)
         fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.assert_called_once_with(model, "edit", .7)
+
+    def test_missing_edit_lora_names_the_file_instead_of_crashing_on_none(self):
+        model = types.SimpleNamespace(model_options={"donut_lora_execution_mode": "Experimental bypass"})
+        with patch.object(fake_paths, "get_full_path", return_value=None, create=True), \
+             patch.object(module, "_resolve_lora", return_value=(None, "missing")):
+            with self.assertRaisesRegex(FileNotFoundError, "missing-lora.safetensors"):
+                module._load_edit_lora(model, "missing-lora.safetensors", .7)
+        model.model_options["donut_lora_execution_mode"] = "Comfy patches"
+        fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.return_value = ("regular",)
+        with patch.object(fake_paths, "get_full_path", return_value=None, create=True), \
+             patch.object(module, "_resolve_lora", return_value=(None, "missing")):
+            with self.assertRaisesRegex(FileNotFoundError, "missing-lora.safetensors"):
+                module._load_edit_lora(model, "missing-lora.safetensors", .7)
+        fake_nodes.LoraLoaderModelOnly.assert_not_called()
+
+    def test_missing_edit_lora_is_recovered_by_basename_search(self):
+        model = types.SimpleNamespace(model_options={"donut_lora_execution_mode": "Comfy patches"})
+        fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.return_value = ("regular",)
+        with patch.object(fake_paths, "get_full_path", return_value=None, create=True), \
+             patch.object(module, "_resolve_lora", return_value=("/elsewhere/renamed.safetensors", "basename")) as resolve:
+            self.assertEqual(module._load_edit_lora(model, "krea2/renamed.safetensors", .7), "regular")
+        resolve.assert_called_once_with("krea2/renamed.safetensors", auto_download=False)
+        fake_nodes.LoraLoaderModelOnly.return_value.load_lora_model_only.assert_called_once_with(
+            model, "krea2/renamed.safetensors", .7)
+
+    def test_missing_edit_lora_is_reported_at_validation_time(self):
+        settings = self.settings(enabled=True, image_a=self.reference((32, 32)), lora_name="missing.safetensors")
+        with patch.object(fake_paths, "get_full_path",
+                          side_effect=lambda kind, name: None if name == "missing.safetensors" else name,
+                          create=True):
+            message = module.DonutEditStudio.VALIDATE_INPUTS(**settings)
+            self.assertIn("missing.safetensors", message)
+            self.assertIn("None", message)
+            settings["lora_strength"] = 0
+            self.assertIs(module.DonutEditStudio.VALIDATE_INPUTS(**settings), True)
+            settings["lora_name"] = module.DonutEditStudio.INPUT_TYPES()["required"]["lora_name"][1]["default"]
+            self.assertIs(module.DonutEditStudio.VALIDATE_INPUTS(**settings), True)
 
     def settings(self, **overrides):
         settings = {name: spec[1]["default"] for name, spec in module.DonutEditStudio.INPUT_TYPES()["required"].items()}

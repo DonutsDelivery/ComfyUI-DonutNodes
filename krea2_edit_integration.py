@@ -53,6 +53,8 @@ def apply_krea2_edit_lora(model, lora_name, strength, execution_mode=None):
         import folder_paths
         import comfy.utils
         path = folder_paths.get_full_path("loras", lora_name)
+        if not path:
+            raise FileNotFoundError(f"LoRA file not found: {lora_name}")
         lora = comfy.utils.load_torch_file(path, safe_load=True)
         try:
             from .DonutSafeApplyLoRAStack import _apply_bypass_applications
