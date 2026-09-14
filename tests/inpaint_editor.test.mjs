@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import test from "node:test";
-import {readMask, drawMask, maskInverted} from "../web/donut_inpaint_editor.js";
+import vm from "node:vm";
+
+const source = readFileSync(new URL("../web/donut_inpaint_editor.js", import.meta.url), "utf8");
+const scope = vm.createContext({document: undefined});
+vm.runInContext(source.replace(/^export /gm, ""), scope);
+const {readMask, drawMask, maskInverted} = scope;
 
 test("inversion persists only for its source image and defaults off for older masks", () => {
     const data = JSON.stringify({version:1, image:'A', inverted:true, strokes:[]});
@@ -31,14 +37,15 @@ test("rectangles render identically in both drag directions", () => {
 test("saved selections survive JSON serialization and belong only to their source image", () => {
     const strokes = [{size:.08, erase:false, points:[[.3,.4],[.6,.7]]}];
     const value = JSON.stringify({version:1, image:"A", strokes});
-    assert.deepEqual(readMask(value,"A"), strokes);
-    assert.deepEqual(readMask(value,"B"), []);
+    const restored = JSON.parse(JSON.stringify(readMask(value, "A")));
+    assert.deepEqual(restored, strokes);
+    assert.deepEqual(readMask(value, "B").length, 0);
 });
 
 test("invalid saved masks cannot crash the preview", () => {
     for (const value of ["", "null", "bad json", JSON.stringify({version:1,image:"A",strokes:[null]}),
         JSON.stringify({version:1,image:"A",strokes:[{size:1,points:[[null,1]]}]})]) {
-        assert.deepEqual(readMask(value,"A"), []);
+        assert.equal(readMask(value, "A").length, 0);
     }
 });
 
