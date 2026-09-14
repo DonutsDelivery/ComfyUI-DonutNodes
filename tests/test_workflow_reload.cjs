@@ -11,6 +11,7 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,'../web/donut_workflow_repai
 const repair = context.repairStreamlinedWorkflow;
 const repairSafely = context.repairStreamlinedWorkflowSafely;
 const repairEditStudio = context.repairEditStudioMetadata;
+const normalizeEditStudioQueue = context.normalizeEditStudioQueueWidgets;
 const repairLegacy = context.repairLegacyFusionModelRouting;
 const guard = context.installWorkflowSerializationGuard;
 function fixture() {
@@ -127,6 +128,26 @@ test('old Edit Studio PNG metadata is repaired before input type validation',()=
     assert.equal(node.widgets_values_named.mask_feather,8);
     assert.equal('edit_studio' in node.widgets_values_named,false);
     assert.equal(repairEditStudio(w),false);
+});
+test('promoted Edit Studio inpaint metadata is repaired on the subgraph instance',()=>{
+    const node={id:63,type:'edit-stage',inputs:[{name:'mask_feather',widget:{name:'mask_feather'}}],
+        widgets_values:[''],widgets_values_named:{mask_feather:''}};
+    const w={nodes:[node],definitions:{subgraphs:[]}};
+    assert.equal(repairEditStudio(w),true);
+    assert.equal(node.widgets_values[0],8);
+    assert.equal(node.widgets_values_named.mask_feather,8);
+    assert.equal(repairEditStudio(w),false);
+});
+test('queue normalization fixes promoted and nested live widgets before serialization',()=>{
+    const inner={widgets:[{name:'mask_feather',value:''},{name:'inpaint_enabled',value:''},{name:'mask_data',value:null}]};
+    const outer={widgets:[{name:'mask_feather',value:''}],getInnerNodes:()=>[inner]};
+    const graph={computeExecutionOrder:()=>[outer]};
+    assert.equal(normalizeEditStudioQueue(graph),true);
+    assert.equal(outer.widgets[0].value,8);
+    assert.equal(inner.widgets[0].value,8);
+    assert.equal(inner.widgets[1].value,false);
+    assert.equal(inner.widgets[2].value,'');
+    assert.equal(normalizeEditStudioQueue(graph),false);
 });
 test('ambiguous link indices and input link claims fail atomically',()=>{
     const w=fixture();w.links[1][4]=0;const before=clone(w);

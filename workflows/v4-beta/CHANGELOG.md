@@ -1,5 +1,12 @@
 # Donut Workflow changelog
 
+## DonutNodes 3.0.19 · promoted inpaint control compatibility
+
+- Fixed a blank `mask_feather` value on the V4 Image setup & editing subgraph
+  that could overwrite Edit Studio's repaired value during prompt queueing.
+- Normalized promoted and nested inpaint controls before serialization while
+  preserving the selected mask, prompt, references, and seam width.
+
 ## DonutNodes 3.0.18 · Edit Studio metadata compatibility
 
 - Fixed legacy Edit Studio workflow metadata that left the optional inpaint

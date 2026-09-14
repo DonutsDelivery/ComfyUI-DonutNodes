@@ -287,6 +287,31 @@ function normalizeEditStudioMetadataValue(name, value) {
     return value;
 }
 
+const EDIT_STUDIO_INPAINT_WIDGETS = new Set(["inpaint_enabled", "mask_data", "mask_feather"]);
+
+// Promoted subgraph widgets are copied into their inner targets by ComfyUI
+// after each node's own beforeQueued hook. Normalize every live widget first so
+// a legacy blank outer `mask_feather` cannot overwrite the valid inner value.
+export function normalizeEditStudioQueueWidgets(graph) {
+    if (!graph || typeof graph !== "object") return false;
+    let changed = false;
+    const seen = new Set();
+    const visit = node => {
+        if (!node || typeof node !== "object" || seen.has(node)) return;
+        seen.add(node);
+        for (const widget of node.widgets || []) {
+            if (!EDIT_STUDIO_INPAINT_WIDGETS.has(widget?.name)) continue;
+            const value = normalizeEditStudioMetadataValue(widget.name, widget.value);
+            if (widget.value !== value) { widget.value = value; changed = true; }
+        }
+        const inner = node.getInnerNodes?.(new Map());
+        if (inner) for (const item of inner) visit(Array.isArray(item) ? item[1] : item);
+    };
+    const ordered = graph.computeExecutionOrder?.(false) || graph.nodes || [];
+    for (const node of ordered) visit(node);
+    return changed;
+}
+
 // ComfyUI's newer DOM-widget serializer can leave the non-serializable
 // Edit Studio panel in workflow metadata. Repair that detached data before
 // graph validation so old PNG workflows do not fail type checks on reload.
@@ -296,6 +321,23 @@ export function repairEditStudioMetadata(workflow) {
     const visit = graph => {
         if (!graph || typeof graph !== "object") return;
         for (const node of graph.nodes || []) {
+            // Subgraph instances can carry promoted inpaint controls in their
+            // own metadata even though the actual DonutEditStudio lives in a
+            // definition below. Normalize those values before graph validation.
+            const metadataNamed = node?.widgets_values_named;
+            const metadataValues = node?.widgets_values;
+            const order = Array.isArray(node?.properties?.donut_widget_order)
+                ? node.properties.donut_widget_order
+                : (node?.inputs || []).filter(input => input?.widget).map(input => input.name);
+            for (const name of EDIT_STUDIO_INPAINT_WIDGETS) {
+                const index = order.indexOf(name);
+                const hasNamed = has(metadataNamed, name);
+                const hasPositional = Array.isArray(metadataValues) && index >= 0 && index < metadataValues.length;
+                if (!hasNamed && !hasPositional) continue;
+                const value = normalizeEditStudioMetadataValue(name, hasNamed ? metadataNamed[name] : metadataValues[index]);
+                if (hasNamed && metadataNamed[name] !== value) { metadataNamed[name] = value; changed = true; }
+                if (hasPositional && metadataValues[index] !== value) { metadataValues[index] = value; changed = true; }
+            }
             if (node?.type !== "DonutEditStudio") continue;
             const named = node.widgets_values_named;
             const values = node.widgets_values;

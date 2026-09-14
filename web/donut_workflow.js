@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { createLoraService, installNativeLoras, setHidden } from "./donut_native_lora.js";
-import { repairStreamlinedWorkflowSafely, repairEditStudioMetadata, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=5";
+import { repairStreamlinedWorkflowSafely, repairEditStudioMetadata, normalizeEditStudioQueueWidgets, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=6";
 export { decodeRows, moveRow } from "./donut_native_lora.js";
 
 const service = createLoraService(api);
@@ -17,6 +17,11 @@ function connectedControls(node) {
 }
 app.registerExtension({
     name: "Donut.WorkflowStreamlining",
+    setup() {
+        // Normalize promoted Edit Studio controls before ComfyUI propagates
+        // them into nested nodes during prompt construction.
+        api.addEventListener("promptQueueing", () => normalizeEditStudioQueueWidgets(app.graph));
+    },
     beforeConfigureGraph(graphData) { repairEditStudioMetadata(graphData); repairStreamlinedWorkflowSafely(graphData); },
     afterConfigureGraph() { installWorkflowSerializationGuard(app.graph); },
     loadedGraphNode(node) {
