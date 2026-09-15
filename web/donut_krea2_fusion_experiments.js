@@ -79,6 +79,22 @@ function applyExperiment(node, name) {
   return true;
 }
 
+function applyOuterExperimentInputs(node, name) {
+  const recipe = EXPERIMENTS[name];
+  if (!recipe || widget(node, "tap_method")) return;
+
+  // V4 exposes tap_strength on the outer Fusion/Generate subgraph. That value
+  // is an actual subgraph input and therefore wins over the nested widget at
+  // execution time. Keep it in lockstep with the experiment recipe; otherwise
+  // power 0.60 is executed as power 1.0 and collapses back to the full classic
+  // profile (which can be identical to Rebalance for float32 conditioning).
+  const strength = widget(node, "tap_strength");
+  if (!strength) return;
+  strength.value = recipe.tap_strength;
+  strength.callback?.(recipe.tap_strength, app.canvas, node);
+  node.setDirtyCanvas?.(true, true);
+}
+
 function decorate(node) {
   const preset = widget(node, "compatibility_preset");
   if (!preset) return;
@@ -89,12 +105,14 @@ function decorate(node) {
   preset.callback = function(value) {
     const result = previous?.apply(this, arguments);
     if (!EXPERIMENTS[value]) return result;
+    applyOuterExperimentInputs(node, value);
     const target = widget(node, "tap_method") ? node : fusionDescendant(node.subgraph);
     if (target) applyExperiment(target, value);
     preset.value = value;
     return result;
   };
   if (EXPERIMENTS[preset.value]) {
+    applyOuterExperimentInputs(node, preset.value);
     const target = widget(node, "tap_method") ? node : fusionDescendant(node.subgraph);
     if (target) applyExperiment(target, preset.value);
   }
