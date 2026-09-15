@@ -24,7 +24,8 @@ use the same cutoff, derived from `sample_sigmas[2]`.
   evaluations. Existing LoRA forward adapters remain intact. Unsupported targets
   raise an error instead of silently becoming an always-on regular patch.
 
-No second checkpoint is loaded, no initial noise is added at the boundary, and
+SDA loads no additional checkpoint beyond the models already used by the merge.
+No initial noise is added at the boundary, and
 no seed or solver history is reset. Bypass still needs adapter/activation memory;
 this is not a zero-VRAM-cost feature. Native hooks can have repatching/offload
 costs; neither speed nor quantized GPU parity has been benchmarked here.
@@ -75,11 +76,53 @@ The wrapper contract was checked against
 and the ODE options against
 [Comfy's SamplerER_SDE builder](https://github.com/Comfy-Org/ComfyUI/blob/7a0b5eede3f9721c8faab290689893f36edc6d66/comfy_extras/nodes_custom_sampler.py).
 
-Use a single Krea2 model or an ordinary weight merge. Hard module-swap merging,
+Single Krea2 models, ordinary weight merges, and Donut's hard module-swap merges
+in **Experimental bypass** are supported. The following remain excluded:
 `torch.compile`, editing/inpainting, masked or partial-denoise generation, and
 explicit `multi_model` mode are not supported by this fix. NAG is left on the
 normal sampler path; its two text streams see the same scheduled model weights.
 NAG/image-quality interaction still needs a real GPU A/B test.
+
+### Hard module-swap merges
+
+Keep V4's merge enabled, its existing ratios, **Experimental bypass**, and
+**`bleh_preset_0` / `beta`**. The blanket module-swap rejection is removed.
+SDA reads the same source/plan metadata as the real Donut merge injection:
+
+- Exact model2 swaps route the corresponding SDA adapters to the **retained
+  source layers**. Putting weight hooks on the unused model1 copies would have
+  no effect; putting an `APPLY_MODEL` wrapper on model2 alone would also have no
+  effect, because the merge calls its selected layers, not its full model.
+- Kept model1 layers and materialized partial blends receive SDA on **model1**.
+- Both sets are scoped around the same early main-model evaluation, then
+  removed. Ordinary LoRAs, merge hooks, weights/biases, quantization metadata,
+  source references, and merge ratios are not rewritten.
+- At runtime the source is re-resolved from the active sampling patcher, not
+  captured from the loader. This follows the merge injection across clones.
+- Cleanup runs across both roots, including partial injection failures and
+  denoiser exceptions. It does not leave SDA on for subsequent finishing passes.
+
+The same two-of-eight gate and single solver run are retained. The console logs:
+
+```text
+[Donut SDA] Hard-swap routing: <N> primary / <M> retained model2 adapter(s)
+```
+
+Counts depend on the adapter and chosen swap plan. A zero source count is valid
+when the SDA file has no targets among the swapped layers. Existing ON/OFF
+transition logs still identify the actual sigma cutoff.
+
+Donut's global execution policy already makes a hard-swap output inherit
+Experimental bypass. A hand-built mixed-policy API call requesting native
+weight hooks on swapped SDA targets is rejected rather than silently patching
+unused model1 weights. Regular Comfy-patch merges and single-model native hooks
+keep their original behavior. Missing/inconsistent source plans, incompatible
+live targets, and compiled/nested sources fail explicitly; no always-on fallback
+or full-model materialization is introduced.
+
+For a GPU A/B test keep the merge, sampler, scheduler, seed and prompt fixed,
+with Turbo on, eight steps and full denoise. Compare SDA off/on without changing
+the merge controls. No V4 JSON migration or different adapter download is needed.
 
 With SDA **off**, or strength **zero**, the existing sampler is called without
 loading the file, adding hooks, changing modes or importing scheduling support.
@@ -133,8 +176,8 @@ an Euler-only reference, not a recommended implementation for ER-SDE.
 `workflows/examples/krea2_sda_v4_bleh_api.json` adds an **API-format** SDA off/on
 comparison using V4's exact ODE preset settings and beta. Both sampler model
 inputs depend on the preset setter, ensuring registration precedes sampling.
-This isolates the sampler; it does not enable editing, model-swap merging or
-other configurations excluded above, and is not a replacement V4 canvas.
+This isolates the sampler; it does not include the model-swap merge or editing,
+and is not a replacement V4 canvas. Use the existing V4 merge for that comparison.
 
 For the first V4 comparison disable Seed Variance, extra fusion experiments,
 NAG, caches, finishing stages and other optional adapters. Compare identical
@@ -147,13 +190,18 @@ weight-hook/runtime-adapter ON and OFF transitions at model evaluation.
 
 ## Validation
 
-Run `python -m unittest -v test_krea2_sda_native test_sda_sampler_presets`
+Run `python -m unittest -v test_krea2_sda_native test_sda_sampler_presets test_sda_merge`
 from the DonutNodes checkout.
 The tests use real CPU tensors/files and ComfyUI interface doubles. They cover
 single-call dispatch, the gate, upstream hook preservation, scoped bypass
 arithmetic/cleanup, checksum failures, cache reuse and unsupported settings.
 Bleh tests cover live registry resolution, preserved ODE options/beta selection,
 single-call dispatch through both SDA paths and unsupported wrappers/overrides.
+Merge tests execute the real Donut merge builder, dynamic swap injection and
+source resolver with small CPU Linear layers. They check forward deltas on the
+correct roots, first-two ON/remaining-six OFF, sampling-clone rebinding, ordinary
+LoRA preservation, failures/cleanup, unchanged weights, and V4 node dispatch.
+The patcher and adapter-manager lifecycle interfaces are test doubles.
 They do **not** validate the full installed ComfyUI lifecycle or real Krea2,
 quantized GPU output, speed, or the visual effect of NAG. Keep this change in
 review until the reference A/B has been run on the target setup.
