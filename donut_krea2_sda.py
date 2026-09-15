@@ -100,12 +100,14 @@ def _validate_sda_sampling(kwargs):
             "is disabled for Krea2 editing/inpainting."
         )
 
-    if (kwargs.get("mode", "simple") == "multi_model"
-            or kwargs.get("model_2") is not None
-            or kwargs.get("model_3") is not None):
+    # V4 keeps dormant model_2/model_3 sockets wired even when simple mode is
+    # selected. Those inputs are ignored by the ordinary sampler and native SDA
+    # deliberately replaces them with its own temporary SDA/clean pair. Only an
+    # explicitly selected multi-model run conflicts with native SDA ownership.
+    if kwargs.get("mode", "simple") == "multi_model":
         raise ValueError(
-            "Native SDA uses DonutSampler's two-model phase internally. Disconnect "
-            "manual model_2/model_3 inputs and use simple or advanced mode."
+            "Native SDA uses DonutSampler's two-model phase internally. Select "
+            "simple or advanced mode while SDA diversity is enabled."
         )
 
     if int(kwargs.get("start_at_step", 0)) != 0:
@@ -113,6 +115,55 @@ def _validate_sda_sampling(kwargs):
     end = int(kwargs.get("end_at_step", 10000))
     if end < SDA_SUPPORTED_STEPS:
         raise ValueError("SDA diversity requires the complete 8-step Turbo schedule.")
+
+
+def _sampler_kwargs(
+    seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
+    scheduler, positive, negative, latent_image, denoise, mode, cfg_curve,
+    add_noise, start_at_step, end_at_step, return_with_leftover_noise,
+    randomize_seed_per_model, switch_at_step_1, switch_at_step_2, model_2,
+    model_3, edit_mode, source_image, vae, clip, edit_prompt,
+    edit_negative_prompt, grounding_px, edit_model, turbo_mode, source_image_b,
+    edit_inpaint, nag_options,
+):
+    """Rebuild the base sampler call without changing its public signature."""
+    return dict(
+        seed=seed,
+        steps=steps,
+        cfg_start=cfg_start,
+        cfg_halfway=cfg_halfway,
+        cfg_end=cfg_end,
+        halfway_step=halfway_step,
+        sampler_name=sampler_name,
+        scheduler=scheduler,
+        positive=positive,
+        negative=negative,
+        latent_image=latent_image,
+        denoise=denoise,
+        mode=mode,
+        cfg_curve=cfg_curve,
+        add_noise=add_noise,
+        start_at_step=start_at_step,
+        end_at_step=end_at_step,
+        return_with_leftover_noise=return_with_leftover_noise,
+        randomize_seed_per_model=randomize_seed_per_model,
+        switch_at_step_1=switch_at_step_1,
+        switch_at_step_2=switch_at_step_2,
+        model_2=model_2,
+        model_3=model_3,
+        edit_mode=edit_mode,
+        source_image=source_image,
+        vae=vae,
+        clip=clip,
+        edit_prompt=edit_prompt,
+        edit_negative_prompt=edit_negative_prompt,
+        grounding_px=grounding_px,
+        edit_model=edit_model,
+        turbo_mode=turbo_mode,
+        source_image_b=source_image_b,
+        edit_inpaint=edit_inpaint,
+        **nag_options,
+    )
 
 
 class DonutSampler(_BaseDonutSampler):
@@ -142,7 +193,28 @@ class DonutSampler(_BaseDonutSampler):
         })
         return inputs
 
-    def sample(self, model, sda_enabled=False, sda_strength=1.0, **kwargs):
+    def sample(
+        self, model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step,
+        sampler_name, scheduler, positive, negative, latent_image, denoise,
+        mode="simple", cfg_curve="linear", add_noise="enable", start_at_step=0,
+        end_at_step=10000, return_with_leftover_noise="disable",
+        randomize_seed_per_model="enable", switch_at_step_1=10,
+        switch_at_step_2=15, model_2=None, model_3=None, edit_mode=False,
+        source_image=None, vae=None, clip=None, edit_prompt="",
+        edit_negative_prompt="", grounding_px=768, edit_model=None,
+        turbo_mode=False, source_image_b=None, edit_inpaint=None,
+        sda_enabled=False, sda_strength=1.0, **nag_options,
+    ):
+        kwargs = _sampler_kwargs(
+            seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step,
+            sampler_name, scheduler, positive, negative, latent_image, denoise,
+            mode, cfg_curve, add_noise, start_at_step, end_at_step,
+            return_with_leftover_noise, randomize_seed_per_model,
+            switch_at_step_1, switch_at_step_2, model_2, model_3, edit_mode,
+            source_image, vae, clip, edit_prompt, edit_negative_prompt,
+            grounding_px, edit_model, turbo_mode, source_image_b, edit_inpaint,
+            nag_options,
+        )
         if not sda_enabled:
             return super().sample(model=model, **kwargs)
 
