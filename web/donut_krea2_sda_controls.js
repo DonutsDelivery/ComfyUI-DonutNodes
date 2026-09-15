@@ -9,6 +9,24 @@ function resolve(path) {
     return node;
 }
 
+function samplerPath(path) {
+    const target = resolve(path);
+    if (target?.widgets?.some(widget => widget.name === "sda_enabled")) return [...path];
+
+    const visit = (graph, prefix) => {
+        for (const current of graph?.nodes || []) {
+            const nestedPath = [...prefix, current.id];
+            const type = current.comfyClass || current.type || current.properties?.["Node name for S&R"];
+            if (type === "DonutSampler" && current.widgets?.some(widget => widget.name === "sda_enabled")) {
+                return nestedPath;
+            }
+            const nested = visit(current.subgraph, nestedPath);
+            if (nested) return nested;
+        }
+    };
+    return visit(target?.subgraph, path);
+}
+
 function installSdaControls() {
     for (const panel of app.rootGraph?.nodes || []) {
         const config = panel.properties?.donut_app_controls;
@@ -20,12 +38,12 @@ function installSdaControls() {
             const turboIndex = controls.findIndex(item => item.widget === "turbo_mode");
             if (turboIndex < 0 || controls.some(item => item.widget === "sda_enabled")) continue;
             const turbo = controls[turboIndex];
-            const sampler = resolve(turbo.path);
-            if (!sampler?.widgets?.some(widget => widget.name === "sda_enabled")) continue;
+            const path = samplerPath(turbo.path);
+            if (!path) continue;
 
             controls.splice(turboIndex + 1, 0,
-                { path: [...turbo.path], widget: "sda_enabled", title: "SDA diversity" },
-                { path: [...turbo.path], widget: "sda_strength", title: "SDA strength",
+                { path, widget: "sda_enabled", title: "SDA diversity" },
+                { path: [...path], widget: "sda_strength", title: "SDA strength",
                   weights: { min: 0, max: 2, step: 0.05 } },
             );
             changed = true;
@@ -38,8 +56,8 @@ app.registerExtension({
     name: "Donut.Krea2SDAControls",
     afterConfigureGraph() {
         // Existing V4 JSONs do not need to be rewritten just to expose the new
-        // sampler widgets. Inject controls beside Turbo mode after all graph
-        // subgraphs and frontend-only panels have finished restoring.
+        // sampler widgets. The saved Turbo control points at the outer Generate
+        // subgraph, so locate its DonutSampler descendant and bind SDA directly.
         queueMicrotask(installSdaControls);
     },
 });
