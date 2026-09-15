@@ -17,6 +17,18 @@ presets are unchanged.
 prompt-independent, so positive and NAG-negative conditioning use the same gain
 vector. It does not claim that every NAG phi/tau/alpha setting will be artifact-free.
 
+## V4 outer strength input
+
+V4 exposes `tap_strength` on the outer Fusion/Generate subgraph as well as on the
+nested Fusion Control. The outer value is an execution input and overrides the
+nested widget. Experimental preset selection therefore updates **both** values.
+
+This matters especially for the power preset: if the outer strength remains at
+`1.0`, `geometric_power` evaluates the classic profile as `gain ** 1.0`, which
+collapses back to the full classic profile and can reproduce Rebalance exactly
+when the conditioning dtype/order also matches. An early live test exposed this
+routing bug; the branch now has explicit frontend coverage for the outer value.
+
 ## Suggested A/B sequence
 
 Use one prompt, one seed and the same Krea2 Turbo settings. Disable Seed Variance
