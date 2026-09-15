@@ -8,6 +8,7 @@ from copy import deepcopy
 import hashlib
 import math
 import os
+import re
 
 import comfy.utils
 import folder_paths
@@ -81,9 +82,15 @@ def _validate_sda_sampling(kwargs, supported_samplers):
         raise ValueError("SDA is not supported for editing/inpainting or masked generation.")
     if kwargs["mode"] not in ("simple", "advanced"):
         raise ValueError("SDA uses one model/sampler run; select simple or advanced, not multi_model.")
-    if kwargs["sampler_name"] not in supported_samplers:
+    sampler_name = kwargs["sampler_name"]
+    # Bleh is a preset indirection, not another solver. Admit its name here;
+    # the runtime guard resolves the LIVE registered SAMPLER and verifies the
+    # underlying kernel/options before executing it. Never assume slot 0 is ER-SDE.
+    is_bleh_preset = isinstance(sampler_name, str) and re.fullmatch(r"bleh_preset_[0-9]+", sampler_name)
+    if sampler_name not in supported_samplers and not is_bleh_preset:
         raise ValueError(
-            "SDA currently supports euler, er_sde and dpmpp_2m. "
+            f"SDA cannot schedule sampler {sampler_name!r}. Supported underlying "
+            f"solvers: {', '.join(supported_samplers)}, including verified Bleh presets. "
             "Other/adaptive/multi-evaluation solvers do not yet have a verified two-step gate."
         )
     # Simple mode ignores these dormant advanced controls. Do not reject a
@@ -122,7 +129,8 @@ class DonutSampler(_BaseDonutSampler):
         optional["sda_enabled"] = ("BOOLEAN", {
             "default": False,
             "tooltip": "Krea2 Turbo SDA: first 2 of 8 steps in ONE uninterrupted run. "
-                       "Supports Euler, ER-SDE and DPM++ 2M. Uses the upstream LoRA execution mode. "
+                       "Supports Euler, ER-SDE and DPM++ 2M, including V4's Bleh preset (ODE) + beta. "
+                       "Preserves preset options and the upstream LoRA execution mode. "
                        "Requires the F16 ComfyUI SDA file; does not auto-download.",
         })
         optional["sda_strength"] = ("FLOAT", {

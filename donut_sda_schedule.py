@@ -152,15 +152,19 @@ def _sampling_guard(executor, model_wrap, sigmas, extra_args, callback, noise,
                     latent_image=None, denoise_mask=None, disable_pbar=False):
     schedule = validate_sigmas(sigmas)
     sampler = executor.class_obj
-    function = getattr(sampler, "sampler_function", None)
-    expected = {"sample_" + name for name in SDA_SAMPLERS}
-    if getattr(function, "__name__", None) not in expected:
-        raise ValueError("SDA needs a supported fixed-step solver: euler, er_sde or dpmpp_2m.")
-    if float(getattr(sampler, "extra_options", {}).get("s_churn", 0.0)) != 0.0:
-        raise ValueError("SDA does not support Euler churn; use s_churn=0.")
+    try:
+        from .donut_sda_sampler import inspect_sda_sampler
+    except ImportError:
+        from donut_sda_sampler import inspect_sda_sampler
+    route, options = inspect_sda_sampler(sampler, SDA_SAMPLERS)
+    logging.info("[Donut SDA] Solver: %s; s_noise=%s; max_stage=%s; noise_scaler=%s",
+                 route, options.get("s_noise", "default"), options.get("max_stage", "default"),
+                 getattr(options.get("noise_scaler"), "__name__", "default"))
     logging.info("[Donut SDA] Single run: ON steps 1-2, OFF steps 3-8; cutoff sigma=%.7g", schedule[2])
     # No second sampler invocation: history, stochastic noise state, seed and
     # callbacks are passed through without restart or additional initial noise.
+    # In particular, execute Bleh's original wrapper and configured SAMPLER;
+    # constructing a fresh er_sde here would discard V4's deterministic ODE mode.
     return executor(model_wrap, sigmas, extra_args, callback, noise,
                     latent_image, denoise_mask, disable_pbar)
 

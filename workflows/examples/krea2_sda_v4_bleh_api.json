@@ -1,0 +1,194 @@
+{
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "krea2_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_4b_fp8_scaled.safetensors",
+      "type": "krea2",
+      "device": "default"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen-image/qwen_image_vae.safetensors"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "text": "a still life with fruit on a table"
+    }
+  },
+  "5": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "4",
+        0
+      ]
+    }
+  },
+  "6": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "7": {
+    "class_type": "DonutSampler",
+    "inputs": {
+      "model": [
+        "19",
+        0
+      ],
+      "seed": 42,
+      "steps": 8,
+      "cfg_start": 1.0,
+      "cfg_halfway": 1.0,
+      "cfg_end": 1.0,
+      "halfway_step": 4,
+      "sampler_name": "bleh_preset_0",
+      "scheduler": "beta",
+      "positive": [
+        "4",
+        0
+      ],
+      "negative": [
+        "5",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ],
+      "denoise": 1.0,
+      "mode": "simple",
+      "turbo_mode": true,
+      "sda_strength": 1.0,
+      "sda_enabled": false
+    },
+    "_meta": {
+      "title": "SDA OFF baseline"
+    }
+  },
+  "8": {
+    "class_type": "DonutSampler",
+    "inputs": {
+      "model": [
+        "19",
+        0
+      ],
+      "seed": 42,
+      "steps": 8,
+      "cfg_start": 1.0,
+      "cfg_halfway": 1.0,
+      "cfg_end": 1.0,
+      "halfway_step": 4,
+      "sampler_name": "bleh_preset_0",
+      "scheduler": "beta",
+      "positive": [
+        "4",
+        0
+      ],
+      "negative": [
+        "5",
+        0
+      ],
+      "latent_image": [
+        "6",
+        0
+      ],
+      "denoise": 1.0,
+      "mode": "simple",
+      "turbo_mode": true,
+      "sda_strength": 1.0,
+      "sda_enabled": true
+    },
+    "_meta": {
+      "title": "Native SDA single run"
+    }
+  },
+  "12": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "13": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "12",
+        0
+      ],
+      "filename_prefix": "SDA_V4_Bleh/off"
+    }
+  },
+  "14": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "8",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    }
+  },
+  "15": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "14",
+        0
+      ],
+      "filename_prefix": "SDA_V4_Bleh/native"
+    }
+  },
+  "18": {
+    "class_type": "SamplerER_SDE",
+    "inputs": {
+      "solver_type": "ODE",
+      "max_stage": 3,
+      "eta": 0.0,
+      "s_noise": 1.0
+    }
+  },
+  "19": {
+    "class_type": "BlehSetSamplerPreset",
+    "inputs": {
+      "sampler": [
+        "18",
+        0
+      ],
+      "any_input": [
+        "1",
+        0
+      ],
+      "preset": 0,
+      "discard_penultimate_sigma": false
+    }
+  }
+}
