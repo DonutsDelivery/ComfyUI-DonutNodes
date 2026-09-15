@@ -8,6 +8,7 @@ Manual installation links restored from the bundled source catalog. Automatic do
 | `models/text_encoders/qwen3vl_4b_fp8_scaled.safetensors` | [Download](https://huggingface.co/Comfy-Org/Qwen3-VL/resolve/5529a3c630b649351fb72d8c251577b5962371d8/text_encoders/qwen3vl_4b_fp8_scaled.safetensors) |
 | `models/vae/qwen-image/qwen_image_vae.safetensors` | [Download](https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/7beb7b647f04469fbe64ba8adc2bb0d7e5e9f73f/split_files/vae/qwen_image_vae.safetensors) |
 | `models/loras/krea2/krea2_identity_edit_v1_2.safetensors` | [Download](https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors) |
+| `models/loras/krea2/krea2_turbo_sda_v1.0_comfy.safetensors` | [Download](https://huggingface.co/F16/krea2-turbo-sda/resolve/cd6ffc8fbbbc4b07be023524c133905eed9c0fae/krea2_turbo_sda_v1.0_comfy.safetensors) |
 | `models/upscale_models/4x_NickelbackFS_72000_G.pth` | [Download](https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_NickelbackFS_72000_G.pth) |
 | `models/sams/sam_vit_b_01ec64.pth` | [Download](https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth) |
 | `models/ultralytics/bbox/face_yolov8m.pt` | [Download](https://huggingface.co/Bingsu/adetailer/resolve/fdb6e26f5212c6a7184b359f62cc4b41fd731bb3/face_yolov8m.pt) |

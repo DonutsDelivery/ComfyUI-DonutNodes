@@ -30,6 +30,13 @@
       "size": 1828256432
     },
     {
+      "folder": "loras",
+      "filename": "krea2/krea2_turbo_sda_v1.0_comfy.safetensors",
+      "url": "https://huggingface.co/F16/krea2-turbo-sda/resolve/cd6ffc8fbbbc4b07be023524c133905eed9c0fae/krea2_turbo_sda_v1.0_comfy.safetensors",
+      "sha256": "0fafed045c53c4acd6165eb55da6ec04b24785b1eeed6f1be37b2cdcb66dba2b",
+      "size": 469315664
+    },
+    {
       "folder": "upscale_models",
       "filename": "4x_NickelbackFS_72000_G.pth",
       "url": "https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_NickelbackFS_72000_G.pth",

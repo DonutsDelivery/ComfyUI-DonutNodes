@@ -16,6 +16,8 @@ const LOADERS = {
     DonutEditStudio: {lora_name:"loras"},
 };
 
+const KREA2_SDA_LORA = "krea2/krea2_turbo_sda_v1.0_comfy.safetensors";
+
 export function modelBindings(graph) {
     const bindings = [], seen = new Set();
     function add(node, widget, folder, name, replace) {
@@ -42,6 +44,11 @@ export function modelBindings(graph) {
                 if (!widget) continue;
                 const original = widget.value;
                 add(node, widget, folder, original, value => widget.value === original ? value : undefined);
+            }
+            if (type === "DonutSampler" && node.widgets?.find(widget => widget.name === "sda_enabled")?.value === true) {
+                // SDA is a native fixed adapter rather than a filename widget.
+                // Expose it to Download missing only while the feature is enabled.
+                bindings.push({folder:"loras", name:KREA2_SDA_LORA, update() {}});
             }
             if (["DonutLoRALoader", "DonutDynamicLoRAStack"].includes(type)) {
                 const widget = node.widgets?.find(widget => widget.name === "slots_json");
