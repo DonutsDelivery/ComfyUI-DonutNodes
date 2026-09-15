@@ -78,16 +78,20 @@ test("experimental preset choices and recipes are applied to a Fusion node", () 
   assert.equal(preset.value, "Experiment · soft tensor RMS 0.75");
 });
 
-test("outer V4 compatibility selector drives the nested Fusion node", () => {
+test("outer V4 compatibility selector drives nested recipe and execution strength", () => {
   const fusion = makeFusion(22);
-  const outerPreset = makeWidget("compatibility_preset", "Balanced", ["Balanced", "Rebalance"]);
-  const stage = { id: 10, widgets: [outerPreset], subgraph: { nodes: [fusion] } };
+  const outerPreset = makeWidget("compatibility_preset", "Rebalance", ["Balanced", "Rebalance"]);
+  const outerStrength = makeWidget("tap_strength", 1.0);
+  const stage = { id: 10, widgets: [outerPreset, outerStrength], subgraph: { nodes: [fusion] }, setDirtyCanvas() {} };
   const rootGraph = { nodes: [stage] };
   const { extension, flush } = load(rootGraph);
   extension.afterConfigureGraph(); flush();
 
   outerPreset.value = "Experiment · NAG-friendly power 0.60";
   outerPreset.callback(outerPreset.value);
+
+  assert.equal(outerStrength.value, 0.60,
+    "V4 outer tap_strength must match the power recipe because it overrides the nested widget at execution");
   assert.equal(widget(fusion, "tap_formula").value, "geometric_power");
   assert.equal(widget(fusion, "tap_strength").value, 0.60);
   assert.equal(widget(fusion, "compatibility_preset").value, outerPreset.value);
@@ -95,4 +99,18 @@ test("outer V4 compatibility selector drives the nested Fusion node", () => {
   extension.afterConfigureGraph(); flush();
   const values = outerPreset.options.values;
   assert.equal(values.filter(value => value === "Experiment · NAG-friendly power 0.60").length, 1);
+});
+
+test("restoring an experimental V4 workflow also repairs its outer execution strength", () => {
+  const fusion = makeFusion(22);
+  const name = "Experiment · soft tensor RMS 0.75";
+  const outerPreset = makeWidget("compatibility_preset", name, ["Balanced", "Rebalance", name]);
+  const outerStrength = makeWidget("tap_strength", 1.0);
+  const stage = { id: 10, widgets: [outerPreset, outerStrength], subgraph: { nodes: [fusion] }, setDirtyCanvas() {} };
+  const { extension, flush } = load({ nodes: [stage] });
+  extension.afterConfigureGraph(); flush();
+
+  assert.equal(outerStrength.value, 0.75);
+  assert.equal(widget(fusion, "tap_strength").value, 0.75);
+  assert.equal(widget(fusion, "tap_normalization").value, "tensor_rms");
 });
