@@ -1,13 +1,13 @@
-"""Native Krea2 Turbo SDA diversity integration for DonutSampler.
+"""Native Krea2 Turbo SDA: one uninterrupted DonutSampler run.
 
-The upstream SDA adapter is intentionally active for only the first two steps of
-Krea2 Turbo's eight-step schedule. DonutSampler already has an exact latent-
-continuation multi-model path, so this module wraps the existing sampler instead
-of adding a second scheduler implementation.
+SDA is scheduled, not put in the ordinary LoRA stack. Comfy patches uses native
+weight hooks; Experimental bypass scopes forward adapters to early predictions.
+Neither path restarts the solver, reseeds it, or disables upstream LoRAs.
 """
-
 from copy import deepcopy
+import hashlib
 import math
+import os
 
 import comfy.utils
 import folder_paths
@@ -15,181 +15,119 @@ import folder_paths
 try:
     from .DonutKSamplerCFGLinear import DonutSampler as _BaseDonutSampler
     from .donut_lora_execution import publish_execution_mode, resolve_execution_mode
-    from .lora_block_weight import LoraLoaderBlockWeight
 except ImportError:
     from DonutKSamplerCFGLinear import DonutSampler as _BaseDonutSampler
     from donut_lora_execution import publish_execution_mode, resolve_execution_mode
-    from lora_block_weight import LoraLoaderBlockWeight
-
 
 SDA_LORA_NAME = "krea2/krea2_turbo_sda_v1.0_comfy.safetensors"
+SDA_SHA256 = "0fafed045c53c4acd6165eb55da6ec04b24785b1eeed6f1be37b2cdcb66dba2b"
+SDA_FILE_SIZE = 469315664
 SDA_SUPPORTED_STEPS = 8
 SDA_GATE_STEPS = 2
-_KREA2_FULL_VECTOR = ",".join(["1"] * 29)
+
+
+def _schedule_module():
+    # Disabled SDA must not require a newer ComfyUI hooks/bypass API.
+    try:
+        from . import donut_sda_schedule
+    except ImportError:
+        import donut_sda_schedule
+    return donut_sda_schedule
 
 
 def _sda_path():
     path = folder_paths.get_full_path("loras", SDA_LORA_NAME)
-    if not path:
+    if not path or not os.path.isfile(path):
         raise FileNotFoundError(
-            "Krea2 SDA diversity is enabled but "
-            f"'{SDA_LORA_NAME}' is missing. Use Donut's Download missing control "
-            "or install the ComfyUI-format SDA LoRA under models/loras/krea2/."
+            f"SDA needs ComfyUI/models/loras/{SDA_LORA_NAME}. "
+            "Install F16's krea2_turbo_sda_v1.0_comfy.safetensors (not the "
+            "Diffusers file). The Registry/Manager build requires manual "
+            "installation; the full GitHub build can use Download missing. "
+            "Enabling SDA never downloads a model automatically."
         )
     return path
 
 
-def apply_krea2_sda(model, strength=1.0):
-    """Return a model carrying the SDA adapter in the path's execution mode."""
-    strength = float(strength)
-    if not math.isfinite(strength) or strength < 0.0 or strength > 2.0:
-        raise ValueError("SDA strength must be finite and between 0 and 2.")
+def _file_identity(path):
+    stat = os.stat(path)
+    return (os.path.realpath(path), stat.st_dev, stat.st_ino, stat.st_size,
+            stat.st_mtime_ns, stat.st_ctime_ns)
 
-    execution_mode = resolve_execution_mode(model)
-    lora = comfy.utils.load_torch_file(_sda_path(), safe_load=True)
 
-    if execution_mode == "Experimental bypass":
-        try:
-            from .DonutSafeApplyLoRAStack import _apply_bypass_applications
-        except ImportError:
-            from DonutSafeApplyLoRAStack import _apply_bypass_applications
-        result = _apply_bypass_applications(
-            model, [(lora, strength, _KREA2_FULL_VECTOR)]
+def _load_verified_lora(path):
+    if os.path.getsize(path) != SDA_FILE_SIZE:
+        raise ValueError(
+            f"Wrong SDA file size: expected {SDA_FILE_SIZE} bytes. Download "
+            "krea2_turbo_sda_v1.0_comfy.safetensors again; do not rename the Diffusers file."
         )
-    else:
-        result, _clip, _vector = LoraLoaderBlockWeight.load_lora_for_models(
-            model,
-            None,
-            lora,
-            strength,
-            0.0,
-            False,
-            0,
-            1.0,
-            1.0,
-            _KREA2_FULL_VECTOR,
-        )
-
-    # Keep the execution policy explicit on the temporary phase model. This is
-    # especially important when SDA is the first adapter added to a model path.
-    publish_execution_mode(result, execution_mode)
-    return result, execution_mode
+    digest = hashlib.sha256()
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != SDA_SHA256:
+        raise ValueError("SDA SHA-256 mismatch: the file is not the pinned F16 ComfyUI adapter.")
+    return comfy.utils.load_torch_file(path, safe_load=True)
 
 
-def _validate_sda_sampling(kwargs):
-    if not kwargs.get("turbo_mode", False):
+def _validate_sda_sampling(kwargs, supported_samplers):
+    if not kwargs["turbo_mode"]:
         raise ValueError("SDA diversity requires Turbo mode.")
-
-    steps = int(kwargs.get("steps", 20))
-    if steps != SDA_SUPPORTED_STEPS:
+    if kwargs["steps"] != SDA_SUPPORTED_STEPS:
+        raise ValueError("SDA diversity requires the complete 8-step Krea2 Turbo schedule.")
+    denoise = float(kwargs["denoise"])
+    if not math.isfinite(denoise) or denoise != 1.0:
+        raise ValueError("SDA requires full-denoise base generation (denoise=1); disable it for refinement.")
+    if kwargs["edit_mode"] or kwargs["latent_image"].get("noise_mask") is not None:
+        raise ValueError("SDA is not supported for editing/inpainting or masked generation.")
+    if kwargs["mode"] not in ("simple", "advanced"):
+        raise ValueError("SDA uses one model/sampler run; select simple or advanced, not multi_model.")
+    if kwargs["sampler_name"] not in supported_samplers:
         raise ValueError(
-            f"SDA diversity is trained for the {SDA_SUPPORTED_STEPS}-step Krea2 Turbo "
-            f"schedule; set Steps to {SDA_SUPPORTED_STEPS}."
+            "SDA currently supports euler, er_sde and dpmpp_2m. "
+            "Other/adaptive/multi-evaluation solvers do not yet have a verified two-step gate."
         )
+    # Simple mode ignores these dormant advanced controls. Do not reject a
+    # previously saved simple workflow because its hidden step range is stale.
+    if kwargs["mode"] == "advanced":
+        if kwargs["start_at_step"] != 0 or kwargs["end_at_step"] < SDA_SUPPORTED_STEPS:
+            raise ValueError("SDA advanced sampling must cover all 8 steps, starting at step 0.")
+        if kwargs["add_noise"] != "enable" or kwargs["return_with_leftover_noise"] != "disable":
+            raise ValueError("SDA advanced sampling requires initial noise and a fully denoised result.")
+    if not kwargs.get("nag_enabled", False):
+        if any(float(kwargs[name]) != 1.0 for name in ("cfg_start", "cfg_halfway", "cfg_end")):
+            raise ValueError("SDA's Krea2 Turbo reference uses CFG 1; set all three CFG values to 1.")
 
-    denoise = float(kwargs.get("denoise", 1.0))
-    if denoise < 0.999999:
+
+def _validate_model(model):
+    diffusion = getattr(getattr(model, "model", None), "diffusion_model", None)
+    if (getattr(diffusion, "txtlayers", None) != 12
+            or getattr(diffusion, "txtdim", None) != 2560
+            or not hasattr(diffusion, "txtfusion") or not hasattr(diffusion, "blocks")):
+        raise ValueError("SDA requires a compatible, uncompiled Krea2 diffusion model.")
+    if hasattr(diffusion, "_orig_mod") or getattr(diffusion, "_compiled_call_impl", None) is not None:
+        raise ValueError("Disable torch.compile for scheduled SDA; compiled forward gating is not validated.")
+    if "donut_krea2_model_merge_bypass" in getattr(model, "injections", {}):
         raise ValueError(
-            "SDA diversity is only valid on a full-denoise base generation. "
-            "Disable SDA for partial-denoise refinement, upscaling, or detailing."
+            "SDA is not yet supported with hard module-swap model merging. "
+            "Use a single model or a normal weight merge; LoRA Experimental bypass is supported."
         )
-
-    if kwargs.get("edit_mode", False):
-        raise ValueError(
-            "SDA diversity is a composition adapter for text-to-image generation and "
-            "is disabled for Krea2 editing/inpainting."
-        )
-
-    # V4 keeps dormant model_2/model_3 sockets wired even when simple mode is
-    # selected. Those inputs are ignored by the ordinary sampler and native SDA
-    # deliberately replaces them with its own temporary SDA/clean pair. Only an
-    # explicitly selected multi-model run conflicts with native SDA ownership.
-    if kwargs.get("mode", "simple") == "multi_model":
-        raise ValueError(
-            "Native SDA uses DonutSampler's two-model phase internally. Select "
-            "simple or advanced mode while SDA diversity is enabled."
-        )
-
-    if int(kwargs.get("start_at_step", 0)) != 0:
-        raise ValueError("SDA diversity must start at step 0 of the Turbo schedule.")
-    end = int(kwargs.get("end_at_step", 10000))
-    if end < SDA_SUPPORTED_STEPS:
-        raise ValueError("SDA diversity requires the complete 8-step Turbo schedule.")
-
-
-def _sampler_kwargs(
-    seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name,
-    scheduler, positive, negative, latent_image, denoise, mode, cfg_curve,
-    add_noise, start_at_step, end_at_step, return_with_leftover_noise,
-    randomize_seed_per_model, switch_at_step_1, switch_at_step_2, model_2,
-    model_3, edit_mode, source_image, vae, clip, edit_prompt,
-    edit_negative_prompt, grounding_px, edit_model, turbo_mode, source_image_b,
-    edit_inpaint, nag_options,
-):
-    """Rebuild the base sampler call without changing its public signature."""
-    return dict(
-        seed=seed,
-        steps=steps,
-        cfg_start=cfg_start,
-        cfg_halfway=cfg_halfway,
-        cfg_end=cfg_end,
-        halfway_step=halfway_step,
-        sampler_name=sampler_name,
-        scheduler=scheduler,
-        positive=positive,
-        negative=negative,
-        latent_image=latent_image,
-        denoise=denoise,
-        mode=mode,
-        cfg_curve=cfg_curve,
-        add_noise=add_noise,
-        start_at_step=start_at_step,
-        end_at_step=end_at_step,
-        return_with_leftover_noise=return_with_leftover_noise,
-        randomize_seed_per_model=randomize_seed_per_model,
-        switch_at_step_1=switch_at_step_1,
-        switch_at_step_2=switch_at_step_2,
-        model_2=model_2,
-        model_3=model_3,
-        edit_mode=edit_mode,
-        source_image=source_image,
-        vae=vae,
-        clip=clip,
-        edit_prompt=edit_prompt,
-        edit_negative_prompt=edit_negative_prompt,
-        grounding_px=grounding_px,
-        edit_model=edit_model,
-        turbo_mode=turbo_mode,
-        source_image_b=source_image_b,
-        edit_inpaint=edit_inpaint,
-        **nag_options,
-    )
 
 
 class DonutSampler(_BaseDonutSampler):
-    """DonutSampler with an optional native, correctly gated Krea2 SDA phase."""
-
     @classmethod
     def INPUT_TYPES(cls):
         inputs = deepcopy(super().INPUT_TYPES())
         optional = inputs.setdefault("optional", {})
-        # APPENDED only: old saved DonutSampler positional widget arrays retain
-        # their exact ordering and acquire these controls at their defaults.
+        # Append only: preserve every previously serialized widget position.
         optional["sda_enabled"] = ("BOOLEAN", {
             "default": False,
-            "tooltip": (
-                "Krea2 Turbo only. Restores seed/composition diversity with the F16 "
-                "SDA LoRA for exactly the first 2 of 8 denoise steps, then returns "
-                "to the clean model automatically. Uses the model path's existing "
-                "Comfy-patches or Experimental-bypass execution mode."
-            ),
+            "tooltip": "Krea2 Turbo SDA: first 2 of 8 steps in ONE uninterrupted run. "
+                       "Supports Euler, ER-SDE and DPM++ 2M. Uses the upstream LoRA execution mode. "
+                       "Requires the F16 ComfyUI SDA file; does not auto-download.",
         })
         optional["sda_strength"] = ("FLOAT", {
-            "default": 1.0,
-            "min": 0.0,
-            "max": 2.0,
-            "step": 0.05,
-            "tooltip": "SDA adapter strength. 1.0 is the upstream recommended value.",
+            "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
+            "tooltip": "SDA strength; 1.0 is the reference. Zero is an exact SDA-off pass-through.",
         })
         return inputs
 
@@ -205,42 +143,55 @@ class DonutSampler(_BaseDonutSampler):
         turbo_mode=False, source_image_b=None, edit_inpaint=None,
         sda_enabled=False, sda_strength=1.0, **nag_options,
     ):
-        kwargs = _sampler_kwargs(
-            seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step,
-            sampler_name, scheduler, positive, negative, latent_image, denoise,
-            mode, cfg_curve, add_noise, start_at_step, end_at_step,
-            return_with_leftover_noise, randomize_seed_per_model,
-            switch_at_step_1, switch_at_step_2, model_2, model_3, edit_mode,
-            source_image, vae, clip, edit_prompt, edit_negative_prompt,
-            grounding_px, edit_model, turbo_mode, source_image_b, edit_inpaint,
-            nag_options,
+        kwargs = dict(
+            seed=seed, steps=steps, cfg_start=cfg_start, cfg_halfway=cfg_halfway,
+            cfg_end=cfg_end, halfway_step=halfway_step, sampler_name=sampler_name,
+            scheduler=scheduler, positive=positive, negative=negative,
+            latent_image=latent_image, denoise=denoise, mode=mode,
+            cfg_curve=cfg_curve, add_noise=add_noise, start_at_step=start_at_step,
+            end_at_step=end_at_step, return_with_leftover_noise=return_with_leftover_noise,
+            randomize_seed_per_model=randomize_seed_per_model,
+            switch_at_step_1=switch_at_step_1, switch_at_step_2=switch_at_step_2,
+            model_2=model_2, model_3=model_3, edit_mode=edit_mode,
+            source_image=source_image, vae=vae, clip=clip, edit_prompt=edit_prompt,
+            edit_negative_prompt=edit_negative_prompt, grounding_px=grounding_px,
+            edit_model=edit_model, turbo_mode=turbo_mode, source_image_b=source_image_b,
+            edit_inpaint=edit_inpaint, **nag_options,
         )
         if not sda_enabled:
             return super().sample(model=model, **kwargs)
+        strength = float(sda_strength)
+        if not math.isfinite(strength) or not 0.0 <= strength <= 2.0:
+            raise ValueError("SDA strength must be finite and between 0 and 2.")
+        if strength == 0.0:
+            return super().sample(model=model, **kwargs)
 
-        _validate_sda_sampling(kwargs)
-        clean_model = model
-        sda_model, execution_mode = apply_krea2_sda(clean_model, sda_strength)
-
-        # Reuse DonutSampler's existing latent-continuation phase engine:
-        #   steps 0..1 -> SDA model
-        #   steps 2..7 -> identical clean model
-        # Noise is added only in phase 1 and the seed is intentionally unchanged.
-        native = dict(kwargs)
-        native.update(
-            mode="multi_model",
-            model_2=clean_model,
-            model_3=None,
-            switch_at_step_1=SDA_GATE_STEPS,
-            switch_at_step_2=SDA_SUPPORTED_STEPS - 1,
-            randomize_seed_per_model="disable",
+        schedule = _schedule_module()
+        _validate_sda_sampling(kwargs, schedule.SDA_SAMPLERS)
+        _validate_model(model)
+        path = _sda_path()
+        identity = _file_identity(path)
+        cache = getattr(self, "_sda_file_cache", None)
+        if cache is None or cache[0] != identity:
+            self._sda_file_cache = None
+            lora = _load_verified_lora(path)
+            if _file_identity(path) != identity:
+                raise RuntimeError("SDA file changed while loading; finish the download and retry.")
+            self._sda_file_cache = (identity, lora)
+        else:
+            lora = cache[1]
+        patches = schedule.map_sda_weights(model, lora)
+        execution_mode = resolve_execution_mode(model)
+        scheduled, kwargs["positive"], kwargs["negative"] = schedule.prepare_sda(
+            model, positive, negative, patches, strength, execution_mode)
+        publish_execution_mode(scheduled, execution_mode)
+        # Keep the caller's simple/advanced mode, CFG handling, NAG, latent,
+        # scheduler, callbacks and seed. There is exactly ONE base sampler call.
+        latent, info = super().sample(model=scheduled, **kwargs)
+        return latent, (
+            f"SDA: verified {SDA_LORA_NAME}; strength={strength:g}; {execution_mode}; "
+            f"single run, ON 1-2 / OFF 3-8\n{info}"
         )
-        latent, info = super().sample(model=sda_model, **native)
-        prefix = (
-            f"SDA diversity: native gate {SDA_GATE_STEPS}/{SDA_SUPPORTED_STEPS}, "
-            f"strength={float(sda_strength):.2f}, execution={execution_mode}"
-        )
-        return latent, f"{prefix}\n{info}"
 
 
 NODE_CLASS_MAPPINGS = {"DonutSampler": DonutSampler}
