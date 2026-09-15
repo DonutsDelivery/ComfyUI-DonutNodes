@@ -40,7 +40,13 @@ The feature requires:
 - **Steps = 8**.
 - **Denoise = 1.0**.
 - Sampling from step 0 through the complete schedule.
-- No manually connected `model_2` / `model_3` multi-model phase.
+- DonutSampler mode set to **simple** or **advanced**, not an explicit manual
+  `multi_model` run.
+
+V4 may keep dormant `model_2` / `model_3` sockets wired even in simple mode.
+Those inputs are normally ignored and do not conflict with SDA: the native SDA
+path replaces them internally with its temporary SDA/clean model pair for this
+one sampling call.
 
 SDA intentionally refuses partial-denoise, editing/inpainting, or a shortened
 schedule because those runs do not correspond to the adapter's trained two
