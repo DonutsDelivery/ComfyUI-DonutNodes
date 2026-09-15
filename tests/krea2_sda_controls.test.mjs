@@ -6,22 +6,23 @@ import vm from "node:vm";
 test("existing V4 Generate panel gains SDA controls beside Turbo mode", () => {
     let extension;
     const queued = [];
-    const sampler = { widgets: [
+    const sampler = { id:77, type:"DonutSampler", widgets: [
         {name:"turbo_mode", value:true},
         {name:"sda_enabled", value:false},
         {name:"sda_strength", value:1},
     ] };
-    const stage = { subgraph: { getNodeById: id => id === 77 ? sampler : undefined } };
+    const subgraph = { nodes:[sampler], getNodeById: id => id === 77 ? sampler : undefined };
+    const stage = { id:10, widgets:[{name:"turbo_mode", value:true}], subgraph };
     let renders = 0;
     const panel = {
         properties: { donut_app_controls: { groups: [{ title:"Sampling", controls:[
-            {path:[10,77], widget:"turbo_mode", title:"Turbo mode"},
-            {path:[10,77], widget:"steps", title:"Steps"},
+            {path:[10], widget:"turbo_mode", title:"Turbo mode"},
+            {path:[10], widget:"steps", title:"Steps"},
         ] }] } },
         _donutAppControls: { render() { renders += 1; } },
     };
     const rootGraph = {
-        nodes:[panel],
+        nodes:[stage, panel],
         getNodeById: id => id === 10 ? stage : undefined,
     };
     const scope = vm.createContext({
@@ -38,6 +39,8 @@ test("existing V4 Generate panel gains SDA controls beside Turbo mode", () => {
     assert.deepEqual(Array.from(controls, item => item.widget), [
         "turbo_mode", "sda_enabled", "sda_strength", "steps",
     ]);
+    assert.deepEqual(Array.from(controls[1].path), [10, 77]);
+    assert.deepEqual(Array.from(controls[2].path), [10, 77]);
     assert.equal(controls[1].title, "SDA diversity");
     assert.equal(controls[2].title, "SDA strength");
     assert.equal(renders, 1);
@@ -50,12 +53,13 @@ test("existing V4 Generate panel gains SDA controls beside Turbo mode", () => {
 test("older DonutSampler definitions without SDA remain untouched", () => {
     let extension;
     const queued = [];
-    const sampler = { widgets: [{name:"turbo_mode", value:true}] };
-    const stage = { subgraph: { getNodeById: () => sampler } };
-    const group = { title:"Sampling", controls:[{path:[10,77], widget:"turbo_mode", title:"Turbo mode"}] };
+    const sampler = { id:77, type:"DonutSampler", widgets: [{name:"turbo_mode", value:true}] };
+    const subgraph = { nodes:[sampler], getNodeById:() => sampler };
+    const stage = { id:10, widgets:[{name:"turbo_mode", value:true}], subgraph };
+    const group = { title:"Sampling", controls:[{path:[10], widget:"turbo_mode", title:"Turbo mode"}] };
     const panel = { properties:{donut_app_controls:{groups:[group]}}, _donutAppControls:{render(){ throw new Error("should not render"); }} };
     const scope = vm.createContext({
-        app: { rootGraph:{nodes:[panel], getNodeById:() => stage}, registerExtension(value) { extension = value; } },
+        app: { rootGraph:{nodes:[stage,panel], getNodeById:id => id === 10 ? stage : undefined}, registerExtension(value) { extension = value; } },
         queueMicrotask(callback) { queued.push(callback); },
     });
     const source = readFileSync(new URL("../web/donut_krea2_sda_controls.js", import.meta.url), "utf8")
