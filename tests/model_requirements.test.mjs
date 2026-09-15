@@ -22,6 +22,15 @@ test("finds models in nested subgraphs and enabled Donut LoRA rows", () => {
     assert.equal(rows[1].lora_name, "two.safetensors");
 });
 
+test("enabled native SDA adds its fixed reviewed LoRA requirement", () => {
+    const enabled = make("DonutSampler", {sda_enabled:true});
+    const disabled = make("DonutSampler", {sda_enabled:false});
+    assert.deepEqual(Array.from(scope.modelBindings({nodes:[enabled]}), binding => [binding.folder, binding.name]), [
+        ["loras", "krea2/krea2_turbo_sda_v1.0_comfy.safetensors"],
+    ]);
+    assert.equal(scope.modelBindings({nodes:[disabled]}).length, 0);
+});
+
 test("ignores notes, bypassed nodes, empty selectors and non-model text", () => {
     const graph = {nodes:[make("Note", {text:"https://example.com/evil.safetensors"}),
         {...make("UNETLoader", {unet_name:"skip.safetensors"}),mode:4}, make("VAELoader", {vae_name:"pixel_space"})]};
