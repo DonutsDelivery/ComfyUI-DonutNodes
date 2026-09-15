@@ -31,7 +31,7 @@ _NODE_MODULES = (
     "DonutDetailerXLBlocks", "DonutClipEncode", "DonutWidenMerge",
     "donut_lora_nodes", "DonutSafeApplyLoRAStack", "hot_reload",
     "DonutSDXLTeaCache", "DonutBlockCalibration", "DonutFrequencyAnalysis",
-    "DonutSpectralNoiseSharpener", "DonutKSamplerCFGLinear", "donut_lora_civitai",
+    "DonutSpectralNoiseSharpener", "DonutKSamplerCFGLinear", "donut_krea2_sda", "donut_lora_civitai",
     "DonutTiledUpscale", "DonutColorPreservingUpscale", "DonutDetailerZIT",
     "ModelMergeZIT", "DonutModelMergeKrea2", "ModelMergeZITBlocks",
     "DonutModelSave", "DonutFaceDetailer", "DonutUniversalDetailer",
@@ -45,6 +45,7 @@ _NODE_MODULES = (
 )
 _REQUIRED_OVERRIDES = {
     "DonutSafeApplyLoRAStack": ("DonutApplyLoRAStack",),
+    "donut_krea2_sda": ("DonutSampler",),
     "DonutKrea2FusionPreset": ("DonutKrea2FusionControl",),
     "donut_upscale_stage": ("DonutTiledUpscale",),
     "donut_prompt_injection_recursive": ("DonutPromptInjection",),
