@@ -1,7 +1,7 @@
 """Native Krea2 Turbo SDA diversity integration for DonutSampler.
 
 The upstream SDA adapter is intentionally active for only the first two steps of
-Krea2 Turbo's eight-step schedule.  DonutSampler already has an exact latent-
+Krea2 Turbo's eight-step schedule. DonutSampler already has an exact latent-
 continuation multi-model path, so this module wraps the existing sampler instead
 of adding a second scheduler implementation.
 """
@@ -12,9 +12,14 @@ import math
 import comfy.utils
 import folder_paths
 
-from .DonutKSamplerCFGLinear import DonutSampler as _BaseDonutSampler
-from .donut_lora_execution import publish_execution_mode, resolve_execution_mode
-from .lora_block_weight import LoraLoaderBlockWeight
+try:
+    from .DonutKSamplerCFGLinear import DonutSampler as _BaseDonutSampler
+    from .donut_lora_execution import publish_execution_mode, resolve_execution_mode
+    from .lora_block_weight import LoraLoaderBlockWeight
+except ImportError:
+    from DonutKSamplerCFGLinear import DonutSampler as _BaseDonutSampler
+    from donut_lora_execution import publish_execution_mode, resolve_execution_mode
+    from lora_block_weight import LoraLoaderBlockWeight
 
 
 SDA_LORA_NAME = "krea2/krea2_turbo_sda_v1.0_comfy.safetensors"
@@ -44,7 +49,10 @@ def apply_krea2_sda(model, strength=1.0):
     lora = comfy.utils.load_torch_file(_sda_path(), safe_load=True)
 
     if execution_mode == "Experimental bypass":
-        from .DonutSafeApplyLoRAStack import _apply_bypass_applications
+        try:
+            from .DonutSafeApplyLoRAStack import _apply_bypass_applications
+        except ImportError:
+            from DonutSafeApplyLoRAStack import _apply_bypass_applications
         result = _apply_bypass_applications(
             model, [(lora, strength, _KREA2_FULL_VECTOR)]
         )
@@ -62,7 +70,7 @@ def apply_krea2_sda(model, strength=1.0):
             _KREA2_FULL_VECTOR,
         )
 
-    # Keep the execution policy explicit on the temporary phase model.  This is
+    # Keep the execution policy explicit on the temporary phase model. This is
     # especially important when SDA is the first adapter added to a model path.
     publish_execution_mode(result, execution_mode)
     return result, execution_mode
@@ -92,7 +100,9 @@ def _validate_sda_sampling(kwargs):
             "is disabled for Krea2 editing/inpainting."
         )
 
-    if kwargs.get("mode", "simple") == "multi_model" or kwargs.get("model_2") is not None or kwargs.get("model_3") is not None:
+    if (kwargs.get("mode", "simple") == "multi_model"
+            or kwargs.get("model_2") is not None
+            or kwargs.get("model_3") is not None):
         raise ValueError(
             "Native SDA uses DonutSampler's two-model phase internally. Disconnect "
             "manual model_2/model_3 inputs and use simple or advanced mode."
