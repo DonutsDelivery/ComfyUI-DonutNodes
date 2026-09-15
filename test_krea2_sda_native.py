@@ -4,6 +4,27 @@ from unittest.mock import patch
 import donut_krea2_sda as sda
 
 
+def sample_kwargs(**overrides):
+    values = dict(
+        seed=42,
+        steps=8,
+        cfg_start=1.0,
+        cfg_halfway=1.0,
+        cfg_end=1.0,
+        halfway_step=8,
+        sampler_name="euler",
+        scheduler="simple",
+        positive="positive",
+        negative="negative",
+        latent_image={"samples": "latent"},
+        denoise=1.0,
+        mode="simple",
+        turbo_mode=True,
+    )
+    values.update(overrides)
+    return values
+
+
 class NativeKrea2SDATests(unittest.TestCase):
     def test_sampler_exposes_appended_native_controls(self):
         optional = sda.DonutSampler.INPUT_TYPES()["optional"]
@@ -16,16 +37,15 @@ class NativeKrea2SDATests(unittest.TestCase):
         sampler = sda.DonutSampler()
         clean = object()
         sda_model = object()
+        stale_second = object()
+        stale_third = object()
         with patch.object(sda, "apply_krea2_sda", return_value=(sda_model, "Experimental bypass")), \
              patch.object(sda._BaseDonutSampler, "sample", return_value=("latent", "base info")) as base:
             latent, info = sampler.sample(
                 clean,
                 sda_enabled=True,
                 sda_strength=0.9,
-                steps=8,
-                turbo_mode=True,
-                denoise=1.0,
-                mode="simple",
+                **sample_kwargs(model_2=stale_second, model_3=stale_third),
             )
         self.assertEqual(latent, "latent")
         self.assertIn("gate 2/8", info)
@@ -38,21 +58,35 @@ class NativeKrea2SDATests(unittest.TestCase):
         self.assertEqual(forwarded["switch_at_step_1"], 2)
         self.assertEqual(forwarded["randomize_seed_per_model"], "disable")
 
+    def test_sda_off_preserves_base_sampler_call_and_positional_required_args(self):
+        sampler = sda.DonutSampler()
+        with patch.object(sda._BaseDonutSampler, "sample", return_value=("latent", "info")) as base:
+            result = sampler.sample(
+                "model", 42, 8, 1.0, 1.0, 1.0, 8, "euler", "simple",
+                "positive", "negative", {"samples": "latent"}, 1.0,
+            )
+        self.assertEqual(result, ("latent", "info"))
+        self.assertEqual(base.call_args.kwargs["seed"], 42)
+        self.assertEqual(base.call_args.kwargs["steps"], 8)
+        self.assertEqual(base.call_args.kwargs["sampler_name"], "euler")
+
     def test_invalid_sda_schedules_fail_before_loading_adapter(self):
         cases = [
-            ({"steps": 8, "turbo_mode": False, "denoise": 1.0}, "Turbo mode"),
-            ({"steps": 6, "turbo_mode": True, "denoise": 1.0}, "8-step"),
-            ({"steps": 8, "turbo_mode": True, "denoise": 0.5}, "full-denoise"),
-            ({"steps": 8, "turbo_mode": True, "denoise": 1.0, "edit_mode": True}, "editing"),
-            ({"steps": 8, "turbo_mode": True, "denoise": 1.0, "mode": "multi_model"}, "two-model"),
-            ({"steps": 8, "turbo_mode": True, "denoise": 1.0, "start_at_step": 1}, "step 0"),
-            ({"steps": 8, "turbo_mode": True, "denoise": 1.0, "end_at_step": 6}, "complete 8-step"),
+            ({"turbo_mode": False}, "Turbo mode"),
+            ({"steps": 6}, "8-step"),
+            ({"denoise": 0.5}, "full-denoise"),
+            ({"edit_mode": True}, "editing"),
+            ({"mode": "multi_model"}, "simple or advanced"),
+            ({"start_at_step": 1}, "step 0"),
+            ({"end_at_step": 6}, "complete 8-step"),
         ]
-        for kwargs, message in cases:
-            with self.subTest(kwargs=kwargs):
+        for changes, message in cases:
+            with self.subTest(changes=changes):
                 with self.assertRaisesRegex(ValueError, message), \
                      patch.object(sda, "apply_krea2_sda") as apply:
-                    sda.DonutSampler().sample(object(), sda_enabled=True, **kwargs)
+                    sda.DonutSampler().sample(
+                        object(), sda_enabled=True, **sample_kwargs(**changes)
+                    )
                 apply.assert_not_called()
 
     def test_experimental_bypass_uses_runtime_adapter_path(self):
