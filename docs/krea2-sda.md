@@ -2,7 +2,7 @@
 
 Enable **SDA diversity** in V4's Generate panel or on the unified DonutSampler.
 Keep **SDA strength = 1**, **Turbo mode on**, **8 steps**, **CFG 1** and
-**denoise = 1**. Use `euler` / `simple` for the reference test. The existing
+**denoise = 1**. V4's `bleh_preset_0` / `beta` combination is supported. The existing
 widget names and order are unchanged; no V4 JSON migration is needed.
 
 ## What changed
@@ -31,7 +31,8 @@ costs; neither speed nor quantized GPU parity has been benchmarked here.
 
 ## Supported configurations
 
-SDA currently accepts **Euler, ER-SDE and DPM++ 2M**. These stock solvers make one
+SDA accepts **Euler, ER-SDE and DPM++ 2M**, directly or through a verified Bleh
+preset. These stock solvers make one
 prediction at each schedule entry. ER-SDE's history and random-generator state
 therefore survive the cutoff. Other solvers, including adaptive solvers and
 multi-evaluation methods such as Heun, are explicitly rejected: their internal
@@ -39,8 +40,40 @@ sub-evaluations must not be mistaken for two completed denoising steps.
 
 The selected scheduler is retained, provided it produces a strictly descending
 8-step schedule ending at zero. A different scheduler is not claimed to reproduce
-the upstream quality measurements. Start with `euler` / `simple`, then test your
-normal `er_sde` scheduler separately.
+the upstream quality measurements. `euler` / `simple` is an optional reference
+comparison, not a required replacement for V4's configured sampler/scheduler.
+
+### V4 default: Bleh preset 0, ER-SDE in ODE mode, beta
+
+In `workflows/v4-beta/DonutWF_v4_beta.json`, outer node **1014** supplies
+`bleh_preset_0` and `beta` to the linked inputs of sampler **993**. The nested
+sampler's stored `er_sde` / `bong_tangent` values are not the effective selections.
+**SamplerER_SDE 1045** registers **ODE**, `max_stage=3`, `eta=0`, `s_noise=1`
+through **BlehSetSamplerPreset 1042**, slot **0**, with no sigma override.
+Comfy's ODE builder resolves `s_noise` to **0** and supplies an identity
+`noise_scaler`. Selecting stock `er_sde` would lose those options.
+
+The SDA name check now defers Bleh preset verification to sampler entry. The
+runtime guard resolves the live registry through the installed Bleh node,
+verifies the underlying kernel identity and options, and then calls the
+**original preset unchanged**. It does not replace the sampler, rewrite beta,
+clear solver history, reseed, or mutate the Bleh registry. The console includes:
+
+```text
+[Donut SDA] Solver: bleh_preset_0 -> er_sde; s_noise=0.0; max_stage=3; noise_scaler=ode_noise_scaler
+```
+
+The noise-scaler name can differ by Comfy version. The registry is checked on
+every run: slot 0 is not assumed always to contain ER-SDE. Missing registrations,
+unsupported wrapped solvers, cyclic chains, Euler churn, and
+`override_sigmas_opt` produce specific errors. Sigma overrides remain excluded
+because Bleh substitutes them after Comfy publishes the gate's schedule.
+The normal beta scheduler needs no sigma override.
+
+The wrapper contract was checked against
+[Bleh's workflow-pinned implementation](https://github.com/blepping/ComfyUI-bleh/blob/b889683c425f0870a6192606438fecb7a5bda8b9/py/nodes/samplers.py),
+and the ODE options against
+[Comfy's SamplerER_SDE builder](https://github.com/Comfy-Org/ComfyUI/blob/7a0b5eede3f9721c8faab290689893f36edc6d66/comfy_extras/nodes_custom_sampler.py).
 
 Use a single Krea2 model or an ordinary weight merge. Hard module-swap merging,
 `torch.compile`, editing/inpainting, masked or partial-denoise generation, and
@@ -97,6 +130,12 @@ the example loader filenames with your installed Krea2 Turbo/encoder/VAE choices
 do not download a new large checkpoint just for this test. The stock split is
 an Euler-only reference, not a recommended implementation for ER-SDE.
 
+`workflows/examples/krea2_sda_v4_bleh_api.json` adds an **API-format** SDA off/on
+comparison using V4's exact ODE preset settings and beta. Both sampler model
+inputs depend on the preset setter, ensuring registration precedes sampling.
+This isolates the sampler; it does not enable editing, model-swap merging or
+other configurations excluded above, and is not a replacement V4 canvas.
+
 For the first V4 comparison disable Seed Variance, extra fusion experiments,
 NAG, caches, finishing stages and other optional adapters. Compare identical
 seeds with SDA off/on, then restore features one at a time. Test Experimental
@@ -108,10 +147,13 @@ weight-hook/runtime-adapter ON and OFF transitions at model evaluation.
 
 ## Validation
 
-Run `python -m unittest -v test_krea2_sda_native` from the DonutNodes checkout.
+Run `python -m unittest -v test_krea2_sda_native test_sda_sampler_presets`
+from the DonutNodes checkout.
 The tests use real CPU tensors/files and ComfyUI interface doubles. They cover
 single-call dispatch, the gate, upstream hook preservation, scoped bypass
 arithmetic/cleanup, checksum failures, cache reuse and unsupported settings.
+Bleh tests cover live registry resolution, preserved ODE options/beta selection,
+single-call dispatch through both SDA paths and unsupported wrappers/overrides.
 They do **not** validate the full installed ComfyUI lifecycle or real Krea2,
 quantized GPU output, speed, or the visual effect of NAG. Keep this change in
 review until the reference A/B has been run on the target setup.

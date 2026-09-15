@@ -168,6 +168,9 @@ class SDATests(unittest.TestCase):
         package = types.ModuleType('_sda_test_package')
         package.__path__ = [str(ROOT)]
         comfy = types.ModuleType('comfy')
+        samplers = types.ModuleType('comfy.samplers')
+        samplers.k_diffusion_sampling = types.SimpleNamespace()
+        comfy.samplers = samplers
         hooks = types.ModuleType('comfy.hooks')
         hooks.HookKeyframeGroup, hooks.HookKeyframe = Keyframes, Keyframe
         hooks.WeightHook, hooks.HookGroup = Hook, Group
@@ -194,7 +197,7 @@ class SDATests(unittest.TestCase):
         policy.publish_execution_mode = lambda m, mode: m.model_options.update(donut_lora_execution_mode=mode)
         safe = types.ModuleType(package.__name__ + '.DonutSafeApplyLoRAStack')
         safe._partition_bypass_targets = Mock(side_effect=lambda root, keys, components: (components, {}, {}))
-        modules = {m.__name__: m for m in (package, comfy, hooks, utils, lora, convert, ext, weight, paths, base, policy, safe)}
+        modules = {m.__name__: m for m in (package, comfy, samplers, hooks, utils, lora, convert, ext, weight, paths, base, policy, safe)}
         cls.modules = patch.dict(sys.modules, modules)
         cls.modules.start()
         cls.addClassCleanup(cls.modules.stop)
@@ -206,7 +209,9 @@ class SDATests(unittest.TestCase):
             spec.loader.exec_module(module)
             setattr(package, name, module)
             return module
+        cls.sampler_compat = load('donut_sda_sampler')
         cls.schedule = load('donut_sda_schedule')
+        cls.kernels = samplers.k_diffusion_sampling
         cls.sda = load('donut_krea2_sda')
         cls.paths, cls.utils, cls.lora, cls.safe = paths, utils, lora, safe
 
@@ -429,6 +434,7 @@ class SDATests(unittest.TestCase):
         sentinel_noise, sentinel_latent = torch.ones(1), torch.zeros(1)
         def sample_er_sde():
             pass
+        self.kernels.sample_er_sde = sample_er_sde
         class Executor:
             class_obj = types.SimpleNamespace(sampler_function=sample_er_sde, extra_options={})
             def __call__(self, *args):
@@ -458,6 +464,7 @@ class SDATests(unittest.TestCase):
         delegate.assert_not_called()
         def sample_euler():
             pass
+        self.kernels.sample_euler = sample_euler
         delegate.class_obj = types.SimpleNamespace(sampler_function=sample_euler, extra_options={'s_churn': 1.})
         with self.assertRaisesRegex(ValueError, 'churn'):
             self.schedule._sampling_guard(delegate, None, SIGMAS, {}, None, torch.ones(1))
