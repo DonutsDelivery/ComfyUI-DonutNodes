@@ -5,6 +5,7 @@ sigma is therefore the exact OFF boundary, regardless of the scheduler's
 non-linear spacing. Adaptive/multi-evaluation solvers are rejected by the node;
 a 25% diffusion-time hook or a model-call counter is not a two-step schedule.
 """
+from contextlib import ExitStack
 from copy import copy
 import logging
 
@@ -112,9 +113,10 @@ class _ScopedSDABypass:
     cross-group ejection-order bugs and never converting ordinary LoRAs.
     """
 
-    def __init__(self, patches, strength):
+    def __init__(self, patches, strength, targets=None):
         self.patches = patches
         self.strength = strength
+        self.targets = targets
         self._last_active = None
 
     def __call__(self, executor, x, t, c_concat=None, c_crossattn=None,
@@ -131,21 +133,28 @@ class _ScopedSDABypass:
         from comfy.weight_adapter import BypassInjectionManager
         # Each forward owns its adapters and their device casts. Do not mutate
         # cached CPU tensors or the upstream LoRA manager, even on interruption.
-        manager = BypassInjectionManager()
-        for key, adapter in self.patches.items():
-            manager.add_adapter(key, copy(adapter), strength=self.strength)
-        injections = manager.create_injections(executor.class_obj)
-        if manager.get_hook_count() != len(self.patches):
-            raise RuntimeError("SDA could not bind every runtime adapter to the sampling model.")
-        entered = []
-        try:
-            for injection in injections:
-                entered.append(injection)  # also clean up a partially failed inject
+        groups = (self.targets.roots(executor.class_obj, runtime=True)
+                  if self.targets is not None else [("primary", executor.class_obj, self.patches)])
+        # Build every group before injecting any. SDA must target the retained
+        # source for exact swaps, but the primary for ordinary/partial merges.
+        # The source's own apply_model is NOT called by a linear forward swap,
+        # so putting a second APPLY_MODEL wrapper on that source would do nothing.
+        prepared = []
+        for label, root, patches in groups:
+            manager = BypassInjectionManager()
+            for key, adapter in patches.items():
+                manager.add_adapter(key, copy(adapter), strength=self.strength)
+            injections = manager.create_injections(root)
+            if manager.get_hook_count() != len(patches):
+                raise RuntimeError(f"SDA could not bind every {label} adapter to the sampling model.")
+            prepared.extend(injections)
+        # ExitStack attempts ALL cleanups, even if an individual eject raises.
+        # Register before inject so partial source failures restore both roots.
+        with ExitStack() as cleanup:
+            for injection in prepared:
+                cleanup.callback(injection.eject, None)
                 injection.inject(None)
             return executor(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
-        finally:
-            for injection in reversed(entered):
-                injection.eject(None)
 
 
 def _sampling_guard(executor, model_wrap, sigmas, extra_args, callback, noise,
@@ -177,18 +186,37 @@ def prepare_sda(model, positive, negative, patches, strength, execution_mode):
             from .DonutSafeApplyLoRAStack import _partition_bypass_targets
         except ImportError:
             from DonutSafeApplyLoRAStack import _partition_bypass_targets
-        components = {key: [(adapter, strength)] for key, adapter in patches.items()}
-        _, regular, reasons = _partition_bypass_targets(
-            patched.model, set(patched.model.state_dict()), components)
-        if regular:
-            raise ValueError(
-                "SDA cannot schedule these targets as Experimental bypass: "
-                f"{list(reasons.items())[:2]}. Use Comfy patches for this model. "
-                "No always-on fallback was applied."
-            )
+        try:
+            from .donut_sda_merge import SDAMergeTargets
+        except ImportError:
+            from donut_sda_merge import SDAMergeTargets
+        targets = SDAMergeTargets.build(patched, patches)
+        # Check the module actually used by each adapter, not the unused
+        # primary copy. This also retains source-side quantization guards.
+        for label, root, selected in targets.roots(patched.model, patched):
+            components = {key: [(adapter, strength)] for key, adapter in selected.items()}
+            _, regular, reasons = _partition_bypass_targets(root, set(root.state_dict()), components)
+            if regular:
+                raise ValueError(
+                    f"SDA cannot schedule these {label} targets as Experimental bypass: "
+                    f"{list(reasons.items())[:2]}. No always-on fallback was applied."
+                )
+        if targets.plans:
+            logging.info("[Donut SDA] Hard-swap routing: %d primary / %d retained model2 adapter(s)",
+                         len(targets.primary), len(targets.source))
         patched.add_wrapper_with_key(wrappers.APPLY_MODEL, SDA_WRAPPER_KEY,
-                                     _ScopedSDABypass(patches, strength))
+                                     _ScopedSDABypass(patches, strength, targets))
     elif execution_mode == "Comfy patches":
+        try:
+            from .donut_sda_merge import SDAMergeTargets
+        except ImportError:
+            from donut_sda_merge import SDAMergeTargets
+        targets = SDAMergeTargets.build(patched, patches)
+        if targets.source:
+            raise ValueError(
+                "A Donut hard-swap merge inherits Experimental bypass. Keep that execution mode "
+                "for SDA source targets; a mixed Comfy-patches override cannot hook an unused layer."
+            )
         hook = comfy.hooks.WeightHook(strength_model=strength, strength_clip=0.0)
         hook.need_weight_init = False
         hook.weights = patches

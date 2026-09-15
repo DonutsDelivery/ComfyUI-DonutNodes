@@ -113,11 +113,13 @@ def _validate_model(model):
         raise ValueError("SDA requires a compatible, uncompiled Krea2 diffusion model.")
     if hasattr(diffusion, "_orig_mod") or getattr(diffusion, "_compiled_call_impl", None) is not None:
         raise ValueError("Disable torch.compile for scheduled SDA; compiled forward gating is not validated.")
-    if "donut_krea2_model_merge_bypass" in getattr(model, "injections", {}):
-        raise ValueError(
-            "SDA is not yet supported with hard module-swap model merging. "
-            "Use a single model or a normal weight merge; LoRA Experimental bypass is supported."
-        )
+    try:
+        from .donut_sda_merge import checked_merge_info
+    except ImportError:
+        from donut_sda_merge import checked_merge_info
+    # A hard swap is supported. Require its real source/plan rather than
+    # rejecting the merge or silently patching an unused primary-model layer.
+    checked_merge_info(model)
 
 
 class DonutSampler(_BaseDonutSampler):
@@ -130,7 +132,7 @@ class DonutSampler(_BaseDonutSampler):
             "default": False,
             "tooltip": "Krea2 Turbo SDA: first 2 of 8 steps in ONE uninterrupted run. "
                        "Supports Euler, ER-SDE and DPM++ 2M, including V4's Bleh preset (ODE) + beta. "
-                       "Preserves preset options and the upstream LoRA execution mode. "
+                       "Preserves preset options and supports Donut hard-swap merges in Experimental bypass. "
                        "Requires the F16 ComfyUI SDA file; does not auto-download.",
         })
         optional["sda_strength"] = ("FLOAT", {
