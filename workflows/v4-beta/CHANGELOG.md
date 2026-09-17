@@ -1,5 +1,23 @@
 # Donut Workflow changelog
 
+## Unreleased · isolate native reference guidance from face refinement
+
+- Fixed native **Reference guidance** leaking into `face_positive`. The full
+  generation/upscale prompt retains its reference images and vision tokens;
+  Face Detailer's normal refinement prompt is now encoded from face text only.
+- Kept explicit identity editing through `face_reference` / `face_reference_b`,
+  face seed variance, negatives, and prompt-set selection unchanged.
+- The inspected V4 generation subgraph sends the upscale result to the
+  detailer's working `image` input, not its explicit reference inputs. The bug
+  was in prompt conditioning, so existing V4 workflow JSONs need no rewiring.
+  Install the fixed DonutNodes code and restart ComfyUI to use the change.
+- Added coverage for identical prompt text, A/B and B-only references, reference
+  changes, enable/disable transitions, seed variance, and prompt variants.
+  Nine conditioning tests passed with mocked ComfyUI/vision boundaries; seven
+  failed against the original implementation. Syntax checks passed. Full
+  ComfyUI execution, Edit Studio integration, and GPU image quality were not
+  validated in this run. This change has not been published to the registry.
+
 ## DonutNodes 3.0.19 · promoted inpaint control compatibility
 
 - Fixed a blank `mask_feather` value on the V4 Image setup & editing subgraph
