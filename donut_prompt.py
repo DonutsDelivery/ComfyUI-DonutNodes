@@ -323,7 +323,12 @@ class DonutPromptConditioning:
                 else:
                     cache[key] = encoder.encode(clip, text)[0]
             return cache[key]
-        positive, face_positive = (encode_once(t, bool(references)) for t in (full, face))
+        positive = encode_once(full, bool(references))
+        # Native references guide the full-image generation/upscale path, not
+        # each face crop. Vision tokens cannot be removed by filtering metadata
+        # after encoding, so build face conditioning through the text-only path.
+        # Identity editing still uses FaceDetailer's explicit reference inputs.
+        face_positive = encode_once(face)
         raw = encode_once(negative)
         positive, face_positive = enhance_prompt_pair(positive, face_positive, **variance_options)
         zeroed = ConditioningZeroOut().zero_out(raw)[0]
