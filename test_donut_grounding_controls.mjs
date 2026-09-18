@@ -4,6 +4,7 @@ import vm from "node:vm";
 
 const source = readFileSync(new URL("./web/donut_grounding_controls.js", import.meta.url), "utf8")
     .replace(/^import .*;\n/m, "");
+const flush = async () => new Promise(resolve => setImmediate(resolve));
 
 function graph(nodes) {
     return { nodes, getNodeById(id) { return nodes.find(node => node.id === id); } };
@@ -20,57 +21,57 @@ function makeSampler({ schemaAvailable = true } = {}) {
         inputs: [{ name: "edit_mode", link: 7 }] };
 }
 
-function setup({ direct = false, schemaAvailable = true } = {}) {
-    const sampler = makeSampler({ schemaAvailable });
-    const outer = { id: 2, subgraph: graph([sampler]) };
-    let extension = null;
+async function run({ nodes } = {}) {
     let section = null;
-    const panel = { id: 1,
-        properties: { donut_seed_path: direct ? [3] : [2],
-            donut_app_controls: { groups: [{ controls: [ { path: direct ? [3] : [2], widget: "turbo_mode" } ] }] } },
+    const panel = { id: 1, properties: {},
         _donutEditStudio: {},
         donutAppendEditStudioSection(definition) {
-            section = { title: definition.title, rows: definition.controls.map(() => ({})),
-                hidden: false, update: definition.render };
+            section = { title: definition.title, hidden: false, update: definition.render };
             return section;
-        },
-    };
-    const app = { rootGraph: graph([panel, direct ? sampler : outer]),
-        registerExtension(value) { extension = value; } };
-    vm.runInNewContext(source, { app, queueMicrotask: callback => callback() });
-    return { run: () => extension.afterConfigureGraph(), section: () => section, sampler };
+        } };
+    let extension = null;
+    const app = { rootGraph: graph([panel, ...nodes]), registerExtension(value) { extension = value; } };
+    vm.runInNewContext(source, { app, queueMicrotask: callback => callback(),
+        globalThis: { requestAnimationFrame(callback) { setImmediate(callback); } } });
+    extension.afterConfigureGraph();
+    await flush();
+    return { section: () => section };
 }
 
-for (const direct of [false, true]) {
-    const state = setup({ direct });
-    state.run();
-    const section = state.section();
-    assert.ok(section, "section must be installed into the Edit Studio panel");
-    assert.match(section.title, /Editing schedule/);
-    // constant + editing gate: sampler edit_mode link truthy -> visible
-    section.update();
-    assert.equal(section.hidden, false);
-    // schedule set -> stays visible and content rows remain
-    state.sampler.widgets[0].value = "ease_in";
-    section.update();
-    assert.equal(section.hidden, false);
-}
-
-// No Edit Studio panel (missing hooks): no crash, no section.
+// Nested path as in V4 (sampler inside a subgraph).
 {
     const sampler = makeSampler({});
-    const app = { rootGraph: graph([{ id: 1, properties: {}, _donutEditStudio: {} }, sampler]),
-        registerExtension(value) { extension = value; } };
-    let extension;
-    vm.runInNewContext(source, { app, queueMicrotask: callback => callback() });
-    extension.afterConfigureGraph();
+    const state = await run({ nodes: [{ id: 2, subgraph: graph([sampler]) }] });
+    const section = state.section();
+    assert.ok(section, "section installed via retry pairing");
+    assert.match(section.title, /Editing schedule/);
+    section.update();
+    assert.equal(section.hidden, false, "edit_mode linked -> visible");
+    sampler.widgets[0].value = "linear";
+    section.update();
+    assert.equal(section.hidden, false);
 }
-// Sampler without schedule widgets (stale schema): no section installed.
+
+// Direct root-level sampler also pairs.
 {
-    const sampler = makeSampler({ schemaAvailable: false });
-    const app = { rootGraph: graph([sampler]), registerExtension(value) { extension = value; } };
-    let extension;
-    vm.runInNewContext(source, { app, queueMicrotask: callback => callback() });
-    extension.afterConfigureGraph();
+    const sampler = makeSampler({});
+    assert.ok((await run({ nodes: [sampler] })).section(), "direct sampler also pairs");
 }
-console.log("Grounding controls: Edit Studio panel binding, visibility, missing-schema guard passed.");
+
+// Editing off (no edit_mode link, constant) hides the section.
+{
+    const sampler = makeSampler({});
+    sampler.inputs[0].link = null;
+    const state = await run({ nodes: [sampler] });
+    assert.ok(state.section(), "installed even when editing is off");
+    state.section().update();
+    assert.equal(state.section().hidden, true, "constant without edit link hides");
+}
+
+// Stale schema (no schedule widgets) installs nothing.
+{
+    const sampler = { id: 3, type: "DonutSampler", widgets: [{ name: "grounding_px" }],
+        inputs: [{ name: "edit_mode", link: 7 }] };
+    assert.equal((await run({ nodes: [sampler] })).section(), null);
+}
+console.log("Grounding controls: Edit Studio panel pairing, visibility gate, stale-schema guard passed.");

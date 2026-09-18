@@ -1,103 +1,101 @@
 import { app } from "../../scripts/app.js";
 
-function resolvePath(path) {
-    let graph = app.rootGraph, node;
-    for (const id of path || []) {
-        node = graph?.getNodeById(id);
-        graph = node?.subgraph;
+// Find the nested DonutSampler that owns the grounding_schedule widget.
+// V4 nests it inside the Generate subgraph; scan every descendant graph so the
+// binding works regardless of which panel anchors the probe.
+function visitGraph(graph, visitor) {
+    for (const node of graph?.nodes || []) {
+        const result = visitor(node);
+        if (result) return result;
+        const nested = visitGraph(node.subgraph, visitor);
+        if (nested) return nested;
     }
-    return node;
+    return null;
 }
 
-function findGroundedSampler(startPath) {
-    const target = resolvePath(startPath);
-    if (target?.widgets?.some(widget => widget.name === "grounding_schedule")) {
-        return target;
-    }
-    const visit = (graph, prefix) => {
-        for (const current of graph?.nodes || []) {
-            const type = current.comfyClass || current.type || current.properties?.["Node name for S&R"];
-            if (type === "DonutSampler" && current.widgets?.some(widget => widget.name === "grounding_schedule")) {
-                return current;
-            }
-            const nested = visit(current.subgraph, []);
-            if (nested) return nested;
-        }
-    };
-    return visit(target?.subgraph, []);
+function hasScheduleWidgets(node) {
+    const names = new Set((node?.widgets || []).map(widget => widget.name));
+    return names.has("grounding_schedule") && names.has("grounding_start_px") && names.has("grounding_end_px");
+}
+
+function findGroundedSampler() {
+    return visitGraph(app.rootGraph, node => {
+        const type = node.comfyClass || node.type || node.properties?.["Node name for S&R"];
+        return type === "DonutSampler" && hasScheduleWidgets(node) ? node : null;
+    });
 }
 
 function editingActive(sampler) {
+    // truthy when an edit_mode link exists OR the schedule is dynamic; the
+    // dynamic case already implies Edit Mode, and constant outside edit mode
+    // is a no-op the section may hide.
+    const schedule = sampler.widgets.find(widget => widget.name === "grounding_schedule")?.value;
+    const dynamic = !!schedule && schedule !== "constant";
+    if (dynamic) return true;
     const input = sampler.inputs?.find(entry => entry.name === "edit_mode");
-    if (!input || input.link == null) return false;
-    return Boolean(sampler.properties?.["_donut_grounding_edit_hint_" + input.link] ?? true) &&
-        input.link != null;
+    return !!(input && input.link != null);
 }
 
-function installGroundingIntoEditPanel(panel) {
-    if (panel._donutGroundingSection || !panel._donutEditStudio || !panel.donutAppendEditStudioSection) return;
-    const probePaths = [panel.properties?.donut_seed_path];
-    for (const group of panel.properties?.donut_app_controls?.groups || []) {
-        for (const control of group.controls || []) {
-            if (control.widget) probePaths.push(control.path);
-        }
-    }
-    let sampler = null;
-    for (const path of probePaths) {
-        if (!Array.isArray(path)) continue;
-        const found = findGroundedSampler(path);
-        if (found) { sampler = found; break; }
-    }
-    if (!sampler) return;
+function installGroundingIntoEditPanel(panel, sampler) {
+    if (panel._donutGroundingSection) return;
     const scheduleWidget = sampler.widgets.find(widget => widget.name === "grounding_schedule");
     const startWidget = sampler.widgets.find(widget => widget.name === "grounding_start_px");
     const endWidget = sampler.widgets.find(widget => widget.name === "grounding_end_px");
-    if (!scheduleWidget || !startWidget || !endWidget) return;
-
-    const scheduleSelectOptions = scheduleWidget.options?.values
-        || scheduleWidget.options?.choices
-        || ["constant", "linear", "ease_in", "ease_out", "ease_in_out"];
+    const choices = scheduleWidget.options?.values || ["constant", "linear", "ease_in", "ease_out", "ease_in_out"];
     const section = panel.donutAppendEditStudioSection({
-        title: "Editing schedule (experimental · Krea2 grounding over steps)",
+        title: "Editing schedule (experimental)",
         controls: [
-            { name: "grounding_schedule", kind: "select",
-              title: "Grounding schedule",
-              choices: scheduleSelectOptions,
-              get: () => scheduleWidget.value,
+            { name: "grounding_schedule", kind: "select", title: "Grounding schedule",
+              choices, get: () => scheduleWidget.value,
               set: value => { scheduleWidget.value = value; scheduleWidget.callback?.(value); } },
             { name: "grounding_start_px", kind: "number", title: "Start grounding px",
-              step: 64, min: 0, max: 4096,
-              get: () => startWidget.value,
+              step: 64, min: 0, max: 4096, get: () => startWidget.value,
               set: value => { startWidget.value = value; startWidget.callback?.(value); } },
             { name: "grounding_end_px", kind: "number", title: "End grounding px",
-              step: 64, min: 0, max: 4096,
-              get: () => endWidget.value,
+              step: 64, min: 0, max: 4096, get: () => endWidget.value,
               set: value => { endWidget.value = value; endWidget.callback?.(value); } },
         ],
         render() {
-            // Visible only while editing is enabled, so non-editing users never
-            // see controls the sampler would ignore (dynamic grounding is
-            // Edit-Mode-only by design).
-            const dynamic = !!scheduleWidget.value && scheduleWidget.value !== "constant";
-            const show = dynamic || editingActive(sampler);
-            if ("hidden" in section) section.hidden = !show;
+            if ("hidden" in section) section.hidden = !editingActive(sampler);
         },
     });
-    panel._donutGroundingSection = section;
+    if (section) {
+        panel._donutGroundingSection = section;
+        panel._donutEditStudio?.render?.();
+    }
 }
 
-function installGroundingControls() {
-    for (const panel of app.rootGraph?.nodes || []) {
-        try { installGroundingIntoEditPanel(panel); } catch (error) { /* panel not ready; retried on next configure */ }
+function pairing() {
+    // Pair every grounded sampler with the first Edit Studio panel that has no
+    // grounded section yet. Multiple samplers reuse the first panel's section.
+    const panels = (app.rootGraph?.nodes || []).filter(node => node._donutEditStudio && node.donutAppendEditStudioSection);
+    if (!panels.length) return false;
+    let installed = false;
+    for (const panel of panels) {
+        if (panel._donutGroundingSection) continue;
+        const sampler = findGroundedSampler();
+        if (!sampler) return installed;
+        installGroundingIntoEditPanel(panel, sampler);
+        installed = true;
     }
+    return installed;
+}
+
+function retryUntilRendered(attempts) {
+    if (!attempts) return;
+    if (pairing()) return;
+    const next = () => retryUntilRendered(attempts - 1);
+    (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 350)))(next);
 }
 
 app.registerExtension({
     name: "Donut.GroundingScheduleControls",
     afterConfigureGraph() {
-        // Bind directly to the nested sampler's widgets, like V4's SDA
-        // controls, but surface them inside the Edit Studio panel so every
-        // editing-related setting lives in one place.
-        queueMicrotask(installGroundingControls);
+        queueMicrotask(() => retryUntilRendered(20));
+    },
+    nodeCreated(node) {
+        if (node.properties?.["Node name for S&R"] === "DonutEditStudio") {
+            (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 200)))(pairing);
+        }
     },
 });
