@@ -445,6 +445,9 @@ export function installEditStudio(node, definition) {
             input.addEventListener(spec.kind === "number" ? "input" : "change", commitExternal);
             input.addEventListener("change", () => input.value = String(spec.get()));
             externalSections.add(commitExternal);
+            const row = element("div", "de-field");
+            row.append(element("span", "", spec.title || spec.name), input);
+            section.append(row);
             inputs.push({ input, spec });
         }
         if (typeof definition.render === "function") externalSections.add(definition.render);
