@@ -81,8 +81,31 @@ function pairing() {
     return installed;
 }
 
+function purgeStalePanelEntries() {
+    // An early build injected the schedule controls into app-control panels
+    // (beside Turbo) and app-control configs are saved with the workflow, so
+    // those stale entries render in panel 6 even after the injection stops.
+    // Scrub them on every configure; Edit Studio owns these settings now.
+    const visit = graph => {
+        for (const panel of graph?.nodes || []) {
+            const config = panel.properties?.donut_app_controls;
+            if (!config?.groups) continue;
+            for (const group of config.groups) {
+                const controls = group.controls;
+                if (Array.isArray(controls)) {
+                    const filtered = controls.filter(item => !String(item.widget || "").startsWith("grounding_"));
+                    if (filtered.length !== controls.length) group.controls = filtered;
+                }
+            }
+        }
+        for (const node of graph?.nodes || []) if (node.subgraph) visit(node.subgraph);
+    };
+    visit(app.rootGraph);
+}
+
 function retryUntilRendered(attempts) {
     if (!attempts) return;
+    purgeStalePanelEntries();
     if (pairing()) return;
     const next = () => retryUntilRendered(attempts - 1);
     (globalThis.requestAnimationFrame || (callback => setTimeout(callback, 350)))(next);
