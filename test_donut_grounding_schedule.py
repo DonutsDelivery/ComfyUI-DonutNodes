@@ -6,6 +6,9 @@ import types
 import unittest
 from unittest.mock import patch
 
+# Retain one ContextVar owner when the temporary base-module stub is removed.
+import donut_grounding_nag
+
 
 class BaseSampler:
     @classmethod
@@ -146,10 +149,14 @@ class NodeTests(unittest.TestCase):
             grounding.DonutSampler().sample("model", edit_mode=True,
                                             grounding_schedule="linear", mode="multi_model")
 
-    def test_nag_rejected(self):
-        with self.assertRaisesRegex(ValueError, "NAG"):
-            grounding.DonutSampler().sample("model", edit_mode=True,
-                                            grounding_schedule="linear", nag_enabled=True)
+    def test_nag_enabled_and_zero_strength_are_forwarded(self):
+        for phi, alpha in ((0., .25), (4., 0.), (4., .25)):
+            node = grounding.DonutSampler()
+            node.sample("model", edit_mode=True, grounding_schedule="linear",
+                        nag_enabled=True, nag_phi=phi, nag_alpha=alpha)
+            self.assertEqual(node.received["nag_options"],
+                             dict(nag_enabled=True, nag_phi=phi, nag_alpha=alpha))
+            self.assertIsNone(donut_grounding_nag._PREPARATIONS.get())
 
     def test_multievaluation_sampler_rejected(self):
         with self.assertRaisesRegex(ValueError, "Euler"):
