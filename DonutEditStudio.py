@@ -243,10 +243,16 @@ class DonutEditStudio:
             "inpaint_enabled": ("BOOLEAN", {"default": False}),
             "mask_data": ("STRING", {"default": "", "dynamicPrompts": False}),
             "mask_feather": ("INT", {"default": 8, "min": 0, "max": 128, "tooltip": "Soften the inside of the selection edge, in output pixels."}),
+            # Step-scheduled grounding (experiments in PR #61). Appended after
+            # the existing optional widgets; the legacy constant path is
+            # unchanged when the schedule stays "constant".
+            "grounding_schedule": (["constant", "linear", "ease_in", "ease_out", "ease_in_out"], {"default": "constant"}),
+            "grounding_start_px": ("INT", {"default": 512, "min": 0, "max": 4096, "step": 64}),
+            "grounding_end_px": ("INT", {"default": 1088, "min": 0, "max": 4096, "step": 64}),
         }}
 
-    RETURN_TYPES = ("IMAGE", "IMAGE", "BOOLEAN", "INT", "INT", "INT", "MODEL", "STRING", "DONUT_INPAINT")
-    RETURN_NAMES = ("reference_a", "reference_b", "edit_mode", "width", "height", "grounding_px", "edit_model", "edit_prompt", "inpaint")
+    RETURN_TYPES = ("IMAGE", "IMAGE", "BOOLEAN", "INT", "INT", "INT", "MODEL", "STRING", "DONUT_INPAINT", "COMBO", "INT", "INT")
+    RETURN_NAMES = ("reference_a", "reference_b", "edit_mode", "width", "height", "grounding_px", "edit_model", "edit_prompt", "inpaint", "grounding_schedule", "grounding_start_px", "grounding_end_px")
     FUNCTION = "prepare"
     CATEGORY = "donut/editing"
     DESCRIPTION = "Persistent references, crop previews, output sizing, and selected-area Krea2 editing. Connect inpaint to DonutSampler and Donut Inpaint composites, or use the supplied V4 workflow. Blank slots are allowed while editing is off."
@@ -291,7 +297,9 @@ class DonutEditStudio:
                 aspect_ratio, megapixels, width, height, multiple, grounding_px,
                 lora_name, lora_strength, crop_a_x=0.5, crop_a_y=0.5,
                 crop_b_x=0.5, crop_b_y=0.5, model=None, text_seed=0,
-                inpaint_enabled=False, mask_data="", mask_feather=8):
+                inpaint_enabled=False, mask_data="", mask_feather=8,
+                grounding_schedule="constant", grounding_start_px=512,
+                grounding_end_px=1088):
         source_a = _open_reference(image_a) if enabled else None
         source_b = _open_reference(image_b) if enabled and image_b and (use_reference_b or aspect_ratio == "Auto · Reference B") else None
         size = target_dimensions(resolution_mode, aspect_ratio, megapixels, width, height, multiple,
@@ -325,7 +333,9 @@ class DonutEditStudio:
                 if hasattr(model, "clone"):
                     edit_model = model.clone()
                 edit_model = _record_edit_branch(edit_model)
-        return (reference_a, reference_b, bool(enabled), *size, int(grounding_px), edit_model, prompt, inpaint)
+        return (reference_a, reference_b, bool(enabled), *size, int(grounding_px),
+                edit_model, prompt, inpaint, grounding_schedule,
+                int(grounding_start_px), int(grounding_end_px))
 
 
 class DonutReferenceStudio:

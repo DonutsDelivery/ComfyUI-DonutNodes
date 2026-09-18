@@ -200,10 +200,12 @@ class DonutSampler(_BaseDonutSampler):
         # Append only, after SDA/NAG/inpaint widgets, for saved V4 compatibility.
         optional["grounding_schedule"] = (list(CURVES), {
             "default": "constant",
-            "tooltip": "Edit Mode only. Constant uses Edit Studio's existing grounding_px. "
-                       "Dynamic curves use start/end over the executed steps in one run. "
-                       "Supports Euler, ER-SDE and DPM++ 2M, including verified Bleh presets; "
-                       "NAG and multi-model sampling are not yet supported.",
+            "tooltip": "Preferred wiring: connect Edit Studio's grounding_schedule "
+                       "output so editing settings live in one place. Constant "
+                       "uses Edit Studio's grounding_px directly. Dynamic curves "
+                       "reach start/end over the executed steps in one run, "
+                       "Euler/ER-SDE/DPM++ 2M including Bleh presets; NAG and "
+                       "multi-model runs are not yet supported.",
         })
         optional["grounding_start_px"] = ("INT", {
             "default": 512, "min": 0, "max": 4096, "step": 64,
