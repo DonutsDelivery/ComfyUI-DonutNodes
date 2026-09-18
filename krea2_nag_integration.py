@@ -54,11 +54,19 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
                       ref_boost_mask=nag_ref_boost_mask, fit_mode=nag_fit_mode,
                       vae=vae, source_image=source_image, source_image_b=source_image_b,
                       target_latent=target_latent)
-    return node_class().patch(
+    arguments = dict(
         model=model, nag_negative=prepare_nag_conditioning(model, negative if nag_negative is None else nag_negative),
         phi=nag_phi, tau=nag_tau, alpha=nag_alpha,
         sigma_start=nag_sigma_start, sigma_end=nag_sigma_end, **kwargs,
-    )[0]
+    )
+    try:
+        from .donut_grounding_nag import prepare_nag_arguments, record_nag_preparation
+    except ImportError:
+        from donut_grounding_nag import prepare_nag_arguments, record_nag_preparation
+    arguments = prepare_nag_arguments(arguments, nag_negative is not None)
+    patched = node_class().patch(**arguments)[0]
+    record_nag_preparation(patched, node_class, arguments, nag_negative is not None)
+    return patched
 
 
 def sampler_negative(negative, turbo_mode):

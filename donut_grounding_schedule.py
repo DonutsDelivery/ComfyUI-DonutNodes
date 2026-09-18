@@ -18,6 +18,15 @@ try:
 except ImportError:
     from donut_krea2_sda import DonutSampler as _BaseDonutSampler
 
+try:
+    from .donut_grounding_nag import (
+        capture_nag_preparations, get_nag_preparation, select_nag_options,
+    )
+except ImportError:
+    from donut_grounding_nag import (
+        capture_nag_preparations, get_nag_preparation, select_nag_options,
+    )
+
 CURVES = ("constant", "linear", "ease_in", "ease_out", "ease_in_out")
 SUPPORTED_SAMPLERS = ("euler", "er_sde", "dpmpp_2m")
 _TAG = "donut_grounding_px"
@@ -95,8 +104,9 @@ class _SelectGrounding:
     The supported single-evaluation solvers share the base guider's completed-
     step semantics. Original conditions are restored even when sampling raises.
     """
-    def __init__(self, values):
+    def __init__(self, values, nag_wrappers=None):
         self.values = tuple(values)
+        self.nag_wrappers = nag_wrappers
 
     def __call__(self, executor, x, timestep, model_options=None, seed=None):
         guider = executor.class_obj
@@ -115,6 +125,8 @@ class _SelectGrounding:
             selected[key] = [c for c in conditions if _TAG not in c or c[_TAG] == px]
             if conditions and not selected[key]:
                 raise RuntimeError(f"Scheduled grounding has no {key} conditioning for {px} px.")
+        if self.nag_wrappers is not None:
+            model_options = select_nag_options(model_options, self.nag_wrappers[px])
         guider.conds = selected
         try:
             return executor(x, timestep, model_options, seed)
@@ -171,6 +183,8 @@ def _prepare_conditions(request, model, positive, negative, values):
     # The base Edit Mode path already encoded start and applied variance/Turbo
     # metadata. Reuse it, and encode each other resolution once per polarity.
     cache = {request.start: (positive, negative)}
+    nag = get_nag_preparation(model)
+    nag_wrappers = {} if nag is not None and nag.changes_negative else None
     all_positive, all_negative = [], []
     for px in dict.fromkeys(values):
         if px not in cache:
@@ -179,15 +193,23 @@ def _prepare_conditions(request, model, positive, negative, values):
             neg = encoder.encode(request.clip, request.negative_prompt, image=image,
                                  grounding_px=px, **options)[0]
             pos = reapply_edit_variance(pos, request.original_positive)
+            # NAG must see the unzeroed negative; Turbo's sampler negative is
+            # still zeroed independently. Build the matching forward BEFORE sampling.
+            if nag_wrappers is not None:
+                nag_wrappers[px] = nag.wrappers_for(neg)
             neg = sampler_negative(neg, request.turbo)
             cache[px] = pos, neg
+        elif nag_wrappers is not None:
+            # The base bridge already captured the start-resolution NAG negative
+            # before sampler_negative zeroed the ordinary Turbo conditioning.
+            nag_wrappers[px] = nag.wrappers_for()
         pos, neg = cache[px]
         all_positive.extend(_tag(pos, px))
         if neg is not None:
             all_negative.extend(_tag(neg, px))
 
     patched = model.clone()
-    patched.add_wrapper_with_key(wrappers.PREDICT_NOISE, _WRAPPER_KEY, _SelectGrounding(values))
+    patched.add_wrapper_with_key(wrappers.PREDICT_NOISE, _WRAPPER_KEY, _SelectGrounding(values, nag_wrappers))
     patched.add_wrapper_with_key(wrappers.SAMPLER_SAMPLE, _WRAPPER_KEY, _SamplingGuard(len(values)))
     return patched, all_positive, all_negative if negative is not None else None
 
@@ -204,8 +226,8 @@ class DonutSampler(_BaseDonutSampler):
                        "output so editing settings live in one place. Constant "
                        "uses Edit Studio's grounding_px directly. Dynamic curves "
                        "reach start/end over the executed steps in one run, "
-                       "Euler/ER-SDE/DPM++ 2M including Bleh presets; NAG and "
-                       "multi-model runs are not yet supported.",
+                       "Euler/ER-SDE/DPM++ 2M including Bleh presets. Supports NAG, "
+                       "reference guidance and inpainting; multi-model runs are not yet supported.",
         })
         optional["grounding_start_px"] = ("INT", {
             "default": 512, "min": 0, "max": 4096, "step": 64,
@@ -220,6 +242,7 @@ class DonutSampler(_BaseDonutSampler):
         })
         return inputs
 
+    @capture_nag_preparations(enabled=False)
     def sample(self, *args, grounding_schedule="constant", grounding_start_px=512,
                grounding_end_px=1088, **kwargs):
         parent = super().sample
@@ -243,8 +266,6 @@ class DonutSampler(_BaseDonutSampler):
                                  "Use positive start/end values for a changing schedule.")
             if inputs.get("mode", "simple") not in ("simple", "advanced"):
                 raise ValueError("Scheduled grounding currently supports simple/advanced Edit Mode, not multi_model.")
-            if inputs.get("nag_options", {}).get("nag_enabled", False):
-                raise ValueError("Disable NAG or select constant grounding; scheduled NAG conditioning is not yet supported.")
             name = inputs["sampler_name"]
             if name not in SUPPORTED_SAMPLERS and not re.fullmatch(r"bleh_preset_[0-9]+", name):
                 raise ValueError("Scheduled grounding supports Euler, ER-SDE and DPM++ 2M (including verified Bleh presets).")
@@ -255,7 +276,8 @@ class DonutSampler(_BaseDonutSampler):
                                inputs.get("edit_negative_prompt", ""), inputs["positive"],
                                inputs.get("turbo_mode", False))
             _REQUEST.set(request)
-            return parent(*bound.args, **bound.kwargs)
+            with capture_nag_preparations():
+                return parent(*bound.args, **bound.kwargs)
         finally:
             _REQUEST.reset(token)
 
