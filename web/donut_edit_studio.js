@@ -423,6 +423,33 @@ export function installEditStudio(node, definition) {
         control("grounding_px", "input", {type:"number", min:"0", max:"4096", step:"64", label:"Grounding pixels"}));
     const scaleLabels = element("div", "de-scale-labels"); scaleLabels.append(element("span", "", "More edit freedom"), element("span", "", "More likeness"));
     grounding.append(groundingRow, scaleLabels); root.append(grounding);
+    // External panels may append a section after grounding (see
+    // donut_grounding_controls.js). The section owns its own DOM; Edit Studio
+    // only re-runs its update callback whenever the panel re-renders, so
+    // live widget changes stay in sync without bypassing commit().
+    const externalSectionHost = element("div"); root.append(externalSectionHost);
+    const externalSections = new Set();
+    node.donutAppendEditStudioSection = definition => {
+        const section = element("div", "de-section");
+        section.append(element("div", "de-subhead", definition.title));
+        externalSectionHost.append(section);
+        const inputs = [];
+        for (const spec of definition.controls || []) {
+            const input = spec.kind === "select" ? element("select") : element("input");
+            if (spec.kind === "number") { input.type = "number"; input.step = spec.step; input.min = spec.min; input.max = spec.max; }
+            else if (spec.kind !== "select") { input.type = spec.kind || "text"; }
+            input.setAttribute("aria-label", spec.title || spec.name);
+            for (const option of spec.choices || []) { const item = element("option", "", option); item.value = option; input.append(item); }
+            input.value = spec.get();
+            const commitExternal = () => { if (String(spec.get()) !== String(input.value)) { spec.set(spec.kind === "number" ? Number(input.value) : input.value); node.setDirtyCanvas?.(true, true); } };
+            input.addEventListener(spec.kind === "number" ? "input" : "change", commitExternal);
+            input.addEventListener("change", () => input.value = String(spec.get()));
+            externalSections.add(commitExternal);
+            inputs.push({ input, spec });
+        }
+        if (typeof definition.render === "function") externalSections.add(definition.render);
+        return section;
+    };
     const advanced = element("details"), advancedRow = element("div", "de-row"); advanced.append(element("summary", "", "Identity edit LoRA"));
     advancedRow.append(field("LoRA", control("lora_name", "select", {label:"Identity edit LoRA", choices:definition.input.required.lora_name[1].donut_loras})),
         field("Strength", control("lora_strength", "input", {type:"number", min:"-20", max:"20", step:"0.05", label:"Identity edit LoRA strength"})));
@@ -430,6 +457,9 @@ export function installEditStudio(node, definition) {
     const statusLine = element("div", "de-status"); statusLine.setAttribute("role", "status"); statusLine.setAttribute("aria-live", "polite"); root.append(statusLine);
 
     function render() {
+        for (const updateExternal of externalSections) {
+            try { updateExternal(); } catch (error) { /* keep panel render resilient */ }
+        }
         promptSection.hidden = !!node.properties?.donut_shared_prompt;
         sharedPromptHelp.hidden = !node.properties?.donut_shared_prompt;
         if (disposed) return;
