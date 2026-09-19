@@ -24,8 +24,20 @@ exceeded 12 GB GPU memory. No claim of universal memory fit or seamless output.
 User reviewed the result and authorized release with the current behavior.
 Browser A/B selection checks passed, with no page errors.
 
-Publication status: not yet uploaded.
+Publication status: uploaded successfully; Registry approval remains unverified (Pending).
 
 Release checks: 168 frontend tests, 24 subject-mask tests, 39 independent-crop
 checks, 22 native downloader/staging tests and 4 standalone installer tests pass.
 CLI packed archive staged through `tools/prepare_registry.py` successfully.
+
+
+## Publication verification
+
+Git release commit: `6d656ec`, pushed to `main`.
+Exact version `3.0.23` checked at 2026-09-19 20:17:11 UTC:
+`NodeVersionStatusPending`. Downloaded ZIP matches the staged upload byte for
+byte per member (207 files); SHA-256
+`7d2c093aff61422e5b27cc99f40b93f7310ed6e7ff88c91c13c662f139ce8346`.
+Downloader backend and standalone installer files are absent from the Registry
+ZIP. Auxiliary GitHub installer URL verified against the local artifact.
+Hourly monitoring offered; no monitor created without the user's answer.
