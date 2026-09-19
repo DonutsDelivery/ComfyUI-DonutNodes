@@ -51,6 +51,10 @@ export function modelBindings(graph) {
                 loaders.seedvr2_model_name = "diffusion_models";
                 loaders.seedvr2_vae_name = "vae";
             }
+            if (type === "DonutSeedVR2Upscale") {
+                loaders.seedvr2_model_name = "diffusion_models";
+                loaders.seedvr2_vae_name = "vae";
+            }
             if (type === "DonutEditStudio" && selected("mask_b_mode") === "Auto subject") {
                 loaders.mask_b_model = "background_removal";
             }
