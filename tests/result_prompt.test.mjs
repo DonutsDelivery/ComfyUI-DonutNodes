@@ -14,6 +14,7 @@ test('result keeps the expanded prompt for its run and selected stage', () => {
         fitModule() {},
         LGraphNode: class {addDOMWidget(name,type,root) {this.root=root; return {options:{}};}},
         LiteGraph: {registerNodeType:(name, cls)=>Node=cls}};
+    sandbox.graphEntries = vm.runInNewContext(fs.readFileSync(new URL('../web/donut_panel_categories_model.js', import.meta.url),'utf8').replace(/^export /gm,'') + ';graphEntries');
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(new URL('../web/donut_preview_stages.js', import.meta.url),'utf8').replace(/^export /gm,''),sandbox);
     vm.runInContext(fs.readFileSync(new URL('../web/donut_latest_preview.js', import.meta.url),'utf8').replace(/^import .*;\n/gm,''),sandbox);
@@ -52,6 +53,7 @@ test('empty execution events do not interrupt the workflow UI', () => {
         fitModule() {},
         LGraphNode: class {addDOMWidget(name,type,root) {this.root=root; return {options:{}};}},
         LiteGraph: {registerNodeType:(name, cls)=>Node=cls}};
+    sandbox.graphEntries = vm.runInNewContext(fs.readFileSync(new URL('../web/donut_panel_categories_model.js', import.meta.url),'utf8').replace(/^export /gm,'') + ';graphEntries');
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(new URL('../web/donut_preview_stages.js', import.meta.url),'utf8').replace(/^export /gm,''),sandbox);
     vm.runInContext(fs.readFileSync(new URL('../web/donut_latest_preview.js', import.meta.url),'utf8').replace(/^import .*;\n/gm,''),sandbox);

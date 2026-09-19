@@ -394,7 +394,8 @@ if _WEIGHT_ADAPTER_BASE is not None:
             # down/up/scale and stacking temporaries on full-frame edit sequences.
             # Keep convolutional, other adapter families and autograd unchanged.
             lora_type = getattr(comfy_weight_adapter, "LoRAAdapter", ())
-            if (not torch.is_grad_enabled() and x.ndim == 3 and x.shape[1] > 1024
+            if (getattr(self, "low_vram_chunking", False)
+                    and not torch.is_grad_enabled() and x.ndim == 3 and x.shape[1] > 1024
                     and not getattr(self, "is_conv", False)
                     and all(isinstance(adapter, lora_type) for adapter, _ in self.components)):
                 output = None
@@ -693,7 +694,10 @@ def _make_rebinding_bypass_injections(manager, model_root):
 
         runtime = type(manager)()
         for key, (adapter, strength) in manager.adapters.items():
-            runtime.add_adapter(key, _copy_runtime_adapter(adapter), strength=strength)
+            runtime_adapter = _copy_runtime_adapter(adapter)
+            if isinstance(runtime_adapter, _CompositeBypassAdapter):
+                runtime_adapter.low_vram_chunking = bool(model_patcher.model_options.get("donut_chunk_lora", False))
+            runtime.add_adapter(key, runtime_adapter, strength=strength)
         _trace_lokr_calls(runtime)
         inner = tuple(runtime.create_injections(model_patcher.model))
         if runtime.get_hook_count() != expected:
@@ -909,6 +913,9 @@ class DonutApplyLoRAStackSafe:
                         "Comfy's regular path."
                     ),
                 }),
+                "chunk_lora": ("BOOLEAN", {"default": False, "tooltip": "Experimental: chunk linear LoRA intermediates. May reduce peak VRAM at a speed cost. Full-image attention is preserved."}),
+                "chunk_edit_mlp": ("BOOLEAN", {"default": False, "tooltip": "Experimental: chunk Krea2 edit feed-forward layers. May reduce peak VRAM at a speed cost. Full-image attention is preserved."}),
+                "chunk_edit_norm": ("BOOLEAN", {"default": False, "tooltip": "Experimental: chunk Krea2 edit Q/K normalization. May reduce peak VRAM at a speed cost. Full-image attention is preserved."}),
             }
         }
 
@@ -927,6 +934,9 @@ class DonutApplyLoRAStackSafe:
         max_fusion_boost=2.0,
         safe_limit=_SAFE_ENERGY_BUDGET,
         execution_mode="Comfy patches",
+        chunk_lora=False,
+        chunk_edit_mlp=False,
+        chunk_edit_norm=False,
     ):
         help_url = (
             "https://github.com/Suzie1/ComfyUI_Comfyroll_CustomNodes/"
@@ -936,6 +946,8 @@ class DonutApplyLoRAStackSafe:
         execution_mode = resolve_execution_mode(model, execution_mode)
         model = model.clone()
         model.model_options = dict(getattr(model, "model_options", {}))
+        for key, enabled in (("chunk_lora", chunk_lora), ("chunk_edit_mlp", chunk_edit_mlp), ("chunk_edit_norm", chunk_edit_norm)):
+            model.model_options["donut_" + key] = bool(enabled or model.model_options.get("donut_" + key, False))
         publish_execution_mode(model, execution_mode)
         if lora_stack is None or len(lora_stack) == 0:
             return (model, clip, help_url)

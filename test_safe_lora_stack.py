@@ -398,6 +398,19 @@ class SafetyCompatibilityTests(unittest.TestCase):
             module._bypass_compatibility_error(lora, linear),
         )
 
+    def test_low_vram_options_are_independent_and_default_off(self):
+        keys = ("chunk_lora", "chunk_edit_mlp", "chunk_edit_norm")
+        for selected in (None, *keys):
+            original = types.SimpleNamespace(model_options={})
+            original.clone = lambda: types.SimpleNamespace(model_options={})
+            options = {selected: True} if selected else {}
+            output = module.DonutApplyLoRAStackSafe().apply_stack(
+                original, None, [], execution_mode="Experimental bypass", **options)[0]
+            for key in keys:
+                self.assertEqual(output.model_options["donut_" + key], key == selected)
+            self.assertEqual(output.model_options["donut_lora_execution_mode"], "Experimental bypass")
+            self.assertEqual(original.model_options, {})
+
     def test_empty_stack_propagates_selected_mode_without_changing_input(self):
         for mode in module._EXECUTION_MODES:
             original = types.SimpleNamespace(model_options={})

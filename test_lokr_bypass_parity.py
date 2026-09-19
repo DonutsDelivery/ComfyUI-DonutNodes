@@ -154,6 +154,7 @@ class LoKrBypassParityTests(unittest.TestCase):
         adapters = [(self.native.LoRAAdapter(set(), (torch.randn(15, 2), torch.randn(2, 8), .8, None, None, None)), strength)
                     for strength in (.3, -.7)]
         stack = self.safe._CompositeBypassAdapter(adapters)
+        stack.low_vram_chunking = True
         x = torch.randn(2, 2051, 8)
         base = torch.randn(2, 2051, 15)
         with torch.inference_mode():

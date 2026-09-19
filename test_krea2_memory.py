@@ -17,6 +17,10 @@ class MLP(torch.nn.Module):
 
 
 class MemoryTests(unittest.TestCase):
+    def test_chunking_is_off_by_default(self):
+        model = types.SimpleNamespace(model_options={})
+        self.assertIs(patch_krea2_upscale_memory(model), model)
+
     def test_four_dimensional_rmsnorm_preserves_output(self):
         x = torch.randn(2, 3, 19, 8, dtype=torch.bfloat16)
         def norm(value):
@@ -48,6 +52,7 @@ class MemoryTests(unittest.TestCase):
             def __init__(self):
                 self.model = types.SimpleNamespace(diffusion_model=root)
                 self.object_patches = {}
+                self.model_options = {"donut_chunk_edit_mlp": True}
             def clone(self):
                 clone = copy.copy(self)
                 clone.object_patches = dict(self.object_patches)

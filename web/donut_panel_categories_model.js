@@ -179,6 +179,15 @@ export function organizeV4Panels(root) {
         panel.properties.donut_panel_role = panelRole(panel);
         panel.properties.donut_columns = 'sections';
     }
+    for (const panel of panels.filter(panel => panelRole(panel) === 'loras')) {
+        const groups = panel.properties.donut_app_controls.groups;
+        const execution = groups.flatMap(group => group.controls || []).find(control => control.widget === 'execution_mode');
+        const owner = execution && entries.find(entry => pathKey(entry.path) === pathKey(execution.path))?.node;
+        if (!execution || !hasWidget(owner, 'chunk_lora') || groups.some(group => group.controls?.some(control => control.widget === 'chunk_lora'))) continue;
+        groups.push({title:'Experimental · low VRAM', advanced:true, donut_category_fixed:true,
+            controls:[['chunk_lora','LoRA chunking'],['chunk_edit_mlp','Edit MLP chunking'],['chunk_edit_norm','Edit normalization chunking']]
+                .map(([widget,title]) => ({path:[...execution.path],widget,title}))});
+    }
     for (const generate of panels.filter(panel => panelRole(panel) === 'generate')) {
         // Cross-panel ownership requires V4's explicit shared seed path.
         // A custom panel with no family metadata is categorized in place only.

@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { addStagePreviews, previewSourceId } from "./donut_preview_stages.js";
+import { addStagePreviews, previewSourceId, rebindStageSources } from "./donut_preview_stages.js";
+import { graphEntries } from "./donut_panel_categories_model.js";
 import { createProgress } from "./donut_progress.js";
 import { fitModule } from "./donut_layout.js?v=15";
 
@@ -37,7 +38,9 @@ app.registerExtension({
                     image.hidden = !file;
                     if (file) image.src = api.apiURL(`/view?${new URLSearchParams({filename:file.filename,subfolder:file.subfolder || "",type:file.type || "temp"})}`);
                 };
+                const bindSources = () => rebindStageSources(this.properties, graphEntries(app.rootGraph || app.graph));
                 const refresh = () => {
+                    bindSources();
                     const order = this.properties.source_order || Object.keys(this.properties.sources || {});
                     const choices = [["latest", "Always latest"], ...order.map((id,index)=>[id,`${index+1} · ${this.properties.sources[id]}`])];
                     if (selector.dataset.choices !== JSON.stringify(choices)) {
@@ -62,6 +65,7 @@ app.registerExtension({
                 };
                 let latestRun = null, latestRank = -1;
                 const receive = ({detail} = {}) => {
+                    bindSources();
                     // A few older frontend builds dispatch an empty `executed`
                     // event while their graph is being restored. Ignore it;
                     // there is no result to display yet.

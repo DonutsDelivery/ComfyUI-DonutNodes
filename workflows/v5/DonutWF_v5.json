@@ -34,7 +34,7 @@
           "links": []
         }
       ],
-      "title": "07 · Result · base",
+      "title": "07 \u00b7 Result \u00b7 base",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -78,7 +78,7 @@
           "links": []
         }
       ],
-      "title": "Result · first upscale",
+      "title": "Result \u00b7 first upscale",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -124,7 +124,7 @@
           ]
         }
       ],
-      "title": "Result · final",
+      "title": "Result \u00b7 final",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -413,7 +413,7 @@
           ]
         }
       ],
-      "title": "09 · Image setup & editing",
+      "title": "09 \u00b7 Image setup & editing",
       "properties": {
         "cnr_id": "donutnodes",
         "Node name for S&R": "DonutEditStudio",
@@ -842,7 +842,7 @@
           "type": "IMAGE",
           "shape": 7,
           "link": 1115358,
-          "label": "Reference B · subject"
+          "label": "Reference B \u00b7 subject"
         },
         {
           "name": "edit_instruction",
@@ -1062,7 +1062,7 @@
         "variance_auto_strength_factor": 1,
         "native_reference_enabled": false
       },
-      "title": "Generation engine · open to inspect wiring"
+      "title": "Generation engine \u00b7 open to inspect wiring"
     },
     {
       "id": 1138,
@@ -1196,7 +1196,7 @@
         "donut_widget_order": []
       },
       "widgets_values": [],
-      "title": "Sources · open to inspect wiring",
+      "title": "Sources \u00b7 open to inspect wiring",
       "widgets_values_named": {}
     },
     {
@@ -1215,7 +1215,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "10 · Prompts",
+      "title": "10 \u00b7 Prompts",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1243,7 +1243,7 @@
                     1126
                   ],
                   "widget": "Text",
-                  "title": "Prompt · subject and scene",
+                  "title": "Prompt \u00b7 subject and scene",
                   "ui": {
                     "prompt": true,
                     "autosize": true,
@@ -1345,7 +1345,7 @@
                 }
               ],
               "color": "#bea8ff",
-              "donut_source_title": "Advanced · Subject and scene expansion",
+              "donut_source_title": "Advanced \u00b7 Subject and scene expansion",
               "donut_category_rank": 50,
               "donut_category_fixed": true
             },
@@ -1382,7 +1382,7 @@
                 }
               ],
               "color": "#bea8ff",
-              "donut_source_title": "Advanced · Face and style expansion",
+              "donut_source_title": "Advanced \u00b7 Face and style expansion",
               "donut_category_rank": 50,
               "donut_category_fixed": true
             },
@@ -1419,12 +1419,12 @@
                 }
               ],
               "color": "#bea8ff",
-              "donut_source_title": "Advanced · Negative expansion",
+              "donut_source_title": "Advanced \u00b7 Negative expansion",
               "donut_category_rank": 50,
               "donut_category_fixed": true
             },
             {
-              "title": "Prompt composition · editing override and separator",
+              "title": "Prompt composition \u00b7 editing override and separator",
               "advanced": true,
               "controls": [
                 {
@@ -1445,7 +1445,7 @@
                 }
               ],
               "color": "#f2cb76",
-              "donut_source_title": "Prompt composition · editing override and separator",
+              "donut_source_title": "Prompt composition \u00b7 editing override and separator",
               "donut_category_fixed": true,
               "donut_category_rank": 50
             }
@@ -1482,7 +1482,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "11 · Seed & guidance",
+      "title": "11 \u00b7 Seed & guidance",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1517,7 +1517,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Negative attention guidance · NAG",
+              "title": "Negative attention guidance \u00b7 NAG",
               "advanced": false,
               "controls": [
                 {
@@ -1565,7 +1565,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Seed variance · advanced",
+              "title": "Seed variance \u00b7 advanced",
               "advanced": true,
               "controls": [
                 {
@@ -1634,7 +1634,7 @@
                 }
               ],
               "color": "#f2cb76",
-              "donut_source_title": "Advanced · Prompt conditioning and variance",
+              "donut_source_title": "Advanced \u00b7 Prompt conditioning and variance",
               "donut_category_rank": 21,
               "donut_category_fixed": true
             }
@@ -1671,7 +1671,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "03 · Generation setup",
+      "title": "03 \u00b7 Generation setup",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1751,7 +1751,7 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Latent batch",
+              "donut_source_title": "Advanced \u00b7 Latent batch",
               "donut_category_rank": 5,
               "donut_category_fixed": true
             },
@@ -1827,7 +1827,7 @@
               "donut_category_rank": 12
             },
             {
-              "title": "Base sampling · advanced",
+              "title": "Base sampling \u00b7 advanced",
               "advanced": true,
               "controls": [
                 {
@@ -1920,12 +1920,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Base pass",
+              "donut_source_title": "Advanced \u00b7 Base pass",
               "donut_category_rank": 13,
               "donut_category_fixed": true
             },
             {
-              "title": "Base sampling · NAG",
+              "title": "Base sampling \u00b7 NAG",
               "advanced": true,
               "controls": [
                 {
@@ -1994,12 +1994,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Base pass",
+              "donut_source_title": "Advanced \u00b7 Base pass",
               "donut_category_rank": 13,
               "donut_category_fixed": true
             },
             {
-              "title": "Base sampling · er sde sampler",
+              "title": "Base sampling \u00b7 er sde sampler",
               "advanced": true,
               "controls": [
                 {
@@ -2031,12 +2031,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · ER SDE sampler",
+              "donut_source_title": "Advanced \u00b7 ER SDE sampler",
               "donut_category_rank": 14,
               "donut_category_fixed": true
             },
             {
-              "title": "Base sampling · sampler preset",
+              "title": "Base sampling \u00b7 sampler preset",
               "advanced": true,
               "controls": [
                 {
@@ -2059,7 +2059,7 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Sampler preset",
+              "donut_source_title": "Advanced \u00b7 Sampler preset",
               "donut_category_rank": 14,
               "donut_category_fixed": true
             }
@@ -2096,7 +2096,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "02 · LoRAs & block weights",
+      "title": "02 \u00b7 LoRAs & block weights",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -2203,6 +2203,37 @@
               "donut_source_title": "LoRA settings",
               "donut_category_rank": 30,
               "donut_category_fixed": true
+            },
+            {
+              "title": "Experimental \u00b7 low VRAM",
+              "advanced": true,
+              "donut_category_fixed": true,
+              "controls": [
+                {
+                  "path": [
+                    1138,
+                    1055
+                  ],
+                  "widget": "chunk_lora",
+                  "title": "LoRA chunking"
+                },
+                {
+                  "path": [
+                    1138,
+                    1055
+                  ],
+                  "widget": "chunk_edit_mlp",
+                  "title": "Edit MLP chunking"
+                },
+                {
+                  "path": [
+                    1138,
+                    1055
+                  ],
+                  "widget": "chunk_edit_norm",
+                  "title": "Edit normalization chunking"
+                }
+              ]
             }
           ],
           "seed_path": [
@@ -2237,7 +2268,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "01 · Models",
+      "title": "01 \u00b7 Models",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -2410,7 +2441,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Face-detail segmentation · SAM",
+              "title": "Face-detail segmentation \u00b7 SAM",
               "advanced": false,
               "controls": [
                 {
@@ -2473,12 +2504,12 @@
                 }
               ],
               "color": "#e9a16d",
-              "donut_source_title": "Advanced · Fusion controls",
+              "donut_source_title": "Advanced \u00b7 Fusion controls",
               "donut_category_rank": 70.5,
               "donut_category_fixed": true
             },
             {
-              "title": "Fusion · image taps",
+              "title": "Fusion \u00b7 image taps",
               "advanced": true,
               "controls": [
                 {
@@ -2540,12 +2571,12 @@
                 }
               ],
               "color": "#e9a16d",
-              "donut_source_title": "Advanced · Fusion controls",
+              "donut_source_title": "Advanced \u00b7 Fusion controls",
               "donut_category_rank": 71,
               "donut_category_fixed": true
             },
             {
-              "title": "Fusion · projector",
+              "title": "Fusion \u00b7 projector",
               "advanced": true,
               "controls": [
                 {
@@ -2601,12 +2632,12 @@
                 }
               ],
               "color": "#e9a16d",
-              "donut_source_title": "Advanced · Fusion controls",
+              "donut_source_title": "Advanced \u00b7 Fusion controls",
               "donut_category_rank": 72,
               "donut_category_fixed": true
             },
             {
-              "title": "Fusion · transformer",
+              "title": "Fusion \u00b7 transformer",
               "advanced": true,
               "controls": [
                 {
@@ -2627,12 +2658,12 @@
                 }
               ],
               "color": "#e9a16d",
-              "donut_source_title": "Advanced · Fusion controls",
+              "donut_source_title": "Advanced \u00b7 Fusion controls",
               "donut_category_rank": 73,
               "donut_category_fixed": true
             },
             {
-              "title": "Fusion · execution and interface",
+              "title": "Fusion \u00b7 execution and interface",
               "advanced": true,
               "controls": [
                 {
@@ -2653,12 +2684,12 @@
                 }
               ],
               "color": "#e9a16d",
-              "donut_source_title": "Advanced · Fusion controls",
+              "donut_source_title": "Advanced \u00b7 Fusion controls",
               "donut_category_rank": 74,
               "donut_category_fixed": true
             },
             {
-              "title": "Model merge · ratios and execution",
+              "title": "Model merge \u00b7 ratios and execution",
               "advanced": true,
               "controls": [
                 {
@@ -2708,12 +2739,12 @@
                 "widget": "model_mode",
                 "value": "Merge two models"
               },
-              "donut_source_title": "Advanced · Model merge",
+              "donut_source_title": "Advanced \u00b7 Model merge",
               "donut_category_rank": 80,
               "donut_category_fixed": true
             },
             {
-              "title": "Model merge · input and conditioning weights",
+              "title": "Model merge \u00b7 input and conditioning weights",
               "advanced": true,
               "controls": [
                 {
@@ -2857,12 +2888,12 @@
                 "widget": "model_mode",
                 "value": "Merge two models"
               },
-              "donut_source_title": "Advanced · Model merge",
+              "donut_source_title": "Advanced \u00b7 Model merge",
               "donut_category_rank": 81,
               "donut_category_fixed": true
             },
             {
-              "title": "Model merge · diffusion blocks",
+              "title": "Model merge \u00b7 diffusion blocks",
               "advanced": true,
               "controls": [
                 {
@@ -3240,7 +3271,7 @@
                 "widget": "model_mode",
                 "value": "Merge two models"
               },
-              "donut_source_title": "Advanced · Model merge",
+              "donut_source_title": "Advanced \u00b7 Model merge",
               "donut_category_rank": 82,
               "donut_category_fixed": true
             }
@@ -3277,7 +3308,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "08 · Save images",
+      "title": "08 \u00b7 Save images",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -3504,7 +3535,7 @@
     {
       "id": 1150,
       "type": "DonutReferenceStudio",
-      "title": "Optional · Reference guidance",
+      "title": "Optional \u00b7 Reference guidance",
       "pos": [
         1812,
         1732
@@ -3646,7 +3677,7 @@
         ]
       },
       "widgets_values": [],
-      "title": "12 · Latest result",
+      "title": "12 \u00b7 Latest result",
       "color": "#243e36",
       "bgcolor": "#15271f"
     },
@@ -3729,7 +3760,7 @@
     {
       "id": 1171,
       "type": "DonutWorkflowPanel",
-      "title": "04 · First upscale",
+      "title": "04 \u00b7 First upscale",
       "pos": [
         3202,
         1245
@@ -3752,7 +3783,7 @@
         "donut_app_controls": {
           "groups": [
             {
-              "title": "Donut hires · first upscale",
+              "title": "Donut hires \u00b7 first upscale",
               "advanced": false,
               "controls": [
                 {
@@ -3790,7 +3821,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Donut hires · first upscale · advanced",
+              "title": "Donut hires \u00b7 first upscale \u00b7 advanced",
               "advanced": true,
               "controls": [
                 {
@@ -3827,12 +3858,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · First upscale",
+              "donut_source_title": "Advanced \u00b7 First upscale",
               "donut_category_rank": 31,
               "donut_category_fixed": true
             },
             {
-              "title": "Donut hires · first upscale · NAG",
+              "title": "Donut hires \u00b7 first upscale \u00b7 NAG",
               "advanced": true,
               "controls": [
                 {
@@ -3901,7 +3932,7 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · First upscale",
+              "donut_source_title": "Advanced \u00b7 First upscale",
               "donut_category_rank": 32,
               "donut_category_fixed": true
             }
@@ -3910,7 +3941,7 @@
             1138,
             1137
           ],
-          "title": "07 · First upscale"
+          "title": "07 \u00b7 First upscale"
         }
       },
       "color": "#83bbd9",
@@ -3920,7 +3951,7 @@
     {
       "id": 1172,
       "type": "DonutWorkflowPanel",
-      "title": "06 · Face detail",
+      "title": "06 \u00b7 Face detail",
       "pos": [
         3202,
         1245
@@ -3977,7 +4008,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Face detail · sampling",
+              "title": "Face detail \u00b7 sampling",
               "advanced": true,
               "controls": [
                 {
@@ -4086,12 +4117,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
+              "donut_source_title": "Advanced \u00b7 Face detail",
               "donut_category_rank": 41,
               "donut_category_fixed": true
             },
             {
-              "title": "Face detail · detection and masks",
+              "title": "Face detail \u00b7 detection and masks",
               "advanced": true,
               "controls": [
                 {
@@ -4176,12 +4207,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
+              "donut_source_title": "Advanced \u00b7 Face detail",
               "donut_category_rank": 42,
               "donut_category_fixed": true
             },
             {
-              "title": "Face detail · NAG",
+              "title": "Face detail \u00b7 NAG",
               "advanced": true,
               "controls": [
                 {
@@ -4250,7 +4281,7 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
+              "donut_source_title": "Advanced \u00b7 Face detail",
               "donut_category_rank": 43,
               "donut_category_fixed": true
             }
@@ -4259,7 +4290,7 @@
             1138,
             1137
           ],
-          "title": "08 · Face detail"
+          "title": "08 \u00b7 Face detail"
         }
       },
       "color": "#e4a4bf",
@@ -4269,7 +4300,7 @@
     {
       "id": 1173,
       "type": "DonutWorkflowPanel",
-      "title": "05 · Second upscale",
+      "title": "05 \u00b7 Second upscale",
       "pos": [
         3202,
         1245
@@ -4292,7 +4323,7 @@
         "donut_app_controls": {
           "groups": [
             {
-              "title": "Donut hires · second upscale",
+              "title": "Donut hires \u00b7 second upscale",
               "advanced": false,
               "controls": [
                 {
@@ -4316,7 +4347,7 @@
               "donut_category_fixed": true
             },
             {
-              "title": "Donut hires · second upscale · advanced",
+              "title": "Donut hires \u00b7 second upscale \u00b7 advanced",
               "advanced": true,
               "controls": [
                 {
@@ -4353,12 +4384,12 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Second upscale",
+              "donut_source_title": "Advanced \u00b7 Second upscale",
               "donut_category_rank": 51,
               "donut_category_fixed": true
             },
             {
-              "title": "Donut hires · second upscale · NAG",
+              "title": "Donut hires \u00b7 second upscale \u00b7 NAG",
               "advanced": true,
               "controls": [
                 {
@@ -4427,7 +4458,7 @@
                 }
               ],
               "color": "#88b8f3",
-              "donut_source_title": "Advanced · Second upscale",
+              "donut_source_title": "Advanced \u00b7 Second upscale",
               "donut_category_rank": 52,
               "donut_category_fixed": true
             }
@@ -4436,7 +4467,7 @@
             1138,
             1137
           ],
-          "title": "09 · Second upscale"
+          "title": "09 \u00b7 Second upscale"
         }
       },
       "color": "#83bbd9",
@@ -4446,7 +4477,7 @@
     {
       "id": 1174,
       "type": "DonutWorkflowPanel",
-      "title": "07 · SeedVR2 upscale",
+      "title": "07 \u00b7 SeedVR2 upscale",
       "pos": [
         3202,
         1245
@@ -4469,7 +4500,7 @@
         "donut_app_controls": {
           "groups": [
             {
-              "title": "SeedVR2 · post upscale",
+              "title": "SeedVR2 \u00b7 post upscale",
               "controls": [
                 {
                   "path": [
@@ -4513,12 +4544,12 @@
                 }
               ],
               "advanced": false,
-              "donut_source_title": "SeedVR2 · post upscale",
+              "donut_source_title": "SeedVR2 \u00b7 post upscale",
               "donut_category_rank": 60,
               "donut_category_fixed": true
             },
             {
-              "title": "SeedVR2 · post upscale · advanced",
+              "title": "SeedVR2 \u00b7 post upscale \u00b7 advanced",
               "controls": [
                 {
                   "path": [
@@ -4562,7 +4593,7 @@
                 }
               ],
               "advanced": true,
-              "donut_source_title": "SeedVR2 · post upscale",
+              "donut_source_title": "SeedVR2 \u00b7 post upscale",
               "donut_category_rank": 61,
               "donut_category_fixed": true
             }
@@ -4571,7 +4602,7 @@
             1138,
             1137
           ],
-          "title": "10 · SeedVR2 upscale"
+          "title": "10 \u00b7 SeedVR2 upscale"
         }
       },
       "color": "#90c9ae",
@@ -5446,7 +5477,7 @@
               1115356,
               1115357
             ],
-            "label": "Reference B · subject",
+            "label": "Reference B \u00b7 subject",
             "pos": [
               2266.196796870656,
               1895.9767468095727
@@ -7829,7 +7860,7 @@
               "seedvr2_vae_tile_size": 512,
               "control_after_generate": "fixed"
             },
-            "title": "SeedVR2 · post upscale"
+            "title": "SeedVR2 \u00b7 post upscale"
           },
           {
             "id": 1171,
@@ -7855,7 +7886,7 @@
               }
             ],
             "outputs": [],
-            "title": "Result · second upscale",
+            "title": "Result \u00b7 second upscale",
             "properties": {
               "Node name for S&R": "PreviewImage",
               "donut_preview_stage": "second"
@@ -7899,7 +7930,7 @@
                 ]
               }
             ],
-            "title": "Face preview · keep surroundings",
+            "title": "Face preview \u00b7 keep surroundings",
             "properties": {
               "Node name for S&R": "DonutInpaintComposite",
               "donut_preview_stage": "face_composite"
@@ -7929,7 +7960,7 @@
               }
             ],
             "outputs": [],
-            "title": "Result · Face Detailer",
+            "title": "Result \u00b7 Face Detailer",
             "properties": {
               "Node name for S&R": "PreviewImage",
               "donut_preview_stage": "face"
@@ -9578,7 +9609,7 @@
                 ]
               }
             ],
-            "title": "Primary model · optional Krea2 merge",
+            "title": "Primary model \u00b7 optional Krea2 merge",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "9a6b90788a41f2f5f4dc6f448872fe83b8368942",
@@ -9869,7 +9900,7 @@
                 ]
               }
             ],
-            "title": "Shared seed · text / sampling / filename",
+            "title": "Shared seed \u00b7 text / sampling / filename",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "f5b0b2a3dd10f36c902ff0f3c504b8625e3cb84b",
@@ -10728,10 +10759,10 @@
               }
             },
             "widgets_values": [
-              "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback → 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
+              "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback \u2192 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
             ],
             "widgets_values_named": {
-              "text": "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback → 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
+              "text": "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback \u2192 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
             },
             "color": "#432",
             "bgcolor": "#653"
@@ -10935,7 +10966,7 @@
                 ]
               }
             ],
-            "title": "Shared seed · Fixed / Randomize",
+            "title": "Shared seed \u00b7 Fixed / Randomize",
             "properties": {
               "cnr_id": "comfy-core",
               "ver": "0.34.0",
@@ -11226,7 +11257,7 @@
                 "links": []
               }
             ],
-            "title": "LoRAs · add / remove / reorder",
+            "title": "LoRAs \u00b7 add / remove / reorder",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "f5b0b2a3dd10f36c902ff0f3c504b8625e3cb84b",
@@ -11247,7 +11278,10 @@
               "Off",
               2,
               1,
-              "Experimental bypass"
+              "Experimental bypass",
+              false,
+              false,
+              false
             ],
             "widgets_values_named": {
               "model_type": "KREA2",
@@ -11258,7 +11292,10 @@
               "fusion_aware": "Off",
               "max_fusion_boost": 2,
               "safe_limit": 1,
-              "execution_mode": "Experimental bypass"
+              "execution_mode": "Experimental bypass",
+              "chunk_lora": false,
+              "chunk_edit_mlp": false,
+              "chunk_edit_norm": false
             }
           }
         ],
@@ -11545,7 +11582,7 @@
               "uniform",
               "values"
             ],
-            "title": "Required pack · krea-seed-variance-enhancer"
+            "title": "Required pack \u00b7 krea-seed-variance-enhancer"
           },
           {
             "id": 1155,
@@ -11592,7 +11629,7 @@
               1000,
               0
             ],
-            "title": "Required pack · krea2-nag"
+            "title": "Required pack \u00b7 krea2-nag"
           },
           {
             "id": 1156,
@@ -11637,7 +11674,7 @@
               1,
               "fit"
             ],
-            "title": "Required pack · comfyui-krea2edit"
+            "title": "Required pack \u00b7 comfyui-krea2edit"
           }
         ],
         "groups": [],

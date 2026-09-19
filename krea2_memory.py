@@ -31,6 +31,11 @@ class TokenChunkedMLP:
 
 def patch_krea2_upscale_memory(model):
     """Clone-persistent object patches leave linear-layer bypass hooks active."""
+    options = getattr(model, "model_options", {})
+    chunk_mlp = options.get("donut_chunk_edit_mlp", False)
+    chunk_norm = options.get("donut_chunk_edit_norm", False)
+    if not (chunk_mlp or chunk_norm):
+        return model
     root = getattr(getattr(model, "model", None), "diffusion_model", None)
     if root is None or not all(hasattr(root, name) for name in ("blocks", "txtfusion", "tproj")):
         return model
@@ -41,13 +46,13 @@ def patch_krea2_upscale_memory(model):
         # can likewise be bounded without splitting the attention operation.
         qknorm = getattr(getattr(block, "attn", None), "qknorm", None)
         for name in ("qnorm", "knorm"):
-            if getattr(qknorm, name, None) is not None:
+            if chunk_norm and getattr(qknorm, name, None) is not None:
                 path = f"diffusion_model.blocks.{index}.attn.qknorm.{name}.forward"
                 forward = patched.get_model_object(path)
                 if not isinstance(forward, TokenChunkedMLP):
                     patched.add_object_patch(path, TokenChunkedMLP(forward, axis=-2))
         mlp = getattr(block, "mlp", None)
-        if mlp is None or not all(hasattr(mlp, name) for name in ("gate", "up", "down")):
+        if not chunk_mlp or mlp is None or not all(hasattr(mlp, name) for name in ("gate", "up", "down")):
             continue
         path = f"diffusion_model.blocks.{index}.mlp.forward"
         forward = patched.get_model_object(path)

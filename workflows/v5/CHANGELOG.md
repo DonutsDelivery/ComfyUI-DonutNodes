@@ -164,3 +164,13 @@ editing/control additions, not a claim of universally smarter face detailing.
 - Six saver tests and 34 registration/dependency-isolation tests passed.
 - Editing, the disabled second upscale, model downloads and Windows/macOS were
   not exercised by that final fresh-install run. These remain beta test areas.
+
+## Unreleased · opt-in low-VRAM experiments
+
+- Added independent LoRA, edit MLP and edit normalization chunking switches under
+  LoRAs & block weights → Experimental · low VRAM. All default off. They are
+  separate from Experimental bypass; disabling chunking keeps bypass enabled.
+- LoRA chunking can affect ordinary generation as well as editing. MLP and Q/K
+  normalization chunking apply only to Krea2 editing paths. Enabling them may
+  trade speed for reduced temporary tensor memory; fitting a workload is not
+  guaranteed.

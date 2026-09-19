@@ -62,3 +62,24 @@ export function previewSourceId(detail,sources) {
     // display_node can be the enclosing subgraph, while node is the executed leaf.
     return [detail?.node,detail?.display_node].map(String).find(id=>Object.hasOwn(sources||{},id));
 }
+
+// ComfyUI can renumber nested nodes while loading a subgraph. Resolve their
+// semantic tags after loading, when runtime execution paths are available.
+export function rebindStageSources(properties, entries) {
+    if (!properties?.sources) return;
+    for (const [tag, label] of [['second', 'Second upscale'], ['face', 'Face Detailer']]) {
+        const matches = entries.filter(({node}) => node.properties?.donut_preview_stage === tag);
+        if (matches.length !== 1) continue;
+        const old = Object.keys(properties.sources).find(id => properties.sources[id] === label);
+        const current = matches[0].path.map(String).join(':');
+        if (!old || old === current) continue;
+        properties.sources = Object.fromEntries(Object.entries(properties.sources).map(([id,name]) => [id === old ? current : id,name]));
+        properties.source_order = (properties.source_order || Object.keys(properties.sources)).map(id => id === old ? current : id);
+        if (properties.preview_selection === old) properties.preview_selection = current;
+        for (const key of ['stage_images','stage_prompts']) {
+            if (properties[key] && Object.hasOwn(properties[key],old)) {
+                properties[key][current] = properties[key][old]; delete properties[key][old];
+            }
+        }
+    }
+}

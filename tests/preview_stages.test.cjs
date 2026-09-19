@@ -42,3 +42,13 @@ test('nested executed node is matched even when display node is the enclosing gr
  assert.equal(previewSourceId({node:'runtime-id',display_node:'914'},sources),'914');
  assert.equal(previewSourceId({},sources),undefined);
 });
+test('runtime subgraph renumbering rebinds face and second previews without losing selection',()=>{
+ const {rebindStageSources}=vm.runInNewContext(source+';({rebindStageSources})');
+ const properties={sources:{'912':'Base generation','1014:1171':'Second upscale','1014:1173':'Face Detailer','914':'SeedVR2 / final image'},source_order:['912','1014:1171','1014:1173','914'],preview_selection:'1014:1173'};
+ rebindStageSources(properties,[{node:{properties:{donut_preview_stage:'second'}},path:[1014,1175]},{node:{properties:{donut_preview_stage:'face'}},path:[1014,1177]}]);
+ assert.equal(properties.preview_selection,'1014:1177');
+ assert.equal(previewSourceId({node:'1014:1177',display_node:'1014'},properties.sources),'1014:1177');
+ assert.equal(properties.sources['1014:1173'],undefined);
+ assert.equal(properties.source_order[1],'1014:1175');
+ const before=JSON.stringify(properties);rebindStageSources(properties,[]);assert.equal(JSON.stringify(properties),before);
+});
