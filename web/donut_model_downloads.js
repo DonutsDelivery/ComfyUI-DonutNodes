@@ -18,7 +18,7 @@ function install(node) {
     const title = document.createElement("h2"); title.textContent = "Download missing";
     const button = document.createElement("button"); button.textContent = "Download missing";
     const progress = document.createElement("progress"); progress.max = 100; progress.hidden = true;
-    const status = document.createElement("p"); status.textContent = "Checks model hashes and installs missing files from DonutNodes’ upstream links.";
+    const status = document.createElement("p"); status.textContent = "Checks model hashes and installs missing files from DonutNodes’ upstream links. Choose SeedVR2 or Auto subject first to include their models; otherwise optional weights are not downloaded.";
     status.setAttribute("aria-live", "polite");
     const errors = document.createElement("div");
     const community = document.createElement("nav");
@@ -42,7 +42,12 @@ function install(node) {
             }
         }
         const visit = graph => {
-            for (const current of graph?.nodes || []) { current._donutAppControls?.render(); if (current.subgraph) visit(current.subgraph); }
+            for (const current of graph?.nodes || []) {
+                current._donutAppControls?.render();
+                current._donutEditStudio?.render();
+                current._donutSubjectMask?.refresh();
+                if (current.subgraph) visit(current.subgraph);
+            }
         };
         visit(app.rootGraph);
     };

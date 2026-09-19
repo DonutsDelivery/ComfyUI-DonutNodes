@@ -25,9 +25,23 @@ Install the native [Comfy-Org SeedVR2 weights](https://huggingface.co/Comfy-Org/
 
 3B is the initial selection. The file selectors also list installed files,
 including renamed/native-compatible models. A GGUF intended for a third-party
-SeedVR2 node is not interchangeable with these native loaders. This integration
-does not download weights or add unverified entries to Donut's model catalog;
-install these files separately. Ordinary Donut generation needs none of them.
+SeedVR2 node is not interchangeable with these native loaders. Ordinary Donut
+generation needs none of these files.
+
+**Git installs:** select **SeedVR2** and the desired 3B/7B file, then click the
+existing **Download missing** button. It discovers the internal stage selectors,
+installs the chosen diffusion model and shared VAE from pinned Comfy-Org sources,
+and verifies exact byte size and SHA-256. It does not fetch both 3B and 7B unless
+both are selected by different stages. Selecting an engine prepares its files
+even before the stage is enabled. A bypassed/muted node or subgraph is skipped.
+Missing native ComfyUI nodes are reported before any affected model downloads;
+update ComfyUI and restart, then retry. The button does not install/update core.
+
+**Registry installs:** the same feature selections appear under **Model files >
+List selected models**, with upstream links, exact default save locations, sizes
+and hashes. Download and place them manually, then refresh ComfyUI. There is no
+automatic downloader backend in the staged Registry package. Unknown custom
+filenames have no guessed download link. See [model setup](native-model-setup.md).
 
 ## Behavior
 

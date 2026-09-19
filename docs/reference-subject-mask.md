@@ -41,9 +41,22 @@ input without becoming mandatory dependencies of DonutNodes.
 Auto selection requires core `LoadBackgroundRemovalModel` and `RemoveBackground`
 nodes and the native [Comfy-Org BiRefNet weights](https://huggingface.co/Comfy-Org/BiRefNet):
 `models/background_removal/birefnet.safetensors`. No additional custom-node pack
-is required. Install the weights separately; this PR performs no automatic model
-download and does not add an unverified model-catalog entry. Missing native support
-or weights affects Auto only; saved, painted and external masks remain usable.
+is required. Missing native support or weights affects Auto only; saved, painted
+and external masks remain usable.
+
+**Git installs:** choose **Reference B mask mode: Auto subject**, then click the
+existing **Download missing** button. It installs the selected native BiRefNet
+file into the registered `background_removal` folder from a pinned Comfy-Org
+source, verifies its size/hash and refreshes the controls. After this preparation,
+use **Auto select subject** or queue the normal Auto mode. The downloader does
+not require Editing or Use B to be enabled just to prepare the selected feature.
+Off, Saved mask and External mask do not request BiRefNet weights.
+
+**Registry installs:** choose **Auto subject**, then **Model files > List selected
+models** for the upstream link, expected hash and exact default save location.
+Download/place the file manually and refresh ComfyUI. No model downloader runs
+in this distribution. Core nodes must already be available; see
+[model setup](native-model-setup.md).
 
 BiRefNet selects foreground and may retain multiple objects. Review the result,
 especially hair, thin props, transparent materials and overlapping people. A
