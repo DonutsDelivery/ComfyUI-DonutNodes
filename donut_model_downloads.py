@@ -21,7 +21,8 @@ from .shared.config import get_civitai_api_key
 
 CATALOG_PATH = Path(__file__).with_name("model_sources.json")
 FOLDERS = {"diffusion_models", "checkpoints", "text_encoders", "vae", "loras",
-           "upscale_models", "ultralytics", "sams", "controlnet", "clip_vision", "embeddings"}
+           "upscale_models", "ultralytics", "sams", "controlnet", "clip_vision", "embeddings",
+           "background_removal"}
 DOWNLOAD_HOSTS = ("huggingface.co", "hf.co", "civitai.com", "civitai.red",
                   "civitai.green", "dl.fbaipublicfiles.com", "github.com", "githubusercontent.com",
                   "civitai-delivery-worker-prod.5ac0637cfd0766c97916cefa3764fbdf.r2.cloudflarestorage.com")
@@ -60,6 +61,11 @@ def load_catalog():
         seen.add(key)
         if not re.fullmatch(r"[a-fA-F0-9]{64}", entry["sha256"]) or entry["size"] <= 0:
             raise ValueError("A catalog model needs its exact SHA-256 and byte size.")
+        required = entry.get("requires_nodes", [])
+        if (not isinstance(required, list) or len(required) > 32
+                or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_]+", name)
+                       for name in required)):
+            raise ValueError("Invalid required native node IDs in model catalog.")
         download_url(entry["url"])
     return entries
 
@@ -72,6 +78,24 @@ def catalog_entry(catalog, folder, name):
     matches = [entry for entry in catalog if entry["folder"] == folder
                and PurePosixPath(entry["filename"]).name == PurePosixPath(name).name]
     return matches[0] if len(matches) == 1 else None
+
+
+def require_native_nodes(entry):
+    """Check optional native features at click-time, never at pack import time.
+
+    Model files cannot add missing core nodes. Keep the ordinary downloader
+    usable on older ComfyUI builds; only affected catalog entries fail.
+    """
+    required = entry.get("requires_nodes", [])
+    if not required:
+        return
+    import nodes
+    missing = [name for name in required if name not in nodes.NODE_CLASS_MAPPINGS]
+    if missing:
+        raise ValueError(
+            "Update ComfyUI and restart before installing this model. Missing native nodes: "
+            + ", ".join(missing)
+        )
 
 
 class Cancelled(Exception):
@@ -251,9 +275,11 @@ class ModelDownloads:
                 self.update(current=ref["name"], state="checking", bytes=0, total_bytes=0)
                 result = dict(ref)
                 try:
+                    entry = catalog_entry(catalog, ref["folder"], ref["name"])
+                    if entry is not None:
+                        require_native_nodes(entry)
                     if ref["folder"] not in folder_paths.folder_names_and_paths:
                         raise ValueError("Install the loader that provides the " + ref["folder"] + " folder.")
-                    entry = catalog_entry(catalog, ref["folder"], ref["name"])
                     if entry is None:
                         if folder_paths.get_full_path(ref["folder"], ref["name"]):
                             result.update(status="unlisted", resolved_name=ref["name"])

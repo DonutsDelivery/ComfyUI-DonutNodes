@@ -70,6 +70,53 @@
       "url": "https://civitai.com/api/download/models/3179666?fileId=3060213",
       "sha256": "87b5dd883c747a79915b0b9361c681b24309d59912d0d03c1be0514e033b0ac5",
       "size": 457111976
+    },
+    {
+      "folder": "diffusion_models",
+      "filename": "seedvr2_3b_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/10f035adc869a5b3ffc466360b869641511c0610/diffusion_models/seedvr2_3b_int8_convrot.safetensors",
+      "sha256": "c3dec8bcc5916843a8a858572970597462e1f2dc598d6dfd818f6cd40f53a157",
+      "size": 3458259704,
+      "requires_nodes": [
+        "SeedVR2Preprocess",
+        "SeedVR2Conditioning",
+        "SeedVR2PostProcessing"
+      ]
+    },
+    {
+      "folder": "diffusion_models",
+      "filename": "seedvr2_7b_int8_convrot.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/10f035adc869a5b3ffc466360b869641511c0610/diffusion_models/seedvr2_7b_int8_convrot.safetensors",
+      "sha256": "5aa0d25fc9d35e449b659d0c9a5dcb22e2a4fa04032101b95a39da42b32c1be6",
+      "size": 8334897976,
+      "requires_nodes": [
+        "SeedVR2Preprocess",
+        "SeedVR2Conditioning",
+        "SeedVR2PostProcessing"
+      ]
+    },
+    {
+      "folder": "vae",
+      "filename": "seedvr2_ema_vae_fp16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/SeedVR2/resolve/0bb1f83c716d1cad6dfa730b643a4f603bc2b70b/vae/seedvr2_ema_vae_fp16.safetensors",
+      "sha256": "20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1",
+      "size": 501324814,
+      "requires_nodes": [
+        "SeedVR2Preprocess",
+        "SeedVR2Conditioning",
+        "SeedVR2PostProcessing"
+      ]
+    },
+    {
+      "folder": "background_removal",
+      "filename": "birefnet.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/BiRefNet/resolve/35767b272f2846752a3aee1259abdd4586f735c8/background_removal/birefnet.safetensors",
+      "sha256": "9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154",
+      "size": 444473596,
+      "requires_nodes": [
+        "LoadBackgroundRemovalModel",
+        "RemoveBackground"
+      ]
     }
   ]
 }
