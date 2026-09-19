@@ -1,0 +1,21 @@
+name: Independent crop validation
+on:
+  push:
+    branches: [feat/independent-reference-crops]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive the checked-out source for local contract tests
+        run: git archive --format=zip --output=crop-source.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crop-source
+          path: crop-source.zip
+          retention-days: 1
