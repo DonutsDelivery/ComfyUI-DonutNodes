@@ -121,23 +121,74 @@ class InpaintTests(unittest.TestCase):
         self.assertIs(composite_inpaint(base, None), base)
 
     def test_workflow_preserves_every_result_stage_and_routes_mask_to_sampler(self):
-        workflow = json.loads((Path(__file__).parent / 'workflows/v4-beta/DonutWF_v4_beta.json').read_text())
+        workflow = json.loads((Path(__file__).parent / 'workflows/v5/DonutWF_v5.json').read_text())
         engine = next(g for g in workflow['definitions']['subgraphs']
                       if any(n['type'] == 'DonutSampler' for n in g['nodes']))
         nodes = {n['id']: n for n in engine['nodes']}
         links = {e['id']: e for e in engine['links']}
         inpaint_slot = next(i for i, p in enumerate(engine['inputs']) if p['name'] == 'edit_inpaint')
         for node in nodes.values():
-            if node['type'] in ('VAEDecode', 'DonutTiledUpscale', 'DonutFaceDetailer'):
+            if node['type'] in ('VAEDecode', 'DonutTiledUpscale', 'DonutFaceDetailer', 'DonutSeedVR2Upscale'):
                 outgoing = node['outputs'][0]['links']
-                self.assertEqual(len(outgoing), 1)
-                composite = nodes[links[outgoing[0]]['target_id']]
-                self.assertEqual(composite['type'], 'DonutInpaintComposite')
+                self.assertGreaterEqual(len(outgoing), 1)
+                for outgoing_id in outgoing:
+                    composite = nodes[links[outgoing_id]['target_id']]
+                    if composite['type'] == 'DonutSeedVR2Upscale':
+                        post_links = composite['outputs'][0]['links']
+                        self.assertEqual(len(post_links), 1)
+                        composite = nodes[links[post_links[0]]['target_id']]
+                    self.assertEqual(composite['type'], 'DonutInpaintComposite')
             if node['type'] in ('DonutSampler', 'DonutInpaintComposite'):
                 mask_input = next(p for p in node['inputs'] if p['type'] == 'DONUT_INPAINT')
                 edge = links[mask_input['link']]
                 self.assertEqual((edge['origin_id'], edge['origin_slot']), (-10, inpaint_slot))
 
+
+
+class OutpaintTests(unittest.TestCase):
+    def make(self, **updates):
+        from PIL import Image
+        from donut_inpaint import prepare_outpaint
+        doc = {'version':1,'image':'base','strokes':[],
+               'outpaint':{'scale':1,'x':0,'y':.5,'overlap':0}}
+        doc.update(updates)
+        return prepare_outpaint(Image.new('RGB',(100,200),(40,80,120)),json.dumps(doc),'base',(200,200),8)
+
+    def test_canvas_budget_and_protected_half(self):
+        out = self.make()
+        self.assertEqual(tuple(out['image'].shape),(1,200,200,3))
+        self.assertEqual(tuple(out['mask'].shape),(1,200,200))
+        self.assertTrue(torch.all(out['mask'][:,:,:100] == 0))
+        self.assertTrue(torch.all(out['mask'][:,:,100:] == 1))
+        result=composite_inpaint(torch.ones_like(out['image']),out)
+        self.assertTrue(torch.equal(result[:,:,:100],out['image'][:,:,:100]))
+        self.assertTrue(torch.all(result[:,:,100:] == 1))
+
+    def test_overlap_feathers_inside_a_and_never_leaks_base_into_new_space(self):
+        out=self.make(outpaint={'scale':1,'x':0,'y':.5,'overlap':16})
+        self.assertTrue(torch.all(out['mask'][:,:,:84] == 0))
+        self.assertTrue(torch.any((out['mask'][:,:,84:100]>0)&(out['mask'][:,:,84:100]<1)))
+        self.assertTrue(torch.all(out['mask'][:,:,100:] == 1))
+        self.assertEqual(out['mask'][0,0,0],0) # no overlap along canvas edge
+
+    def test_erase_protects_a_but_cannot_remove_required_new_space(self):
+        out=self.make(strokes=[{'size':1,'shape':'rectangle','erase':True,'points':[[0,0],[1,1]]}],
+                      outpaint={'scale':1,'x':0,'y':.5,'overlap':16})
+        self.assertTrue(torch.all(out['mask'][:,:,:100] == 0))
+        self.assertTrue(torch.all(out['mask'][:,:,100:] == 1))
+
+    def test_right_placement_and_paint_over_a(self):
+        out=self.make(outpaint={'scale':1,'x':1,'y':.5,'overlap':0},
+                      strokes=[{'size':.1,'points':[[.8,.5]]}])
+        self.assertTrue(torch.all(out['mask'][:,:,:100]==1))
+        self.assertEqual(out['mask'][0,20,150],0)
+        self.assertGreater(out['mask'][0,100,160],0)
+
+    def test_invalid_placement_and_wrong_image_rejected(self):
+        for key,value in [('scale',0),('scale',float('nan')),('x',-1),('y',2),('overlap',129)]:
+            with self.subTest(key=key,value=value),self.assertRaises(ValueError):
+                self.make(outpaint={**{'scale':1,'x':0,'y':.5,'overlap':0},key:value})
+        with self.assertRaises(ValueError):self.make(image='other')
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,9 +22,9 @@ except ImportError:
     from donut_prompt import expand_text, directory_fingerprint
 
 try:
-    from .donut_inpaint import rasterize_mask
+    from .donut_inpaint import rasterize_mask, prepare_outpaint
 except ImportError:
-    from donut_inpaint import rasterize_mask
+    from donut_inpaint import rasterize_mask, prepare_outpaint
 
 
 ASPECT_RATIOS = {
@@ -255,7 +255,7 @@ class DonutEditStudio:
     RETURN_NAMES = ("reference_a", "reference_b", "edit_mode", "width", "height", "grounding_px", "edit_model", "edit_prompt", "inpaint", "grounding_schedule", "grounding_start_px", "grounding_end_px")
     FUNCTION = "prepare"
     CATEGORY = "donut/editing"
-    DESCRIPTION = "Persistent references, crop previews, output sizing, and selected-area Krea2 editing. Connect inpaint to DonutSampler and Donut Inpaint composites, or use the supplied V4 workflow. Blank slots are allowed while editing is off."
+    DESCRIPTION = "Persistent references, crop previews, output sizing, and selected-area Krea2 editing. Connect inpaint to DonutSampler and Donut Inpaint composites, or use the supplied V5 workflow. Blank slots are allowed while editing is off."
 
     def check_lazy_status(self, enabled=False, model=None, **kwargs):
         return ["model"] if enabled and model is None else []
@@ -313,10 +313,14 @@ class DonutEditStudio:
             reference_a = _crop_reference(source_a, size, crop_a_x, crop_a_y,
                                           resolution_mode == "Reference A · crop only")
             if inpaint_enabled:
-                mask = rasterize_mask(mask_data, image_a, source_a.size,
-                    crop_box(*source_a.size, *size, crop_a_x, crop_a_y,
-                             resolution_mode == "Reference A · crop only"), size, mask_feather)
-                inpaint = {"image": reference_a, "mask": mask}
+                inpaint = prepare_outpaint(source_a, mask_data, image_a, size, mask_feather)
+                if inpaint is not None:
+                    reference_a = inpaint["image"]
+                else:
+                    mask = rasterize_mask(mask_data, image_a, source_a.size,
+                        crop_box(*source_a.size, *size, crop_a_x, crop_a_y,
+                                 resolution_mode == "Reference A · crop only"), size, mask_feather)
+                    inpaint = {"image": reference_a, "mask": mask}
             if use_reference_b:
                 reference_b = _crop_reference(source_b, size, crop_b_x, crop_b_y)
             edit_model = model

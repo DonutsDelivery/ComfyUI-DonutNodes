@@ -1,13 +1,13 @@
 import {app} from '../../scripts/app.js';
 import {scheduleLayout} from './donut_layout.js?v=15';
 import {addSeedVR2Controls} from './donut_seedvr2_controls_model.js';
-import {organizeV4Panels, graphEntries} from './donut_panel_categories_model.js';
-import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js';
+import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries} from './donut_panel_categories_model.js?v=3';
+import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=2';
 
 const observed = new Map();
 const hooked = new WeakSet();
 let pending = false;
-function rootGraph() { return app.rootGraph || app.graph; }
+function rootGraph() { return app.rootGraph; }
 function synchronize() {
     syncCategorizedPanels(rootGraph());
     scheduleLayout();
@@ -45,6 +45,7 @@ function refresh() {
     queueMicrotask(() => {
         pending = false;
         const graph = rootGraph();
+        if (!graph) return;
         const changed = new Set([...addSeedVR2Controls(graph),...organizeV4Panels(graph)]);
         for (const panel of changed) {panel._donutAppControls?.render(); panel.setDirtyCanvas?.(true,true);}
         observePanels(); synchronize();
@@ -57,6 +58,8 @@ app.registerExtension({
     },
     beforeConfigureGraph(data) {
         organizeV4Panels(data);
+        splitV4FinishingPanels(data);
+        arrangeV4ByFrequency(data);
     },
     afterConfigureGraph:refresh,
     nodeCreated:refresh,

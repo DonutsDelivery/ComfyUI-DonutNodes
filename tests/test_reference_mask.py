@@ -103,6 +103,32 @@ class MaskTests(unittest.TestCase):
         self.assertIs(self.studio.prepare(image_b=self.name), self.original)
         self.assertEqual(self.events, [])
 
+    def test_model_availability_uses_registered_background_removal_folder(self):
+        self.assertTrue(self.module._model_available('birefnet.safetensors'))
+        self.assertFalse(self.module._model_available('missing.safetensors'))
+
+    def test_prompt_selection_rejects_empty_prompt_before_loading(self):
+        with self.assertRaisesRegex(ValueError, 'Enter a mask prompt'):
+            self.module.prompt_mask(self.name, self.source, '  ')
+        self.assertEqual(self.events, [])
+
+    def test_prompt_selection_cache_depends_on_prompt_and_threshold(self):
+        (self.dir / self.module.PROMPT_MODEL).write_bytes(b'model')
+        calls = []
+        class Loader:
+            def load_checkpoint(self, name): return 'model', 'clip', None
+        self.module.nodes.NODE_CLASS_MAPPINGS.update({'SAM3_Detect':object, 'CheckpointLoaderSimple':Loader})
+        def native(node_id, **kwargs):
+            if node_id == 'CLIPTextEncode': return kwargs['text']
+            calls.append((kwargs['conditioning'], kwargs['threshold']))
+            mask = torch.zeros(1, 6, 8)
+            mask[:, :3 if kwargs['conditioning']=='hat' else 6, :4] = 1
+            return mask
+        with patch.object(self.module, '_native', side_effect=native):
+            for prompt, threshold in [('hat',.5),('hat',.5),('shirt',.5),('shirt',.4)]:
+                self.module.prompt_mask(self.name, self.source, prompt, threshold)
+        self.assertEqual(calls, [('hat',.5),('shirt',.5),('shirt',.4)])
+
     def test_disabled_editing_or_unused_b_requires_nothing(self):
         for kwargs in (dict(enabled=False), dict(use_reference_b=False)):
             result = self.studio.prepare(image_b='missing', mask_b_mode='Auto subject', **kwargs)

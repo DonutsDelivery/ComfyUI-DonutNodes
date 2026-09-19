@@ -17,6 +17,13 @@ class MLP(torch.nn.Module):
 
 
 class MemoryTests(unittest.TestCase):
+    def test_four_dimensional_rmsnorm_preserves_output(self):
+        x = torch.randn(2, 3, 19, 8, dtype=torch.bfloat16)
+        def norm(value):
+            return torch.nn.functional.rms_norm(value.float(), (8,)).to(value.dtype)
+        with torch.inference_mode():
+            torch.testing.assert_close(TokenChunkedMLP(norm, 4, axis=-2)(x), norm(x))
+
     def test_chunks_preserve_outputs_and_execute_linear_hooks(self):
         torch.manual_seed(5)
         mlp = MLP()

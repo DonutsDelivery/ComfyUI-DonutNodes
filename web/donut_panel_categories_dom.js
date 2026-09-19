@@ -1,8 +1,8 @@
 // DOM adapters reuse the existing panel's widget callbacks and LoRA row editor.
 // No second slots_json implementation, catalog service, or model loader.
-import {graphEntries, SIZE_FIELDS, widgetValue} from './donut_panel_categories_model.js';
+import {app} from '../../scripts/app.js';
+import {graphEntries, SIZE_FIELDS, widgetValue} from './donut_panel_categories_model.js?v=2';
 import {sizingVisibility} from './donut_reference_crop_geometry.js';
-let pickerId = 0;
 export const PANEL_CATEGORY_CSS = `
 .donut-section-columns>section:has(textarea),
 .donut-section-columns>section:has(.donut-lora-row),
@@ -12,37 +12,47 @@ export const PANEL_CATEGORY_CSS = `
 .donut-edit-studio .donut-sizing-proxied>.de-row{display:none!important}
 `;
 export function upgradePanelLoraPickers(root) {
+    if (typeof LiteGraph === 'undefined' || !LiteGraph.ContextMenu) return 0;
     let count = 0;
     for (const select of root.querySelectorAll('select[aria-label^="Installed LoRA "]')) {
         if (select.dataset.donutSearchPicker) continue;
-        const input = document.createElement('input'), list = document.createElement('datalist');
-        const id = `donut-panel-lora-${++pickerId}`;
-        list.id = id;
-        for (const option of select.options) {
-            const item = document.createElement('option'); item.value = option.value; list.append(item);
-        }
-        input.type = 'text'; input.value = select.value;
-        input.setAttribute('list',id); input.setAttribute('aria-label',select.getAttribute('aria-label'));
-        input.className = 'donut-panel-lora-search'; input.placeholder = 'Type to filter installed LoRAs…';
-        input.autocomplete = 'off'; input.spellcheck = false;
-        const commit = () => {
-            const value = input.value.trim();
-            // Validate against the ORIGINAL live select, not a stale list or
-            // typed partial filename. Its original onchange handles row state.
-            if (![...select.options].some(option => option.value === value)) { input.value = select.value; return; }
-            if (value !== select.value) {
-                select.value = value;
-                select.dispatchEvent(new Event('change',{bubbles:true}));
-            }
-        };
-        input.addEventListener('change',commit);
-        input.addEventListener('keydown',event => {
-            if (event.key === 'Enter') { event.preventDefault(); commit(); input.blur(); }
-            if (event.key === 'Escape') { input.value = select.value; input.blur(); }
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'donut-panel-lora-search';
+        button.setAttribute('aria-label',select.getAttribute('aria-label'));
+        button.setAttribute('aria-haspopup','menu');
+        button.textContent = `${select.value} ▾`;
+        button.title = select.value;
+        button.addEventListener('click',event => {
+            event.preventDefault(); event.stopPropagation();
+            // Read the complete, current catalog when opened. Unlike a
+            // datalist, the selected filename never pre-filters the choices.
+            const values = [...select.options].map(option => option.value);
+            const rect = button.getBoundingClientRect();
+            const anchor = event.detail ? event : new MouseEvent('click',{
+                clientX:rect.left, clientY:rect.bottom,
+            });
+            // DOM controls bypass LiteGraph's canvas pointer handlers. Its
+            // native filter still expects the active canvas to be initialized.
+            if (typeof LGraphCanvas !== 'undefined' && app.canvas) LGraphCanvas.active_canvas = app.canvas;
+            // This is the same menu and built-in Filter list field used by
+            // ComfyUI's original combo widgets, including keyboard navigation.
+            new LiteGraph.ContextMenu(values, {
+                event:anchor, className:'dark', scale:1,
+                callback(value) {
+                    if (!button.isConnected || ![...select.options].some(option => option.value === value)) return;
+                    if (value !== select.value) {
+                        select.value = value;
+                        select.dispatchEvent(new Event('change',{bubbles:true}));
+                    }
+                    button.textContent = `${select.value} ▾`;
+                    button.title = select.value;
+                },
+            });
         });
-        select.dataset.donutSearchPicker = id;
+        select.dataset.donutSearchPicker = 'native';
         select.hidden = true; select.setAttribute('aria-hidden','true'); select.tabIndex = -1;
-        select.insertAdjacentElement('afterend',list); select.insertAdjacentElement('afterend',input);
+        select.insertAdjacentElement('afterend',button);
         count++;
     }
     return count;
@@ -81,7 +91,7 @@ export function syncCategorizedPanels(rootGraph) {
         const heading = section.querySelector('.de-subhead');
         if (heading) {
             heading.dataset.donutOriginalTitle ||= heading.textContent;
-            const title = external ? 'Effective output size · controls in Generate & finish' : heading.dataset.donutOriginalTitle;
+            const title = external ? 'Effective output size · controls in Generation setup' : heading.dataset.donutOriginalTitle;
             if (heading.textContent !== title) heading.textContent = title;
         }
         // Standalone studios and ambiguous/copied layouts retain local sizing.

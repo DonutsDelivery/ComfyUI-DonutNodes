@@ -232,63 +232,17 @@ export function installNativeLoras(node, definition, { app, api, service }) {
             });
             actions.serialize = false; ui.push(actions);
             actions.computeSize = () => [280, 43];
-            // Searchable picker: a DOM combo keyed on the installed catalog.
-            // The browser datalist gives incremental keyword filtering over the
-            // full LoRA list, which the plain litegraph combo widget lacks.
-            const nameLabel = `LoRA ${index + 1}`;
-            const pickerRoot = el("div");
-            pickerRoot.className = "donut-lora-picker";
-            pickerRoot.setAttribute("aria-label", nameLabel);
-            const pickerListId = `${prefix}choices`;
-            const pickerInput = document.createElement("input");
-            pickerInput.type = "text";
-            pickerInput.setAttribute("list", pickerListId);
-            pickerInput.className = "donut-lora-picker-input";
-            pickerInput.value = row.lora_name || "None";
-            pickerInput.placeholder = "Type to filter…";
-            pickerInput.style.cssText = "width:100%;box-sizing:border-box;padding:4px 8px;border-radius:6px;" +
-                "border:1px solid var(--border-color,#444);background:var(--comfy-input-bg,#222);color:inherit;font-size:12px;";
-            const pickerList = document.createElement("datalist");
-            pickerList.id = pickerListId;
-            pickerRoot.append(pickerInput, pickerList);
-            let pickerSilence = false;
-            const setPickerValue = value => {
-                pickerSilence = true;
-                pickerInput.value = value ?? "None";
-                pickerSilence = false;
-            };
-            const commitPicker = raw => {
-                const value = String(raw ?? "").trim();
-                if (!value || value === row.lora_name) { setPickerValue(row.lora_name); return; }
-                const known = catalog.loras.includes(value) || value === "None";
-                if (!known) { setPickerValue(row.lora_name); return; }
+            const name = make("combo", prefix + "lora_name", row.lora_name || "None", value => {
+                if (value === row.lora_name) return;
                 row.lora_name = value; row.lora_hash = ""; details.delete(key);
                 commit(); render();
-            };
-            pickerInput.addEventListener("change", () => commitPicker(pickerInput.value));
-            pickerInput.addEventListener("keydown", event => {
-                if (event.key === "Enter") { event.preventDefault(); commitPicker(pickerInput.value); pickerInput.blur(); }
-            });
-            // Keep the datalist options in sync without rebuilding it every model
-            // poll: rebuild only when the membership actually changes.
-            const refreshChoices = () => {
-                const options = unique([...catalog.loras, row.lora_name]);
-                const signature = options.join("\u0000");
-                if (signature === lastChoices) return;
-                lastChoices = signature;
-                pickerList.replaceChildren(...options.map(option => {
-                    const item = document.createElement("option");
-                    item.value = option; return item;
-                }));
-            };
-            let lastChoices = "";
-            const pickerDom = node.addDOMWidget(prefix + "picker", "div", pickerRoot, {
-                serialize: false, margin: 0,
-                getMinHeight: () => 30, getMaxHeight: () => 30, getHeight: () => 30
-            });
-            pickerDom.serialize = false; ui.push(pickerDom);
-            pickerDom.computeSize = () => [280, 30];
-            pickerDom.onRemove = () => {};
+            }, { values: unique([...catalog.loras, row.lora_name]) });
+            // addWidget validates combos synchronously. The initial array is
+            // required even though the live getter below supplies later updates.
+            name.label = `LoRA ${index + 1}`;
+            // Getter uses fresh catalog without replacing the selected/saved name.
+            Object.defineProperty(name.options, "values", { configurable: true,
+                get: () => unique([...catalog.loras, row.lora_name]), set: () => {} });
             const dependent = [];
             const on = make("toggle", prefix + "enabled", enabled(row), value => {
                 row.enabled = !!value; commit(); visibility();
@@ -361,9 +315,6 @@ export function installNativeLoras(node, definition, { app, api, service }) {
             const removedPanel = dom.onRemove;
             dom.onRemove = function() { panel.dispose(); removedPanel?.apply(this, arguments); };
             function visibility() {
-                refreshChoices();
-                setPickerValue(row.lora_name);
-                setHidden(pickerDom, !enabled(row));
                 dependent.forEach(widget => setHidden(widget, !enabled(row)));
                 [preset, inherit, vector].forEach(widget => setHidden(widget, !enabled(row) || !expanded.has(key)));
                 setHidden(dom, !enabled(row) || !hasFile(row));

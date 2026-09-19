@@ -40,3 +40,5 @@ HERMES.md
 /build/
 *.egg-info/
 .DS_Store
+
+/distribution/manual/DonutNodes-model-installer/

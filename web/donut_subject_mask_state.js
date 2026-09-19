@@ -8,9 +8,9 @@ export function readSubjectMask(value, reference) {
     } catch { return null; }
 }
 
-export function subjectMaskPrompt(reference, model, requestId) {
+export function subjectMaskPrompt(reference, model, requestId, prompt = '', threshold = 0.5) {
     return {
-        output:{[requestId]:{class_type:'DonutSubjectMaskPreview', inputs:{image_b:reference, model_name:model, request_id:requestId}}},
+        output:{[requestId]:{class_type:'DonutSubjectMaskPreview', inputs:{image_b:reference, model_name:model, request_id:requestId, ...(model === 'sam3.1_multiplex_fp16.safetensors' ? {mask_b_prompt:prompt,mask_b_threshold:threshold} : {})}}},
         workflow:{},
     };
 }

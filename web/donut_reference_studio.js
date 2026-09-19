@@ -1,6 +1,10 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { fitModule } from "./donut_layout.js?v=15";
+import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
+
+const referenceStudios = new Set();
+let activeReferenceStudio = null;
 
 const el = (tag, text) => {
     const item = document.createElement(tag);
@@ -37,7 +41,11 @@ function install(node) {
     const grid = el("div"); grid.className = "de-refs"; status.className = "de-status";
     const help = el("p", "Uses each full image. Describe what to borrow in the main prompt."); help.className = "de-help";
     root.append(grid, help, status);
-    let disposed = false;
+    let disposed = false, activeSlot = "a", studio;
+    function activate(key) {
+        activeSlot = key; activeReferenceStudio = studio;
+        for (const [slotKey, slot] of Object.entries(slots)) slot.card.classList.toggle("de-selected", slotKey === key);
+    }
     for (const [name, title] of [["image_a", "Reference A"], ["image_b", "Reference B"]]) {
         const box = el("section"), img = el("img"), empty = el("p", "Drop or paste an image here"), file = el("input"), clear = el("button", "Clear");
         box.tabIndex = 0; box.setAttribute("aria-label", `${title} image slot`);
@@ -53,16 +61,19 @@ function install(node) {
         uploadButton.setAttribute("aria-label", `Upload ${title}`); pasteButton.setAttribute("aria-label", `Paste ${title} from clipboard`);
         uploadButton.onclick = () => file.click();
         pasteButton.onclick = async () => {
+            activate(name.slice(-1));
             try {
-                const items = await navigator.clipboard.read();
-                for (const item of items) {
-                    const type = item.types.find(type => type.startsWith("image/"));
-                    if (type) { await upload(await item.getType(type)); return; }
-                }
+                const image = await readClipboardImage();
+                if (image) { await upload(image); return; }
                 status.textContent = "Copy an image, then paste it here.";
-            } catch { status.textContent = "Click the image area and press Ctrl+V to paste."; stage.focus(); }
+            } catch {
+                pasteButton.classList.add("de-awaiting-paste");
+                status.textContent = `Reference ${name.slice(-1).toUpperCase()} selected · click Paste again after allowing clipboard access, or press Ctrl+V.`;
+                stage.focus();
+            }
         };
-        stage.onclick = () => stage.focus();
+        stage.onclick = () => { activate(name.slice(-1)); stage.focus(); };
+        stage.onfocus = () => activate(name.slice(-1));
         img.onload = () => { meta.textContent = `${img.naturalWidth} × ${img.naturalHeight} · Full image`; };
         stage.append(img, empty); actions.append(uploadButton, pasteButton, clear, file);
         box.append(head, stage, meta, actions);
@@ -70,6 +81,7 @@ function install(node) {
         let revision = 0, source;
         async function upload(image) {
             if (!image) return;
+            pasteButton.classList.remove("de-awaiting-paste");
             const current = ++revision;
             status.textContent = `Saving ${title}…`;
             try {
@@ -85,11 +97,13 @@ function install(node) {
         clear.onclick = () => { ++revision; set(name, ""); };
         box.ondragover = event => { event.preventDefault(); event.stopPropagation(); };
         box.ondrop = event => { event.preventDefault(); event.stopPropagation(); upload([...event.dataTransfer.files].find(f => f.type.startsWith("image/"))); };
-        box.onpaste = event => {
-            const image = [...event.clipboardData.items].find(item => item.type.startsWith("image/"))?.getAsFile();
-            if (image) { event.preventDefault(); event.stopPropagation(); upload(image); }
-        };
-        slots[name.slice(-1)] = {card:box, image:img, stage, meta};
+        function paste(event) {
+            const image = clipboardImage(event.clipboardData);
+            if (image) { event.preventDefault(); event.stopImmediatePropagation(); upload(image); }
+            return Boolean(image);
+        }
+        box.onpaste = paste;
+        slots[name.slice(-1)] = {card:box, image:img, stage, meta, upload, paste};
         previews.push(() => {
             box.classList.toggle("de-active", name === "image_a" || !!get("use_reference_b"));
             const value = get(name);
@@ -128,17 +142,36 @@ function install(node) {
     });
     observer.observe(root);
     const added = node.onAdded, removed = node.onRemoved, configured = node.onConfigure;
-    node.onAdded = function() { disposed = false; observer.observe(root); return added?.apply(this, arguments); };
-    node.onRemoved = function() { disposed = true; clearInterval(timer); observer.disconnect(); return removed?.apply(this, arguments); };
+    studio = {node,root,slots,refresh,activate,
+        awaitingPaste:() => Boolean(root.querySelector(".de-awaiting-paste")),
+        paste(event) { return slots[activeSlot]?.paste(event) || false; }};
+    referenceStudios.add(studio); activate("a");
+    node.onAdded = function() { disposed = false; referenceStudios.add(studio); observer.observe(root); return added?.apply(this, arguments); };
+    node.onRemoved = function() { disposed = true; referenceStudios.delete(studio); clearInterval(timer); observer.disconnect(); return removed?.apply(this, arguments); };
     node.onConfigure = function() { const result = configured?.apply(this, arguments); refresh(); return result; };
-    node.size = [540, 720]; node._donutReferenceStudio = {refresh, root, slots}; refresh();
+    node.size = [540, 720]; node._donutReferenceStudio = studio; refresh();
 }
 app.registerExtension({
     name:"Donut.ReferenceStudio",
     setup() {
         const style = el("style");
-        style.textContent = `.donut-reference-studio{--de-accent:#92e4c7}.donut-reference-studio .de-stage img{display:block;width:100%;height:100%;object-fit:contain}.donut-reference-studio [hidden]{display:none!important}.donut-reference-studio .de-ref:not(.de-active){opacity:.65}`;
+        style.textContent = `.donut-reference-studio{--de-accent:#92e4c7}.donut-reference-studio .de-stage img{display:block;width:100%;height:100%;object-fit:contain}.donut-reference-studio [hidden]{display:none!important}.donut-reference-studio .de-ref:not(.de-active){opacity:.65}.donut-reference-studio .de-ref.de-selected{border-color:var(--de-accent);box-shadow:0 0 0 1px #92e4c722}`;
         document.head.append(style);
+        window.addEventListener("paste", event => {
+            if (event.target?.closest?.("input,textarea,select,[contenteditable=true]")) return;
+            const containing=[...referenceStudios].find(item=>item.root.contains?.(event.target));
+            if (containing) {containing.paste(event);return;}
+            if (activeReferenceStudio && referenceStudios.has(activeReferenceStudio)
+                    && activeReferenceStudio.awaitingPaste?.()) {
+                activeReferenceStudio.paste(event);return;
+            }
+            if (activeReferenceStudio && referenceStudios.has(activeReferenceStudio)
+                    && activeReferenceStudio.root.contains?.(document.activeElement)) {
+                activeReferenceStudio.paste(event);return;
+            }
+            const selected=Object.values(app.canvas?.selected_nodes || {});
+            if(selected.length===1 && selected[0]._donutReferenceStudio) selected[0]._donutReferenceStudio.paste(event);
+        }, true);
     },
     beforeRegisterNodeDef(type, definition) {
         if (definition.name !== "DonutReferenceStudio") return;

@@ -1,7 +1,7 @@
 // Repair the narrowly defined PR #66 serialized post-pass shape before Comfy
 // imports it. This is graph compatibility, not a change to either upscaler.
 export const POST_WIDGET_ORDER = [
-    'seedvr2_upscale_factor', 'resampling_method', 'enabled', 'seed',
+    'seedvr2_upscale_factor', 'resampling_method', 'enabled', 'seed', 'control_after_generate',
     'seedvr2_model_name', 'seedvr2_vae_name', 'seedvr2_steps', 'seedvr2_denoise',
     'seedvr2_color_correction', 'seedvr2_vae_tile_size',
 ];
@@ -26,24 +26,27 @@ function validSettings(v) {
 }
 export function repairSeedVR2Workflow(workflow) {
     const report = {widgetOrders:0, inpaintOrders:0, warnings:[]};
-    // Only the tagged V4 workflow shipped this incorrect layout. Do not move
+    // Only the tagged V4/V5 workflow line shipped this layout. Do not move
     // composites in unrelated user-authored post-processing graphs.
-    if (workflow?.extra?.donut_workflow?.release !== 'V4 Beta') return report;
+    if (!['V4 Beta','V5'].includes(workflow?.extra?.donut_workflow?.release)) return report;
     for (const graph of [workflow, ...(workflow?.definitions?.subgraphs || [])]) {
         if (!Array.isArray(graph?.nodes)) continue;
         const nodes = new Map(graph.nodes.map(node => [String(node.id),node]));
         const links = (Array.isArray(graph.links) ? graph.links : []).filter(Boolean).map(raw => ({raw, e:edge(raw)}));
         for (const post of graph.nodes.filter(node => node.type === 'DonutSeedVR2Upscale')) {
             const named = post.widgets_values_named;
-            // Comfy reads native widgets positionally. PR #66 saved the names
-            // correctly but put enabled/seed BEFORE the required scale/filter.
-            if (post.widgets_values?.length === POST_WIDGET_ORDER.length && named
-                    && POST_WIDGET_ORDER.every(key => Object.hasOwn(named,key)) && validSettings(named)) {
-                const values = POST_WIDGET_ORDER.map(key => named[key]);
-                if (JSON.stringify(values) !== JSON.stringify(post.widgets_values)) {
-                    post.widgets_values = values;
-                    report.widgetOrders++;
-                }
+            // INT widgets named seed acquire a frontend-only control widget.
+            // The old ten-value exports omitted it, shifting every model and
+            // sampling field. Only repair that known shape; a modern saved
+            // array is authoritative over potentially stale named metadata.
+            if (post.widgets_values?.length === POST_WIDGET_ORDER.length - 1 && named
+                    && POST_WIDGET_ORDER.filter(key => key !== 'control_after_generate')
+                        .every(key => Object.hasOwn(named,key)) && validSettings(named)) {
+                const control = ['fixed','increment','decrement','randomize'].includes(named.control_after_generate)
+                    ? named.control_after_generate : 'fixed';
+                post.widgets_values = POST_WIDGET_ORDER.map(key => key === 'control_after_generate' ? control : named[key]);
+                post.widgets_values_named = {...named, control_after_generate:control};
+                report.widgetOrders++;
             }
             const inputSlot = post.inputs?.findIndex(input => input.name === 'image');
             if (inputSlot == null || inputSlot < 0) continue;

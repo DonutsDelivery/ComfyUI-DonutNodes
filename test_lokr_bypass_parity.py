@@ -149,6 +149,20 @@ class LoKrBypassParityTests(unittest.TestCase):
         second.h(x, None)
         self.assertFalse(pending)
 
+    def test_large_linear_lora_stack_chunks_preserve_numerical_output(self):
+        torch.manual_seed(17)
+        adapters = [(self.native.LoRAAdapter(set(), (torch.randn(15, 2), torch.randn(2, 8), .8, None, None, None)), strength)
+                    for strength in (.3, -.7)]
+        stack = self.safe._CompositeBypassAdapter(adapters)
+        x = torch.randn(2, 2051, 8)
+        base = torch.randn(2, 2051, 15)
+        with torch.inference_mode():
+            expected = stack._sum_contributions(x, base)
+            with patch.object(stack, '_sum_contributions', wraps=stack._sum_contributions) as call:
+                actual = stack.h(x, base)
+                self.assertEqual([c.args[0].shape[1] for c in call.call_args_list], [1024, 1024, 3])
+            torch.testing.assert_close(actual, expected)
+
     def test_unsupported_decompositions_remain_regular(self):
         valid = [torch.randn(3, 2), None, 4.0, None, None, torch.randn(5, 2), torch.randn(2, 4), None, None]
         for change, reason in (({6: None}, 'two matrix'), ({6: torch.randn(3, 4)}, 'incompatible'),

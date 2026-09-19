@@ -46,7 +46,7 @@ comparison, not a required replacement for V4's configured sampler/scheduler.
 
 ### V4 default: Bleh preset 0, ER-SDE in ODE mode, beta
 
-In `workflows/v4-beta/DonutWF_v4_beta.json`, outer node **1014** supplies
+In `workflows/v5/DonutWF_v5.json`, outer node **1014** supplies
 `bleh_preset_0` and `beta` to the linked inputs of sampler **993**. The nested
 sampler's stored `er_sde` / `bong_tangent` values are not the effective selections.
 **SamplerER_SDE 1045** registers **ODE**, `max_stage=3`, `eta=0`, `s_noise=1`

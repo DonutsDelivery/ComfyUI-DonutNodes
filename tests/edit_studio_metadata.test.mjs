@@ -11,6 +11,12 @@ const helper = source.slice(
 const scope = vm.createContext({Object, Math, Number});
 vm.runInContext(helper, scope);
 
+test("selected-area toggle opens the editor instead of enabling an empty mask", () => {
+    assert.equal(scope.selectedEditToggleAction(false, false), "disable");
+    assert.equal(scope.selectedEditToggleAction(true, true), "enable");
+    assert.equal(scope.selectedEditToggleAction(true, false), "open-editor");
+});
+
 test("malformed inpaint metadata is normalized to backend widget types", () => {
     const backend = new Map([
         ["inpaint_enabled", {value: ""}],

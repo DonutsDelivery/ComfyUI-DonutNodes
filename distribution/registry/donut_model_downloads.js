@@ -12,7 +12,26 @@ function install(node) {
     const title = document.createElement("h2");
     title.textContent = "Model files";
     const status = document.createElement("p");
-    status.textContent = "Automatic model downloads are unavailable in this build. Choose the features first (SeedVR2 engine or Auto subject), then list their files. Download using the links and save in the indicated folders; refresh ComfyUI afterwards. Custom extra_model_paths.yaml roots may replace these default folders.";
+    status.textContent = "Install models using the optional standalone installer below, or list the workflow’s configured models and download them individually. Disabled features are included. Custom extra_model_paths.yaml roots may replace the default folders shown.";
+    const installer = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Install models with a standalone script";
+    const download = document.createElement("a");
+    download.textContent = "Download model installer ZIP (Windows / Linux / macOS)";
+    download.href = "https://github.com/DonutsDelivery/ComfyUI-DonutNodes/raw/refs/heads/main/distribution/manual/DonutNodes-model-installer.zip";
+    download.target = "_blank"; download.rel = "noopener noreferrer";
+    const steps = document.createElement("ol");
+    for (const text of [
+        "Extract the ZIP into your ComfyUI directory, beside main.py. Keep the model-installer folder and its files together.",
+        "Windows: open model-installer and double-click install-models.bat. Portable ComfyUI’s Python is detected automatically; otherwise install Python 3.9+ and enable Add Python to PATH.",
+        "Linux / macOS: open a terminal in model-installer and run: sh install-models.sh. Python 3.9+ is required.",
+        "If asked, enter the ComfyUI directory. Restricted downloads may ask for a provider API token. Restart ComfyUI when installation finishes.",
+    ]) {
+        const step = document.createElement("li"); step.textContent = text; steps.append(step);
+    }
+    const scope = document.createElement("p");
+    scope.textContent = "The installer downloads the entire model catalog, including optional alternatives and both SeedVR2 sizes—not just the current workflow selections. It shows the total size, verifies checksums, and skips matching installed files. It uses ComfyUI/models; custom model paths are not read. ComfyUI and custom nodes must already be installed.";
+    installer.append(summary, download, steps, scope);
     const button = document.createElement("button");
     button.textContent = "List selected models";
     const list = document.createElement("ul");
@@ -55,7 +74,7 @@ function install(node) {
         link.rel = "noopener noreferrer";
         community.append(link, document.createTextNode(" "));
     }
-    root.append(title, status, button, list, community);
+    root.append(title, status, installer, button, list, community);
     const dom = node.addDOMWidget("download_missing", "custom", root, {
         serialize: false, hideOnZoom: false, getValue: () => "", setValue: () => {},
     });

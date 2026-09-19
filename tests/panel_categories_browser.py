@@ -23,7 +23,7 @@ def main():
         page.set_content('<!doctype html><html><head></head><body></body></html>')
         # Evaluate the real pure modules without imports; this isolates DOM
         # behavior and makes no local/remote network or server assumptions.
-        for filename in ['donut_panel_categories_model.js', 'donut_panel_categories_dom.js']:
+        for filename in ['donut_reference_crop_geometry.js', 'donut_panel_categories_model.js', 'donut_panel_categories_dom.js']:
             source = (ROOT / 'web' / filename).read_text(encoding='utf-8')
             source = re.sub(r'^import .*;\n', '', source, flags=re.M)
             source = re.sub(r'export (function|const)', r'\1', source)
@@ -41,16 +41,20 @@ def main():
             for(const value of ['None','faces/Character.safetensors','style/Watercolour.safetensors']) {const option=document.createElement('option'); option.value=value; option.textContent=value; select.append(option);}
             select.value='faces/Character.safetensors'; row.append(select); panel.append(row);
             let calls=0; select.onchange=()=>calls++;
+            window.LiteGraph={ContextMenu:function(values,options){window.menu={values,options};}};
             check(dom.upgradePanelLoraPickers(panel)===1,'upgrade visible panel select');
             check(dom.upgradePanelLoraPickers(panel)===0,'idempotent picker install');
-            const input=panel.querySelector('input'); input.value='Water'; input.dispatchEvent(new Event('change'));
-            check(calls===0 && input.value==='faces/Character.safetensors','reject incomplete filenames without modifying row');
-            input.value='style/Watercolour.safetensors'; input.dispatchEvent(new Event('change'));
-            check(calls===1 && select.value===input.value,'call original row onchange');
-            const other=document.createElement('div'); other.append(row.cloneNode(true));
-            other.querySelector('input').remove(); other.querySelector('datalist').remove(); delete other.querySelector('select').dataset.donutSearchPicker;
-            document.body.append(other); dom.upgradePanelLoraPickers(other);
-            check(input.getAttribute('list')!==other.querySelector('input').getAttribute('list'),'unique IDs for copied row numbers');
+            const button=panel.querySelector('button');
+            button.click();
+            check(window.menu.values.length===3,'native menu receives the whole catalog');
+            check(window.menu.options.className==='dark','use ComfyUI combo menu filtering');
+            window.menu.options.callback('Water');
+            check(calls===0 && select.value==='faces/Character.safetensors','reject incomplete filenames without modifying row');
+            window.menu.options.callback('style/Watercolour.safetensors');
+            check(calls===1 && select.value==='style/Watercolour.safetensors','call original row onchange');
+            const added=document.createElement('option'); added.value='new/model.safetensors'; select.append(added);
+            button.click();
+            check(window.menu.values.includes('new/model.safetensors'),'read refreshed catalog on every open');
             const studioRoot=document.createElement('div'); studioRoot.className='donut-edit-studio';
             studioRoot.innerHTML='<div class="de-section"><div class="de-subhead">Output size</div><div class="de-row"><select aria-label="Output sizing mode"></select></div><div class="de-output">1152 × 896</div></div>';
             document.body.append(studioRoot);

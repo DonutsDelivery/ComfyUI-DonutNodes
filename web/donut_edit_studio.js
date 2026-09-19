@@ -3,7 +3,8 @@ import { api } from "../../scripts/api.js";
 import { ASPECT_RATIOS, targetDimensions, cropBox, imageLocation } from "./donut_edit_geometry.js";
 import { promptTools } from "./donut_wildcards.js";
 import { fitModule, fitTextarea } from "./donut_layout.js?v=15";
-import { drawMask, readMask, maskInverted, openInpaintEditor } from "./donut_inpaint_editor.js";
+import { drawMask, readMask, maskInverted, openInpaintEditor, readOutpaint, outpaintRect, drawOutpaintBase } from "./donut_inpaint_editor.js?v=outpaint2";
+import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
 
 const studios = new Set();
 let activeStudio = null;
@@ -86,18 +87,6 @@ function button(text, label, action) {
     return value;
 }
 function textTarget(target) { return target?.closest?.("input,textarea,select,[contenteditable=true]"); }
-function clipboardImage(data) {
-    const files = [...(data?.files || [])];
-    const direct = files.find(file => file?.type?.startsWith("image/"));
-    if (direct) return direct;
-    for (const item of [...(data?.items || [])]) {
-        if (!item?.type?.startsWith("image/")) continue;
-        const file = item.getAsFile?.();
-        if (file) return file;
-    }
-    return null;
-}
-
 function normalizeEditStudioValue(name, value) {
     if (name === "inpaint_enabled") {
         if (typeof value === "string") return ["true", "1", "on", "yes"].includes(value.trim().toLowerCase());
@@ -124,6 +113,11 @@ function normalizeEditStudioInpaintWidgets(backend, data = undefined) {
         const value = normalizeEditStudioValue(name, hasSavedValue ? saved : widget.value);
         if (widget.value !== value) widget.value = value;
     }
+}
+
+function selectedEditToggleAction(checked, hasSelection) {
+    if (!checked) return "disable";
+    return hasSelection ? "enable" : "open-editor";
 }
 
 export function installEditStudio(node, definition) {
@@ -230,6 +224,19 @@ export function installEditStudio(node, definition) {
         canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
         const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, width, height);
         if (!image) return;
+        const placement = key === "a" && get("inpaint_enabled") && readOutpaint(get("mask_data"),get("image_a"));
+        if (placement) {
+            const size=outputSize(), fit=Math.min((width-16)/size[0],(height-16)/size[1]);
+            const w=size[0]*fit,h=size[1]*fit,ox=(width-w)/2,oy=(height-h)/2;
+            const preview=document.createElement('canvas');preview.width=Math.max(1,Math.round(w));preview.height=Math.max(1,Math.round(h));
+            const previewSize=[preview.width,preview.height], rect=outpaintRect([image.naturalWidth,image.naturalHeight],previewSize,placement), p=preview.getContext('2d');
+            drawOutpaintBase(p,image,rect,...previewSize);
+            const overlay=document.createElement('canvas');overlay.width=preview.width;overlay.height=preview.height;
+            drawMask(overlay.getContext('2d'),...previewSize,readMask(get('mask_data'),get('image_a')),maskInverted(get('mask_data'),get('image_a')),{rect,overlap:placement.overlap*fit});
+            p.globalAlpha=.5;p.drawImage(overlay,0,0);ctx.drawImage(preview,ox,oy,w,h);
+            ctx.strokeStyle='#ff6c75';ctx.strokeRect(ox,oy,w,h);
+            slot.layout=null;slot.meta.textContent=`Outpaint · ${size[0]} × ${size[1]} total · adjust in Paint / outpaint`;return;
+        }
         const scale = Math.min((width - 16) / image.naturalWidth, (height - 16) / image.naturalHeight);
         const iw = image.naturalWidth * scale, ih = image.naturalHeight * scale;
         const ox = (width - iw) / 2, oy = (height - ih) / 2;
@@ -301,19 +308,13 @@ export function installEditStudio(node, definition) {
         activate(key);
         const pasteButton = slots[key].pasteButton;
         try {
-            if (typeof navigator.clipboard?.read !== "function") {
-                throw new DOMException("Clipboard image reads are unavailable", "NotSupportedError");
-            }
-            const entries = await navigator.clipboard.read();
-            for (const item of entries) {
-                const type = item.types.find(type => type.startsWith("image/"));
-                if (type) { await upload(key, await item.getType(type)); return; }
-            }
+            const image = await readClipboardImage();
+            if (image) { await upload(key, image); return; }
             status("The clipboard has no image. Copy an image, then paste again.", true);
         } catch (error) {
             slots[key].stage.focus();
             pasteButton.classList.add("de-awaiting-paste");
-            status(`Reference ${key.toUpperCase()} selected · browser blocked clipboard access, press Ctrl+V now.`, true);
+            status(`Reference ${key.toUpperCase()} selected · click Paste again after allowing clipboard access, or press Ctrl+V.`, true);
             console.debug("[Donut Edit Studio] Clipboard button fallback:", error);
         }
     }
@@ -346,6 +347,12 @@ export function installEditStudio(node, definition) {
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
         slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
             pasteButton, actions:[uploadButton, pasteButton, clear]};
+        // Select before preview handlers can open a crop dialog and stop bubbling.
+        // The full card remains a reliable paste target, including added controls.
+        card.addEventListener("pointerdown", event => {
+            if (event.button === 0) activate(key);
+        }, true);
+        card.addEventListener("focusin", () => activate(key));
         stage.addEventListener("focus", () => activate(key));
         stage.addEventListener("dragover", event => { event.preventDefault(); event.stopPropagation(); stage.classList.add("de-dragover"); });
         stage.addEventListener("dragleave", () => stage.classList.remove("de-dragover"));
@@ -386,18 +393,36 @@ export function installEditStudio(node, definition) {
     caption.append(cropCaption); root.append(caption);
     const inpaintSection = element("div", "de-section");
     const inpaintControls = element("div", "de-caption");
-    const paintSelection = button("Paint area…", "Paint the area to edit on image A", () => {
+    const paintSelection = button("Paint / outpaint…", "Paint an area or position A for outpainting", () => {
         if (!slots.a.image) return;
         commit("enabled", true); render();
         closeMaskEditor?.();
         closeMaskEditor = openInpaintEditor({image:slots.a.image, imageName:get("image_a"),
-            value:get("mask_data"), crop:boxFor("a"), outputSize:node.donutCropInpaintSize?.() || outputSize(), feather:get("mask_feather"), onApply:(value, feather) => {
-                commitValues({mask_data:value, mask_feather:feather, inpaint_enabled:true, enabled:true}); render();
+            value:get("mask_data"), crop:boxFor("a"), canvasSize:outputSize(), outputSize:node.donutCropInpaintSize?.() || outputSize(),
+            pixelGrid:Number(get("multiple")), feather:get("mask_feather"), onApply:(value, feather, active, canvas) => {
+                commitValues({mask_data:value, mask_feather:feather, inpaint_enabled:active,
+                    ...(active ? {enabled:true} : {}),
+                    ...(canvas ? {resolution_mode:"Custom", width:canvas[0], height:canvas[1],
+                        ...(backend.has("output_canvas") ? {output_canvas:"Independent output"} : {})} : {})}); render();
             }});
     });
-    inpaintControls.append(toggle("inpaint_enabled", "Edit selected area"), paintSelection);
+    const inpaintToggle = element("input");
+    inpaintToggle.type = "checkbox"; inpaintToggle.setAttribute("aria-label", "Edit selected area");
+    const inpaintToggleLabel = element("label", "de-toggle");
+    inpaintToggleLabel.append(inpaintToggle, element("span", "", "Edit selected area"));
+    inpaintToggle.addEventListener("change", () => {
+        const hasSelection = readMask(get("mask_data"), get("image_a")).length
+            || maskInverted(get("mask_data"), get("image_a"))
+            || readOutpaint(get("mask_data"), get("image_a"));
+        const action = selectedEditToggleAction(inpaintToggle.checked, Boolean(hasSelection));
+        if (action === "disable") { commit("inpaint_enabled", false); render(); return; }
+        if (action === "enable") { commit("inpaint_enabled", true); render(); return; }
+        inpaintToggle.checked = false;
+        paintSelection.click();
+    });
+    inpaintControls.append(inpaintToggleLabel, paintSelection);
     const featherField = field("Edge softness · pixels", control("mask_feather", "input", {type:"number", min:"0", max:"128", step:"1", label:"Selection edge softness"}));
-    const inpaintHelp = element("div", "de-help", "Paint on A, then describe the change in Prompts. Green changes; the surrounding image stays from A.");
+    const inpaintHelp = element("div", "de-help", "Paint an area, or enable Outpaint in the editor to place A within the output canvas. Green changes; unselected areas stay from A.");
     inpaintSection.append(inpaintControls, featherField, inpaintHelp); root.append(inpaintSection);
     const promptSection = element("div"), sharedPromptHelp = element("p", "de-help", "Editing uses the subject, scene and style from Prompts.");
     promptSection.append(element("div", "de-subhead", "Edit instruction · what should change?"));
@@ -474,10 +499,11 @@ export function installEditStudio(node, definition) {
         inpaintSection.hidden = !backend.has("inpaint_enabled");
         const inpaintWired = !!node.outputs?.find(output => output.name === "inpaint")?.links?.length;
         paintSelection.disabled = !slots.a.image || !inpaintWired;
-        for (const input of controls.get("inpaint_enabled") || []) input.disabled = !inpaintWired;
+        inpaintToggle.disabled = !inpaintWired || !slots.a.image;
+        inpaintToggle.checked = Boolean(get("inpaint_enabled"));
         inpaintHelp.textContent = inpaintWired
-            ? "Paint on A, then describe the change in Prompts. Green changes; the surrounding image stays from A."
-            : "Load the updated V4 workflow to connect selected-area editing and preserve the surroundings through finishing.";
+            ? "Paint an area, or enable Outpaint in the editor to place A within the output canvas. Green changes; unselected areas stay from A."
+            : "Load the V5 workflow to connect selected-area editing and preserve the surroundings through finishing.";
         featherField.hidden = !get("inpaint_enabled");
         for (const [name, inputs] of controls) for (const input of inputs) {
             const value = get(name);
@@ -505,6 +531,7 @@ export function installEditStudio(node, definition) {
             statusLine.textContent = !editing ? "Editing off · images are optional; generation controls remain active."
                 : !get("image_a") ? "Add a base image to A to start editing."
                 : get("use_reference_b") && !get("image_b") ? "Add the subject image to B, or turn Use B off."
+                : get("inpaint_enabled") && readOutpaint(get("mask_data"),get("image_a")) ? "Outpaint · green fills within the selected output size; A stays protected outside the overlap."
                 : get("inpaint_enabled") ? (readMask(get("mask_data"), get("image_a")).length || maskInverted(get("mask_data"), get("image_a")) ? "Selected-area edit · green changes; unselected areas stay from A." : "Click Paint area to select what should change.")
                 : get("use_reference_b") ? "Two references · A sets the scene; B supplies subject identity."
                 : "One reference · enable B to combine two images.";
@@ -528,6 +555,7 @@ export function installEditStudio(node, definition) {
     fitModule(node, dom, root);
     node.setSize([Math.max(640, node.size[0]), Math.max(1070, node.size[1])]);
     const studio = {node, root, render, paste, upload, activate,
+        awaitingPaste:() => Boolean(root.querySelector(".de-awaiting-paste")),
         prepareForQueue() { normalizeEditStudioInpaintWidgets(backend); },
         get activeSlot() {return activeSlot;}, slots,
         refreshLoras(choices) {
@@ -580,8 +608,11 @@ app.registerExtension({
             if (textTarget(event.target)) return;
             const containing = [...studios].find(studio => studio.root.contains?.(event.target));
             if (containing) { containing.paste(event); return; }
+            if (activeStudio && studios.has(activeStudio) && activeStudio.awaitingPaste?.()) {
+                activeStudio.paste(event); return;
+            }
             if (activeStudio && studios.has(activeStudio)
-                && activeStudio.root.contains?.(document.activeElement)) {
+                    && activeStudio.root.contains?.(document.activeElement)) {
                 activeStudio.paste(event); return;
             }
             const selected = Object.values(app.canvas?.selected_nodes || {});

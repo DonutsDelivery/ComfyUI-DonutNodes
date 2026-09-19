@@ -390,6 +390,26 @@ if _WEIGHT_ADAPTER_BASE is not None:
                 raise ValueError("Composite bypass adapter weight layout changed unexpectedly")
 
         def h(self, x, base_out):
+            # Linear LoRA is independent for each token. Bound the simultaneous
+            # down/up/scale and stacking temporaries on full-frame edit sequences.
+            # Keep convolutional, other adapter families and autograd unchanged.
+            lora_type = getattr(comfy_weight_adapter, "LoRAAdapter", ())
+            if (not torch.is_grad_enabled() and x.ndim == 3 and x.shape[1] > 1024
+                    and not getattr(self, "is_conv", False)
+                    and all(isinstance(adapter, lora_type) for adapter, _ in self.components)):
+                output = None
+                for start in range(0, x.shape[1], 1024):
+                    end = min(start + 1024, x.shape[1])
+                    chunk = self._sum_contributions(x[:, start:end],
+                        None if base_out is None else base_out[:, start:end])
+                    if output is None:
+                        output = chunk.new_empty((chunk.shape[0], x.shape[1], chunk.shape[2]))
+                    output[:, start:end].copy_(chunk)
+                    del chunk
+                return output
+            return self._sum_contributions(x, base_out)
+
+        def _sum_contributions(self, x, base_out):
             total = None
             outer_multiplier = float(getattr(self, "multiplier", 1.0))
             shared_attributes = (

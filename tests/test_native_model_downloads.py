@@ -32,13 +32,13 @@ class NativeModelDownloads(unittest.TestCase):
         self.nodes = types.ModuleType('nodes')
         self.nodes.NODE_CLASS_MAPPINGS = {name: object for name in (
             'SeedVR2Preprocess', 'SeedVR2Conditioning', 'SeedVR2PostProcessing',
-            'LoadBackgroundRemovalModel', 'RemoveBackground')}
+            'LoadBackgroundRemovalModel', 'RemoveBackground', 'SAM3_Detect')}
         self.folders = types.ModuleType('folder_paths')
         self.folders.models_dir = str(self.models)
         self.folders.filename_list_cache = {}
         self.folders.folder_names_and_paths = {
             name: ([str(self.models / name)], {'.safetensors'})
-            for name in ('diffusion_models', 'vae', 'background_removal', 'loras')}
+            for name in ('diffusion_models', 'vae', 'background_removal', 'loras', 'checkpoints')}
         self.folders.get_folder_paths = lambda name: self.folders.folder_names_and_paths[name][0]
         self.folders.get_user_directory = lambda: str(self.root / 'user')
         self.folders.get_filename_list = lambda folder: [
@@ -73,20 +73,21 @@ class NativeModelDownloads(unittest.TestCase):
         self.manager.run(refs, entries)
         return self.manager.snapshot()
 
-    def test_catalog_has_exact_four_verified_native_models(self):
-        self.assertEqual(len(self.native), 4)
+    def test_catalog_has_verified_native_models(self):
+        self.assertEqual(len(self.native), 5)
         expected = {
             'seedvr2_3b_int8_convrot.safetensors': (3458259704, 'c3dec8bcc5916843a8a858572970597462e1f2dc598d6dfd818f6cd40f53a157'),
             'seedvr2_7b_int8_convrot.safetensors': (8334897976, '5aa0d25fc9d35e449b659d0c9a5dcb22e2a4fa04032101b95a39da42b32c1be6'),
             'seedvr2_ema_vae_fp16.safetensors': (501324814, '20678548f420d98d26f11442d3528f8b8c94e57ee046ef93dbb7633da8612ca1'),
             'birefnet.safetensors': (444473596, '9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154'),
+            'sam3.1_multiplex_fp16.safetensors': (1745546848, '9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03'),
         }
         for entry in self.native:
             self.assertEqual((entry['size'], entry['sha256']), expected[entry['filename']])
-            self.assertRegex(entry['url'], r'^https://huggingface.co/Comfy-Org/(SeedVR2|BiRefNet)/resolve/[a-f0-9]{40}/')
+            self.assertRegex(entry['url'], r'^https://huggingface.co/Comfy-Org/(SeedVR2|BiRefNet|sam3\.1)/resolve/[a-f0-9]{40}/')
         self.assertIn('background_removal', self.mod.FOLDERS)
 
-    def test_download_install_verify_and_reuse_all_four_model_types(self):
+    def test_download_install_verify_and_reuse_all_native_model_types(self):
         entries = self.toy_entries()
         self.folders.filename_list_cache = {entry['folder']: 'stale' for entry in entries}
         def respond(url, **kwargs):
@@ -94,21 +95,33 @@ class NativeModelDownloads(unittest.TestCase):
             return Response(entry['filename'].encode())
         with patch.object(self.mod.requests, 'get', side_effect=respond) as get:
             result = self.run_downloads(entries)
-            self.assertEqual([item['status'] for item in result['results']], ['downloaded'] * 4)
-            self.assertEqual(get.call_count, 4)
+            self.assertEqual([item['status'] for item in result['results']], ['downloaded'] * len(entries))
+            self.assertEqual(get.call_count, len(entries))
             for entry in entries:
                 self.assertEqual((self.models / entry['folder'] / entry['filename']).read_bytes(), entry['filename'].encode())
             self.assertEqual(self.folders.filename_list_cache, {})
             result = self.run_downloads(entries)
-            self.assertEqual([item['status'] for item in result['results']], ['verified'] * 4)
-            self.assertEqual(get.call_count, 4)
+            self.assertEqual([item['status'] for item in result['results']], ['verified'] * len(entries))
+            self.assertEqual(get.call_count, len(entries))
         self.assertEqual(list(self.models.rglob('*.part')), [])
+
+    def test_authentication_error_identifies_provider_and_local_configuration(self):
+        response = Response(b'')
+        response.status_code = 401
+        entry = {**self.toy_entries()[0], 'url': 'https://civitai.com/api/download/models/1'}
+        with patch.object(self.mod.requests, 'get', return_value=response):
+            result = self.run_downloads([entry])
+        failure = result['results'][0]
+        self.assertEqual(failure['status'], 'error')
+        self.assertIn('civitai.api_key', failure['message'])
+        self.assertIn('HTTP 401', failure['message'])
+        self.assertEqual(list(self.models.rglob('*.safetensors')), [])
 
     def test_missing_native_nodes_stop_before_network_or_file_write(self):
         self.nodes.NODE_CLASS_MAPPINGS.clear()
         with patch.object(self.mod.requests, 'get') as get:
             result = self.run_downloads(self.toy_entries()); get.assert_not_called()
-        self.assertEqual(len(result['results']), 4)
+        self.assertEqual(len(result['results']), len(self.native))
         for item in result['results']:
             self.assertEqual(item['status'], 'error')
             self.assertIn('Update ComfyUI and restart', item['message'])
@@ -154,7 +167,7 @@ class NativeModelDownloads(unittest.TestCase):
         self.assertEqual(result['results'][0]['resolved_name'], 'my/renamed.safetensors')
 
     def test_extra_model_paths_destination_is_honored(self):
-        entry = self.native[-1]
+        entry = next(e for e in self.native if e['folder'] == 'background_removal')
         custom = self.root / 'shared-matting'
         self.folders.folder_names_and_paths['background_removal'][0].insert(0, str(custom))
         self.assertEqual(self.manager.destination(entry), custom / entry['filename'])
@@ -237,9 +250,12 @@ class RegistryStaging(unittest.TestCase):
         self.assertNotIn('fetch(', panel)
         self.assertIn('requires_nodes', generated)
 
-    def test_packed_downloader_is_still_rejected(self):
-        with self.assertRaisesRegex(ValueError, 'Non-registry file'):
-            self.mod.prepare(self.archive(extra={'donut_model_downloads.py': 'forbidden'}), self.root / 'stage')
+    def test_packed_downloaders_and_standalone_installers_are_rejected(self):
+        forbidden = ('donut_model_downloads.py', 'install_models.py', 'install-models.sh',
+                     'install-models.bat', 'model-installer/install_models.py')
+        for name in forbidden:
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, 'Non-registry file'):
+                self.mod.prepare(self.archive(extra={name: 'forbidden'}), self.root / f"stage-{name.replace('/', '-')}")
 
     def test_unsafe_archive_paths_are_still_rejected(self):
         for name in ('../outside', '/absolute', 'bad\\path'):

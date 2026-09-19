@@ -237,7 +237,7 @@ test('invalid nonmissing connected seed remains an atomic error',()=>{
 });
 
 test('published workflow: every connected promoted cache can be omitted independently',()=>{
-    const original=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v4-beta/DonutWF_v4_beta.json')));
+    const original=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v5/DonutWF_v5.json')));
     let checked=0;
     const graphs=w=>[w,...w.definitions.subgraphs];
     for(const [gi,g] of graphs(original).entries())for(const [ni,n] of g.nodes.entries()){

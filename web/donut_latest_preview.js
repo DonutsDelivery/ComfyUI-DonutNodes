@@ -1,10 +1,12 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { addStagePreviews, previewSourceId } from "./donut_preview_stages.js";
 import { createProgress } from "./donut_progress.js";
 import { fitModule } from "./donut_layout.js?v=15";
 
 app.registerExtension({
     name: "Donut.LatestPreview",
+    beforeConfigureGraph(data) { addStagePreviews(data); },
     registerCustomNodes() {
         class DonutLatestPreview extends LGraphNode {
             constructor() {
@@ -20,10 +22,6 @@ app.registerExtension({
                 image.hidden = true;
                 const selector = document.createElement("select");
                 selector.setAttribute("aria-label", "Displayed preview");
-                for (const [value, label] of [["latest", "Always latest"], ["912", "1 · Base generation"], ["913", "2 · First upscale"], ["914", "3 · Final image"]]) {
-                    const option = document.createElement("option");
-                    option.value = value; option.textContent = label; selector.append(option);
-                }
                 const promptModule = document.createElement("section");
                 promptModule.className = "donut-result-prompt";
                 const promptTitle = document.createElement("h3"), promptText = document.createElement("pre");
@@ -40,6 +38,13 @@ app.registerExtension({
                     if (file) image.src = api.apiURL(`/view?${new URLSearchParams({filename:file.filename,subfolder:file.subfolder || "",type:file.type || "temp"})}`);
                 };
                 const refresh = () => {
+                    const order = this.properties.source_order || Object.keys(this.properties.sources || {});
+                    const choices = [["latest", "Always latest"], ...order.map((id,index)=>[id,`${index+1} · ${this.properties.sources[id]}`])];
+                    if (selector.dataset.choices !== JSON.stringify(choices)) {
+                        selector.replaceChildren();
+                        for(const [value,label] of choices) {const option=document.createElement('option');option.value=value;option.textContent=label;selector.append(option);}
+                        selector.dataset.choices=JSON.stringify(choices);
+                    }
                     const selected = this.properties.preview_selection || "latest";
                     selector.value = selected;
                     if (selected === "latest") show(this.properties.last_image, this.properties.last_stage, this.properties.last_prompt);
@@ -55,6 +60,7 @@ app.registerExtension({
                     this.graph?.afterChange();
                     refresh();
                 };
+                let latestRun = null, latestRank = -1;
                 const receive = ({detail} = {}) => {
                     // A few older frontend builds dispatch an empty `executed`
                     // event while their graph is being restored. Ignore it;
@@ -64,17 +70,23 @@ app.registerExtension({
                         promptsByRun.set(detail.prompt_id, expanded[0]);
                         if (promptsByRun.size > 32) promptsByRun.delete(promptsByRun.keys().next().value);
                     }
-                    const id = String(detail?.display_node ?? detail?.node ?? "");
+                    const id = previewSourceId(detail, this.properties.sources);
                     const stage = this.properties.sources?.[id];
                     const images = detail?.output?.images;
                     if (!stage || !Array.isArray(images) || !images.length) return;
                     const file = images.at(-1);
                     if (!file?.filename) return;
-                    this.properties.last_image = file;
-                    this.properties.last_stage = stage;
-                    this.properties.last_prompt = promptsByRun.get(detail?.prompt_id) ?? null;
+                    const prompt = promptsByRun.get(detail?.prompt_id) ?? null;
+                    const rank = (this.properties.source_order || Object.keys(this.properties.sources)).indexOf(id);
+                    if (latestRun !== detail?.prompt_id) {latestRun=detail?.prompt_id;latestRank=-1;}
+                    if (rank >= latestRank) {
+                        latestRank=rank;
+                        this.properties.last_image = file;
+                        this.properties.last_stage = stage;
+                        this.properties.last_prompt = prompt;
+                    }
                     this.properties.stage_prompts ||= {};
-                    this.properties.stage_prompts[id] = this.properties.last_prompt;
+                    this.properties.stage_prompts[id] = prompt;
                     this.properties.stage_images ||= {};
                     this.properties.stage_images[id] = file;
                     refresh();

@@ -129,6 +129,7 @@ class BridgeTests(unittest.TestCase):
         subject.MODEL_NAME='birefnet.safetensors';subject.MAX_PIXELS=32_000_000;subject.BACKGROUNDS={'Neutral gray':.5,'White':1,'Black':0}
         self.record={'version':1,'image':'B','mask':'donutmask:'+'a'*64};self.bmask=torch.ones(1,160,60)
         subject.auto_mask=lambda name,source,model:(self.record,self.bmask)
+        subject.prompt_mask_inputs=lambda:{'mask_b_prompt':('STRING',{'default':''}),'mask_b_threshold':('FLOAT',{'default':.5})}
         def load_mask(record,name,source):
             if record!=self.record or name!='B' or source.size!=(60,160):raise ValueError('stale mask')
             return self.bmask
@@ -155,6 +156,17 @@ class BridgeTests(unittest.TestCase):
         out=self.run_new(crop_data_a=document((.25,.25,.75,.75),(120,80),'A'),inpaint_enabled=True,mask_data='selection',mask_feather=0)['result']
         self.assertFalse(self.delegations[-1]['inpaint_enabled']);self.assertEqual(self.masks[-1],('A',(120,80),(30,20,90,60),(192,128),0))
         self.assertTrue(torch.equal(out[8]['image'],out[0]));self.assertTrue(torch.all(out[8]['mask']==1))
+    def test_outpainting_uses_full_output_and_keeps_B_independent(self):
+        mask=json.dumps({'version':1,'image':'A','strokes':[],
+                         'outpaint':{'scale':.5,'x':0,'y':0,'overlap':0}})
+        out=self.run_new(inpaint_enabled=True,mask_data=mask,mask_feather=0)['result']
+        self.assertEqual(out[3:5],(192,128))
+        self.assertEqual(tuple(out[8]['mask'].shape),(1,128,192))
+        self.assertTrue(torch.equal(out[0],out[8]['image']))
+        self.assertTrue(torch.all(out[8]['mask'][:,:64,:96]==0))
+        self.assertTrue(torch.all(out[8]['mask'][:,:,96:]==1))
+        self.assertTrue(torch.all(out[1][0,:,96,2]>.99))
+
     def test_padded_A_is_protected_outside_content(self):
         out=self.run_new(crop_data_a=document((.375,0,.625,1),(120,80),'A'),inpaint_enabled=True,mask_data='selection',mask_feather=8)['result']
         mask=out[8]['mask'];self.assertTrue(torch.all(mask[:,:,:72]==0));self.assertTrue(torch.all(mask[:,:,120:]==0));self.assertTrue(torch.any(mask>0))
@@ -176,6 +188,6 @@ class BridgeTests(unittest.TestCase):
     def test_reference_guidance_paused_needs_no_valid_crop(self):
         out=self.mod.DonutCropReferenceStudio().prepare(True,'missing','missing',True,True,g.INDEPENDENT,'bad','bad');self.assertFalse(out[2]);self.assertEqual(self.opens,[])
     def test_new_inputs_append_and_legacy_default(self):
-        schema=self.mod.DonutCropEditStudio.INPUT_TYPES()['optional'];self.assertEqual(list(schema)[-4:],['geometry_mode','crop_data_a','crop_data_b','output_canvas']);self.assertEqual(schema['geometry_mode'][1]['default'],g.LEGACY)
+        schema=self.mod.DonutCropEditStudio.INPUT_TYPES()['optional'];self.assertEqual(list(schema)[-6:],['geometry_mode','crop_data_a','crop_data_b','output_canvas','mask_b_prompt','mask_b_threshold']);self.assertEqual(schema['geometry_mode'][1]['default'],g.LEGACY)
 
 if __name__=='__main__':unittest.main()

@@ -83,7 +83,7 @@ migrations; use a workflow/API prompt exported after the update.
 For maintainers who need to bake the same changes into a workflow file:
 
 ```sh
-node tools/organize_v4_panels.cjs workflows/v4-beta/DonutWF_v4_beta.json /tmp/DonutWF_v4_categorized.json
+node tools/organize_v4_panels.cjs workflows/v5/DonutWF_v5.json /tmp/DonutWF_v5_categorized.json
 ```
 
 The authoring helper uses the same pure migrations and writes a NEW output file.

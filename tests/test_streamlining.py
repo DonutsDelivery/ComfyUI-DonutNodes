@@ -190,6 +190,7 @@ class ContractTests(unittest.TestCase):
         }.items():
             module = types.ModuleType(f"{PKG}.{name}"); module.__dict__.update(attrs); modules[module.__name__] = module
         folders = types.ModuleType("folder_paths"); folders.get_full_path = lambda kind,name: "/nonexistent-test-path" if name != "missing" else None
+        folders.get_filename_list = lambda kind: []
         modules["folder_paths"] = folders
         self.mock_modules = patch.dict(sys.modules, modules); self.mock_modules.start()
         self.lora=load("donut_dynamic_lora"); self.stage=load("donut_upscale_stage"); self.merge=load("donut_grouped_merge"); self.injection=load("donut_prompt_injection_recursive")

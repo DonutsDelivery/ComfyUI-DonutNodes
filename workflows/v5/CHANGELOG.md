@@ -1,5 +1,37 @@
 # Donut Workflow changelog
 
+## V5 · workflow redesign, outpainting and visible finishing stages
+
+V5 is the new name for the workflow assembled after V4 Beta. It keeps V4
+import compatibility while giving the substantially expanded workflow its own
+release identity.
+
+- Fixed selected-area editing becoming stuck after clearing a mask. An empty
+  editor now applies as **Clear & turn off**, while enabling the main control
+  without a saved selection opens the editor instead of enabling invalid state.
+- Added directional outpainting canvas presets for left/right side-by-side and
+  above/below layouts. They derive a grid-aligned resolution from A while
+  remaining within the current megapixel budget, and apply it as Custom sizing.
+
+## Unreleased · individual finishing previews
+
+- Latest result now selects Base generation, First upscale, Second upscale, Face Detailer, or SeedVR2 / final image. Existing tagged V4 workflows gain the missing preview branches on import.
+- Preserved inpaint/outpaint surroundings in the Face Detailer preview. Always latest retains the furthest completed stage even if preview events arrive out of order.
+
+## Unreleased · outpainting inside the mask editor
+
+- Added Outpaint mode with image sizing, drag placement, alignment shortcuts, automatic selection of uncovered canvas, and adjustable overlap. The complete canvas uses the existing output dimensions and megapixel budget.
+- Saved placements travel with workflow/image metadata through the existing mask field. Supports legacy and independent crop modes; no widget-order or workflow rewiring changes.
+
+## Unreleased · reliable setup and separate finishing panels
+
+- Fixed SeedVR2 post-upscale imports omitting ComfyUI’s extra seed control, which shifted the model, VAE, denoise and color-correction values. The bundled JSON now contains the complete widget order; compatible older exports are repaired on import.
+- Split Generate & finish into Generate, First upscale, Second upscale, Face detail and SeedVR2 panels, including App Mode entries. Existing generation controls and wiring are preserved.
+- Reordered panels by frequency of use: setup first, finishing/save next, then editing, prompts and seed/guidance beside the result. App Mode follows the same order; the ordering migration runs once.
+- Defaulted the fresh-install workflow to public Krea2 in Single model mode. Existing personal workflows keep their selected models.
+- Restored ComfyUI’s native searchable LoRA dropdown on the stack node and workflow panel, replacing the datalist that initially showed only the selected filename.
+- Clarified download failure counts and provider-specific authentication errors. Verified the actual Download missing flow installs SeedVR2’s model and VAE in their correct folders.
+
 ## Unreleased · isolate native reference guidance from face refinement
 
 - Fixed native **Reference guidance** leaking into `face_positive`. The full

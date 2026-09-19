@@ -1,4 +1,4 @@
-# DonutNodes + Donut Workflow V4 Beta
+# DonutNodes + Donut Workflow V5
 
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Development-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/donutsdelivery)
 
@@ -6,15 +6,15 @@
 around its Krea2 model setup, LoRA controls, editing, prompting, generation and
 saving. You can also use the individual nodes in your own ComfyUI workflows.
 
-## Start with Donut Workflow V4 Beta
+## Start with Donut Workflow V5
 
-**[Download the workflow](workflows/v4-beta/DonutWF_v4_beta.json)** ·
-**[Setup and usage](workflows/v4-beta/README.md)** ·
-**[V3 → V4 Beta changelog](workflows/v4-beta/CHANGELOG.md)**
+**[Download the workflow](workflows/v5/DonutWF_v5.json)** ·
+**[Setup and usage](workflows/v5/README.md)** ·
+**[Workflow changelog](workflows/v5/CHANGELOG.md)**
 
-![Donut Workflow V4 Beta — redesigned controls](workflows/v4-beta/workflow-overview.png)
+![Donut Workflow V5 — redesigned controls](workflows/v5/workflow-overview.png)
 
-**New look, you will be shook.** V4 Beta replaces V3's spread-out controls with
+**New look, you will be shook.** V5 replaces V3's spread-out controls with
 numbered cards, collapsible Advanced settings and inspectable source/generation
 subgraphs. Everyday controls stay accessible in Graph and App Mode.
 
@@ -31,12 +31,12 @@ subgraphs. Everyday controls stay accessible in Graph and App Mode.
   WebP, without a WAS dependency.
 
 V3 already included face detailing, editing, model merging, LoRA stacking and
-upscaling. The [changelog](workflows/v4-beta/CHANGELOG.md) separates those existing
-capabilities from V4 Beta's additions and installation fixes.
+upscaling. The [changelog](workflows/v5/CHANGELOG.md) separates those existing
+capabilities from V5's additions and installation fixes.
 
 ## Installation
 
-1. Install or update **DonutNodes to the code accompanying V4 Beta**. In ComfyUI
+1. Install or update **DonutNodes to the code accompanying V5**. In ComfyUI
    Manager, search for **DonutNodes**. If the installed release does not yet
    contain `DonutImageSave` and `DonutEditStudio`, use the matching beta source;
    an older package is not sufficient.
@@ -48,7 +48,7 @@ capabilities from V4 Beta's additions and installation fixes.
 4. Select your models/LoRAs, use **Download missing** for catalogued files, review
    the prompts and save settings, and click **Run**.
 
-See the [workflow README](workflows/v4-beta/README.md) for model filenames,
+See the [workflow README](workflows/v5/README.md) for model filenames,
 companion packs, editing, wildcard files, saving and migration from V3.
 
 ### Manual node installation
@@ -62,7 +62,7 @@ python -m pip install -r requirements.txt
 
 Use the Python interpreter that launches ComfyUI, then restart and refresh.
 For an existing checkout, update it rather than creating a duplicate node folder.
-The workflow release name **V4 Beta** is separate from the DonutNodes package
+The workflow release name **V5** is separate from the DonutNodes package
 version. These documents and the bundled JSON are prepared with the current
 source; this is not a claim that an older registry release contains the beta.
 
@@ -95,7 +95,7 @@ and spectral sharpening. Experimental execution modes remain optional.
 - [ComfyUI-DonutLocalAutomation](https://github.com/DonutsDelivery/ComfyUI-DonutLocalAutomation): local Prompt Receiver and Image Reporter nodes.
 - [ComfyUI-DonutCivitaiLocal](https://github.com/DonutsDelivery/ComfyUI-DonutCivitaiLocal): local CivitAI library and workflow-recovery tools.
 
-These are separate from the seven companion packs required by V4 Beta. Install
+These are separate from the seven companion packs required by V5. Install
 DonutLocalAutomation to retain `DonutPromptReceiver` and `DonutImageReporter`
 when using older personal workflows that contain them.
 

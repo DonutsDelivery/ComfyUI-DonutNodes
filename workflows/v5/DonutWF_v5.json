@@ -1,7 +1,7 @@
 {
   "id": "af40cf96-e217-4ea4-ac49-1fe5b69d531a",
   "revision": 9,
-  "last_node_id": 1163,
+  "last_node_id": 1174,
   "last_link_id": 1115407,
   "nodes": [
     {
@@ -413,7 +413,7 @@
           ]
         }
       ],
-      "title": "03 · Image setup & editing",
+      "title": "09 · Image setup & editing",
       "properties": {
         "cnr_id": "donutnodes",
         "Node name for S&R": "DonutEditStudio",
@@ -1215,7 +1215,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "04 · Prompts",
+      "title": "10 · Prompts",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1482,7 +1482,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "05 · Seed & guidance",
+      "title": "11 · Seed & guidance",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1671,7 +1671,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "06 · Generate & finish",
+      "title": "03 · Generation setup",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -2061,710 +2061,6 @@
               "color": "#88b8f3",
               "donut_source_title": "Advanced · Sampler preset",
               "donut_category_rank": 14,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · first upscale",
-              "advanced": false,
-              "controls": [
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "upscale_1_enabled",
-                  "title": "First upscale"
-                },
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "rescale_factor",
-                  "title": "Rescale factor"
-                },
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "denoise",
-                  "title": "First upscale denoise"
-                },
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "tiled_diffusion",
-                  "title": "Tiled diffusion"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Generation and finish",
-              "donut_category_rank": 30,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · first upscale · advanced",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "resampling_method",
-                  "title": "Resampling method"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "feather",
-                  "title": "Feather"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "tiled_vae",
-                  "title": "Tiled vae"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "color_preserve_strength",
-                  "title": "Color preserve strength"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · First upscale",
-              "donut_category_rank": 31,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · first upscale · NAG",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_enabled",
-                  "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Nag phi"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · First upscale",
-              "donut_category_rank": 32,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Face detail",
-              "advanced": false,
-              "controls": [
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "denoise_1",
-                  "title": "Face denoise"
-                },
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "max_faces",
-                  "title": "Max faces"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "mode": "bypass",
-                  "title": "Face detail",
-                  "fallback_type": "DonutFaceDetailer",
-                  "unavailable_message": "Face detail is unavailable because this workflow has no Face Detailer node. Load the current V4 Beta workflow."
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Generation and finish",
-              "donut_category_rank": 40,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Face detail · sampling",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "resolution",
-                  "title": "Resolution"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "max_resolution",
-                  "title": "Max resolution"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "guide_size_for",
-                  "title": "Guide size for"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "cfg",
-                  "title": "Cfg"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "feather",
-                  "title": "Feather"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "noise_mask",
-                  "title": "Noise mask"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "force_inpaint",
-                  "title": "Force inpaint"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "wildcard",
-                  "title": "Wildcard"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "cycle",
-                  "title": "Cycle"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "inpaint_model",
-                  "title": "Inpaint model"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "noise_mask_feather",
-                  "title": "Noise mask feather"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "vary_seed_per_face",
-                  "title": "Vary seed per face"
-                },
-                {
-                  "path": [
-                    1014,
-                    1095
-                  ],
-                  "widget": "strength",
-                  "title": "Strength"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
-              "donut_category_rank": 41,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Face detail · detection and masks",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "bbox_threshold",
-                  "title": "Bbox threshold"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "bbox_dilation",
-                  "title": "Bbox dilation"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "bbox_crop_factor",
-                  "title": "Bbox crop factor"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_detection_hint",
-                  "title": "Sam detection hint"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_dilation",
-                  "title": "Sam dilation"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_threshold",
-                  "title": "Sam threshold"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_bbox_expansion",
-                  "title": "Sam bbox expansion"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_mask_hint_threshold",
-                  "title": "Sam mask hint threshold"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "sam_mask_hint_use_negative",
-                  "title": "Sam mask hint use negative"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "drop_size",
-                  "title": "Drop size"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
-              "donut_category_rank": 42,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Face detail · NAG",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_enabled",
-                  "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Nag phi"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · Face detail",
-              "donut_category_rank": 43,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · second upscale",
-              "advanced": false,
-              "controls": [
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "upscale_2_enabled",
-                  "title": "Second upscale"
-                },
-                {
-                  "path": [
-                    1014
-                  ],
-                  "widget": "denoise_2",
-                  "title": "Second upscale denoise"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Generation and finish",
-              "donut_category_rank": 50,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · second upscale · advanced",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "resampling_method",
-                  "title": "Resampling method"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "feather",
-                  "title": "Feather"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "tiled_vae",
-                  "title": "Tiled vae"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "color_preserve_strength",
-                  "title": "Color preserve strength"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · Second upscale",
-              "donut_category_rank": 51,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "Donut hires · second upscale · NAG",
-              "advanced": true,
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_enabled",
-                  "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Nag phi"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
-                }
-              ],
-              "color": "#88b8f3",
-              "donut_source_title": "Advanced · Second upscale",
-              "donut_category_rank": 52,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "SeedVR2 · post upscale",
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "enabled",
-                  "title": "Enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_upscale_factor",
-                  "title": "Factor"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_model_name",
-                  "title": "Model"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_vae_name",
-                  "title": "VAE"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_color_correction",
-                  "title": "Color correction"
-                }
-              ],
-              "advanced": false,
-              "donut_source_title": "SeedVR2 · post upscale",
-              "donut_category_rank": 60,
-              "donut_category_fixed": true
-            },
-            {
-              "title": "SeedVR2 · post upscale · advanced",
-              "controls": [
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "resampling_method",
-                  "title": "Resampling"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_steps",
-                  "title": "Steps"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_denoise",
-                  "title": "Denoise"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seedvr2_vae_tile_size",
-                  "title": "VAE tile size"
-                },
-                {
-                  "path": [
-                    1014,
-                    1170
-                  ],
-                  "widget": "seed",
-                  "title": "Seed"
-                }
-              ],
-              "advanced": true,
-              "donut_source_title": "SeedVR2 · post upscale",
-              "donut_category_rank": 61,
               "donut_category_fixed": true
             }
           ],
@@ -4336,12 +3632,21 @@
         "sources": {
           "912": "Base generation",
           "913": "First upscale",
-          "914": "Final image"
+          "914": "SeedVR2 / final image",
+          "1014:1171": "Second upscale",
+          "1014:1173": "Face Detailer"
         },
-        "panel_width": 1000
+        "panel_width": 1000,
+        "source_order": [
+          "912",
+          "913",
+          "1014:1171",
+          "1014:1173",
+          "914"
+        ]
       },
       "widgets_values": [],
-      "title": "07 · Latest result",
+      "title": "12 · Latest result",
       "color": "#243e36",
       "bgcolor": "#15271f"
     },
@@ -4420,6 +3725,858 @@
       "title": "Required node packs",
       "color": "#333333",
       "bgcolor": "#222222"
+    },
+    {
+      "id": 1171,
+      "type": "DonutWorkflowPanel",
+      "title": "04 · First upscale",
+      "pos": [
+        3202,
+        1245
+      ],
+      "size": [
+        480,
+        400
+      ],
+      "flags": {},
+      "order": 21,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "donut_panel_role": "hires",
+        "donut_finish_stage": "first",
+        "donut_columns": "sections",
+        "panel_width": 480,
+        "panel_min_width": 480,
+        "donut_app_controls": {
+          "groups": [
+            {
+              "title": "Donut hires · first upscale",
+              "advanced": false,
+              "controls": [
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "upscale_1_enabled",
+                  "title": "First upscale"
+                },
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "rescale_factor",
+                  "title": "Rescale factor"
+                },
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "denoise",
+                  "title": "First upscale denoise"
+                },
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "tiled_diffusion",
+                  "title": "Tiled diffusion"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Generation and finish",
+              "donut_category_rank": 30,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · first upscale · advanced",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "resampling_method",
+                  "title": "Resampling method"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "feather",
+                  "title": "Feather"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "tiled_vae",
+                  "title": "Tiled vae"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "color_preserve_strength",
+                  "title": "Color preserve strength"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · First upscale",
+              "donut_category_rank": 31,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · first upscale · NAG",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_enabled",
+                  "title": "Nag enabled"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_phi",
+                  "title": "Nag phi"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_tau",
+                  "title": "Nag tau"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_sigma_start",
+                  "title": "Nag sigma start"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_sigma_end",
+                  "title": "Nag sigma end"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_ref_boost",
+                  "title": "Nag ref boost"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_ref_boost_a",
+                  "title": "Nag ref boost a"
+                },
+                {
+                  "path": [
+                    1014,
+                    989
+                  ],
+                  "widget": "nag_fit_mode",
+                  "title": "Nag fit mode"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · First upscale",
+              "donut_category_rank": 32,
+              "donut_category_fixed": true
+            }
+          ],
+          "seed_path": [
+            1138,
+            1137
+          ],
+          "title": "07 · First upscale"
+        }
+      },
+      "color": "#83bbd9",
+      "bgcolor": "#1b242c",
+      "widgets_values": []
+    },
+    {
+      "id": 1172,
+      "type": "DonutWorkflowPanel",
+      "title": "06 · Face detail",
+      "pos": [
+        3202,
+        1245
+      ],
+      "size": [
+        480,
+        400
+      ],
+      "flags": {},
+      "order": 22,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "donut_panel_role": "face",
+        "donut_finish_stage": "face",
+        "donut_columns": "sections",
+        "panel_width": 480,
+        "panel_min_width": 480,
+        "donut_app_controls": {
+          "groups": [
+            {
+              "title": "Face detail",
+              "advanced": false,
+              "controls": [
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "denoise_1",
+                  "title": "Face denoise"
+                },
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "max_faces",
+                  "title": "Max faces"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "mode": "bypass",
+                  "title": "Face detail",
+                  "fallback_type": "DonutFaceDetailer",
+                  "unavailable_message": "Face detail is unavailable because this workflow has no Face Detailer node. Load the current V5 workflow."
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Generation and finish",
+              "donut_category_rank": 40,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Face detail · sampling",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "resolution",
+                  "title": "Resolution"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "max_resolution",
+                  "title": "Max resolution"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "guide_size_for",
+                  "title": "Guide size for"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "cfg",
+                  "title": "Cfg"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "feather",
+                  "title": "Feather"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "noise_mask",
+                  "title": "Noise mask"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "force_inpaint",
+                  "title": "Force inpaint"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "wildcard",
+                  "title": "Wildcard"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "cycle",
+                  "title": "Cycle"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "inpaint_model",
+                  "title": "Inpaint model"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "noise_mask_feather",
+                  "title": "Noise mask feather"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "vary_seed_per_face",
+                  "title": "Vary seed per face"
+                },
+                {
+                  "path": [
+                    1014,
+                    1095
+                  ],
+                  "widget": "strength",
+                  "title": "Strength"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · Face detail",
+              "donut_category_rank": 41,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Face detail · detection and masks",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "bbox_threshold",
+                  "title": "Bbox threshold"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "bbox_dilation",
+                  "title": "Bbox dilation"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "bbox_crop_factor",
+                  "title": "Bbox crop factor"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_detection_hint",
+                  "title": "Sam detection hint"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_dilation",
+                  "title": "Sam dilation"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_threshold",
+                  "title": "Sam threshold"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_bbox_expansion",
+                  "title": "Sam bbox expansion"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_mask_hint_threshold",
+                  "title": "Sam mask hint threshold"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "sam_mask_hint_use_negative",
+                  "title": "Sam mask hint use negative"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "drop_size",
+                  "title": "Drop size"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · Face detail",
+              "donut_category_rank": 42,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Face detail · NAG",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_enabled",
+                  "title": "Nag enabled"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_phi",
+                  "title": "Nag phi"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_tau",
+                  "title": "Nag tau"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_sigma_start",
+                  "title": "Nag sigma start"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_sigma_end",
+                  "title": "Nag sigma end"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_ref_boost",
+                  "title": "Nag ref boost"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_ref_boost_a",
+                  "title": "Nag ref boost a"
+                },
+                {
+                  "path": [
+                    1014,
+                    984
+                  ],
+                  "widget": "nag_fit_mode",
+                  "title": "Nag fit mode"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · Face detail",
+              "donut_category_rank": 43,
+              "donut_category_fixed": true
+            }
+          ],
+          "seed_path": [
+            1138,
+            1137
+          ],
+          "title": "08 · Face detail"
+        }
+      },
+      "color": "#e4a4bf",
+      "bgcolor": "#1b242c",
+      "widgets_values": []
+    },
+    {
+      "id": 1173,
+      "type": "DonutWorkflowPanel",
+      "title": "05 · Second upscale",
+      "pos": [
+        3202,
+        1245
+      ],
+      "size": [
+        480,
+        400
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "donut_panel_role": "hires",
+        "donut_finish_stage": "second",
+        "donut_columns": "sections",
+        "panel_width": 480,
+        "panel_min_width": 480,
+        "donut_app_controls": {
+          "groups": [
+            {
+              "title": "Donut hires · second upscale",
+              "advanced": false,
+              "controls": [
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "upscale_2_enabled",
+                  "title": "Second upscale"
+                },
+                {
+                  "path": [
+                    1014
+                  ],
+                  "widget": "denoise_2",
+                  "title": "Second upscale denoise"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Generation and finish",
+              "donut_category_rank": 50,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · second upscale · advanced",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "resampling_method",
+                  "title": "Resampling method"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "feather",
+                  "title": "Feather"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "tiled_vae",
+                  "title": "Tiled vae"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "color_preserve_strength",
+                  "title": "Color preserve strength"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · Second upscale",
+              "donut_category_rank": 51,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · second upscale · NAG",
+              "advanced": true,
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_enabled",
+                  "title": "Nag enabled"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_phi",
+                  "title": "Nag phi"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_tau",
+                  "title": "Nag tau"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_sigma_start",
+                  "title": "Nag sigma start"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_sigma_end",
+                  "title": "Nag sigma end"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_ref_boost",
+                  "title": "Nag ref boost"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_ref_boost_a",
+                  "title": "Nag ref boost a"
+                },
+                {
+                  "path": [
+                    1014,
+                    983
+                  ],
+                  "widget": "nag_fit_mode",
+                  "title": "Nag fit mode"
+                }
+              ],
+              "color": "#88b8f3",
+              "donut_source_title": "Advanced · Second upscale",
+              "donut_category_rank": 52,
+              "donut_category_fixed": true
+            }
+          ],
+          "seed_path": [
+            1138,
+            1137
+          ],
+          "title": "09 · Second upscale"
+        }
+      },
+      "color": "#83bbd9",
+      "bgcolor": "#1b242c",
+      "widgets_values": []
+    },
+    {
+      "id": 1174,
+      "type": "DonutWorkflowPanel",
+      "title": "07 · SeedVR2 upscale",
+      "pos": [
+        3202,
+        1245
+      ],
+      "size": [
+        480,
+        400
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {
+        "donut_panel_role": "post",
+        "donut_finish_stage": "post",
+        "donut_columns": "sections",
+        "panel_width": 480,
+        "panel_min_width": 480,
+        "donut_app_controls": {
+          "groups": [
+            {
+              "title": "SeedVR2 · post upscale",
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "enabled",
+                  "title": "Enabled"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_upscale_factor",
+                  "title": "Factor"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_model_name",
+                  "title": "Model"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_vae_name",
+                  "title": "VAE"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_color_correction",
+                  "title": "Color correction"
+                }
+              ],
+              "advanced": false,
+              "donut_source_title": "SeedVR2 · post upscale",
+              "donut_category_rank": 60,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "SeedVR2 · post upscale · advanced",
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "resampling_method",
+                  "title": "Resampling"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_steps",
+                  "title": "Steps"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_denoise",
+                  "title": "Denoise"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_vae_tile_size",
+                  "title": "VAE tile size"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seed",
+                  "title": "Seed"
+                }
+              ],
+              "advanced": true,
+              "donut_source_title": "SeedVR2 · post upscale",
+              "donut_category_rank": 61,
+              "donut_category_fixed": true
+            }
+          ],
+          "seed_path": [
+            1138,
+            1137
+          ],
+          "title": "10 · SeedVR2 upscale"
+        }
+      },
+      "color": "#90c9ae",
+      "bgcolor": "#1b242c",
+      "widgets_values": []
     }
   ],
   "links": [
@@ -4728,8 +4885,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 1170,
-          "lastLinkId": 1115408,
+          "lastNodeId": 1173,
+          "lastLinkId": 1115412,
           "lastRerouteId": 1
         },
         "revision": 2,
@@ -5379,7 +5536,8 @@
               1115401,
               1115403,
               1115405,
-              1115407
+              1115407,
+              1115411
             ],
             "pos": [
               -500,
@@ -6047,7 +6205,8 @@
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
-                  1115406
+                  1115406,
+                  1115410
                 ]
               },
               {
@@ -7459,7 +7618,8 @@
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
-                  1073494
+                  1073494,
+                  1115409
                 ]
               }
             ],
@@ -7648,6 +7808,7 @@
               "lanczos",
               false,
               0,
+              "fixed",
               "seedvr2_3b_int8_convrot.safetensors",
               "seedvr2_ema_vae_fp16.safetensors",
               1,
@@ -7665,9 +7826,114 @@
               "seedvr2_steps": 1,
               "seedvr2_denoise": 1,
               "seedvr2_color_correction": "none",
-              "seedvr2_vae_tile_size": 512
+              "seedvr2_vae_tile_size": 512,
+              "control_after_generate": "fixed"
             },
             "title": "SeedVR2 · post upscale"
+          },
+          {
+            "id": 1171,
+            "type": "PreviewImage",
+            "pos": [
+              1400,
+              800
+            ],
+            "size": [
+              220,
+              80
+            ],
+            "flags": {
+              "collapsed": true
+            },
+            "order": 14,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "images",
+                "type": "IMAGE",
+                "link": 1115409
+              }
+            ],
+            "outputs": [],
+            "title": "Result · second upscale",
+            "properties": {
+              "Node name for S&R": "PreviewImage",
+              "donut_preview_stage": "second"
+            }
+          },
+          {
+            "id": 1172,
+            "type": "DonutInpaintComposite",
+            "pos": [
+              1100,
+              1100
+            ],
+            "size": [
+              220,
+              80
+            ],
+            "flags": {
+              "collapsed": true
+            },
+            "order": 15,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115410
+              },
+              {
+                "name": "inpaint",
+                "type": "DONUT_INPAINT",
+                "link": 1115411,
+                "shape": 7
+              }
+            ],
+            "outputs": [
+              {
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1115412
+                ]
+              }
+            ],
+            "title": "Face preview · keep surroundings",
+            "properties": {
+              "Node name for S&R": "DonutInpaintComposite",
+              "donut_preview_stage": "face_composite"
+            }
+          },
+          {
+            "id": 1173,
+            "type": "PreviewImage",
+            "pos": [
+              1400,
+              1100
+            ],
+            "size": [
+              220,
+              80
+            ],
+            "flags": {
+              "collapsed": true
+            },
+            "order": 16,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "images",
+                "type": "IMAGE",
+                "link": 1115412
+              }
+            ],
+            "outputs": [],
+            "title": "Result · Face Detailer",
+            "properties": {
+              "Node name for S&R": "PreviewImage",
+              "donut_preview_stage": "face"
+            }
           }
         ],
         "groups": [
@@ -8800,6 +9066,38 @@
             "target_id": 1163,
             "target_slot": 0,
             "type": "IMAGE"
+          },
+          {
+            "id": 1115409,
+            "origin_id": 1162,
+            "origin_slot": 0,
+            "target_id": 1171,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115410,
+            "origin_id": 984,
+            "origin_slot": 0,
+            "target_id": 1172,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 1115411,
+            "origin_id": -10,
+            "origin_slot": 45,
+            "target_id": 1172,
+            "target_slot": 1,
+            "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115412,
+            "origin_id": 1172,
+            "origin_slot": 0,
+            "target_id": 1173,
+            "target_slot": 0,
+            "type": "IMAGE"
           }
         ],
         "extra": {
@@ -9334,7 +9632,7 @@
               "Grouped",
               1,
               0,
-              "Merge two models"
+              "Single model"
             ],
             "widgets_values_named": {
               "first.": 1,
@@ -9379,7 +9677,7 @@
               "ratio_mode": "Grouped",
               "body_ratio": 1,
               "fusion_ratio": 0,
-              "model_mode": "Merge two models"
+              "model_mode": "Single model"
             }
           },
           {
@@ -10474,11 +10772,11 @@
               }
             },
             "widgets_values": [
-              "finepornV4INT8NVFP4BF16_v4.safetensors",
+              "krea2_turbo_bf16.safetensors",
               "default"
             ],
             "widgets_values_named": {
-              "unet_name": "finepornV4INT8NVFP4BF16_v4.safetensors",
+              "unet_name": "krea2_turbo_bf16.safetensors",
               "weight_dtype": "default"
             }
           },
@@ -11421,6 +11719,30 @@
           "workflow_controls"
         ],
         [
+          1142,
+          "workflow_controls"
+        ],
+        [
+          1171,
+          "workflow_controls"
+        ],
+        [
+          1173,
+          "workflow_controls"
+        ],
+        [
+          1172,
+          "workflow_controls"
+        ],
+        [
+          1174,
+          "workflow_controls"
+        ],
+        [
+          1145,
+          "workflow_controls"
+        ],
+        [
           881,
           "edit_studio"
         ],
@@ -11438,14 +11760,6 @@
         ],
         [
           1141,
-          "workflow_controls"
-        ],
-        [
-          1142,
-          "workflow_controls"
-        ],
-        [
-          1145,
           "workflow_controls"
         ],
         [
@@ -11468,10 +11782,28 @@
       "gap_y": 70,
       "columns": [
         [
-          1144
+          1144,
+          1142,
+          1014,
+          1138,
+          912,
+          913,
+          914,
+          64,
+          759,
+          63
         ],
         [
           1143
+        ],
+        [
+          1171,
+          1173
+        ],
+        [
+          1172,
+          1174,
+          1145
         ],
         [
           881,
@@ -11483,28 +11815,15 @@
         ],
         [
           1141,
-          1142,
-          1014,
-          1138
-        ],
-        [
-          1152,
-          912,
-          913,
-          914
-        ],
-        [
-          1145,
-          64,
-          759,
-          63
+          1152
         ]
       ],
-      "header": 1151
+      "header": 1151,
+      "panel_order": "setup-finish-iterate-v2"
     },
     "donut_workflow": {
       "name": "Donut Workflow",
-      "release": "V4 Beta"
+      "release": "V5"
     }
   },
   "version": 0.4

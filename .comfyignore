@@ -49,3 +49,9 @@ htmlcov/
 
 # Automatic downloader remains excluded: its network/environment operations were flagged
 /donut_model_downloads.py
+
+# Standalone manual/Civitai installers must never enter a Comfy Registry package.
+/install_models.py
+/install-models.sh
+/install-models.bat
+/model-installer/

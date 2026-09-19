@@ -55,12 +55,19 @@ def prepare(archive, destination):
     if destination.exists():
         raise ValueError("Use a new staging directory to avoid stale release files")
     replacement = Path(__file__).resolve().parents[1] / "distribution/registry/donut_model_downloads.js"
+    forbidden_files = {
+        "donut_model_downloads.py", "docs/publishing.md", "AGENTS.md",
+        "install_models.py", "install-models.sh", "install-models.bat",
+    }
+    forbidden_prefixes = (
+        "tools/", "tests/", "distribution/", "docs/validation/", ".git/", "model-installer/",
+    )
     with zipfile.ZipFile(archive) as source:
         for name in source.namelist():
             path = PurePosixPath(name)
             if path.is_absolute() or ".." in path.parts or "\\" in name:
                 raise ValueError(f"Unsafe archive path: {name}")
-            if name in ("donut_model_downloads.py", "docs/publishing.md", "AGENTS.md") or name.startswith(("tools/", "tests/", "distribution/", "docs/validation/", ".git/")):
+            if name in forbidden_files or name.startswith(forbidden_prefixes):
                 raise ValueError(f"Non-registry file in packed archive: {name}; check .comfyignore")
         required = {"assets/uncensorfix.f32", "uncensorfix_weights.py", "model_sources.json", "pyproject.toml",
                     "web/donut_model_requirements.js", "web/donut_model_downloads.js", "web/donut_layout.js"}

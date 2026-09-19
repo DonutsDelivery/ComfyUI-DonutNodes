@@ -7,6 +7,7 @@ from copy import deepcopy
 import inspect
 import json
 
+from .donut_inpaint import prepare_outpaint
 from . import DonutEditStudio as studio
 from . import donut_reference_mask as subjects
 from .donut_reference_geometry import (
@@ -17,7 +18,7 @@ from .donut_reference_geometry import (
 _Base = subjects.DonutSubjectMaskStudio
 _BASE_ARGUMENTS = set(inspect.signature(studio.DonutEditStudio.prepare).parameters) - {"self"}
 _MASK_ARGUMENTS = {"mask_b_mode", "mask_b_model", "mask_b_data", "mask_b_grow",
-                   "mask_b_feather", "mask_b_background", "mask_b"}
+                   "mask_b_feather", "mask_b_background", "mask_b", "mask_b_prompt", "mask_b_threshold"}
 
 
 def crop_input_types(edit=True):
@@ -41,6 +42,8 @@ def isolated_b(name, source, options):
         raise ValueError("Reference B is too large for Smart Mask; use an image under 32 megapixels.")
     if mode == "Auto subject":
         record, mask = subjects.auto_mask(name, source, options.get("mask_b_model", subjects.MODEL_NAME))
+    elif mode == "Prompt selection":
+        record, mask = subjects.prompt_mask(name, source, options.get("mask_b_prompt", ""), options.get("mask_b_threshold", 0.5))
     elif mode == "Saved mask":
         try:
             record = json.loads(options.get("mask_b_data", ""))
@@ -66,6 +69,7 @@ class DonutCropEditStudio(_Base):
     def INPUT_TYPES(cls):
         result = deepcopy(super().INPUT_TYPES())
         result.setdefault("optional", {}).update(crop_input_types())
+        result["optional"].update(subjects.prompt_mask_inputs())
         return result
 
     def prepare(self, *args, geometry_mode=LEGACY, crop_data_a="", crop_data_b="",
@@ -105,9 +109,13 @@ class DonutCropEditStudio(_Base):
             b, record, fill = isolated_b(values["image_b"], b, kwargs)
             result[1], _ = crop_fit_image(b, box_b, size, background=fill)
         if values["inpaint_enabled"]:
-            content_mask = studio.rasterize_mask(values["mask_data"], values["image_a"],
-                a.size, box_a, fit_a.content, 0)
-            result[8] = {"image": result[0], "mask": fit_mask(content_mask, fit_a, values["mask_feather"])}
+            outpaint = prepare_outpaint(a, values["mask_data"], values["image_a"], size, values["mask_feather"])
+            if outpaint is not None:
+                result[0], result[8] = outpaint["image"], outpaint
+            else:
+                content_mask = studio.rasterize_mask(values["mask_data"], values["image_a"],
+                    a.size, box_a, fit_a.content, 0)
+                result[8] = {"image": result[0], "mask": fit_mask(content_mask, fit_a, values["mask_feather"])}
         edit_model = result[6]
         if not hasattr(edit_model, "clone") or not isinstance(getattr(edit_model, "model_options", None), dict):
             raise TypeError("Independent crops require a ComfyUI model patcher.")

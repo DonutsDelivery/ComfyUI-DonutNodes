@@ -10,13 +10,16 @@ function load(file, name) {
     return vm.runInNewContext(`${source}\n${name}`,{});
 }
 function migrate(workflow) {
-    if (workflow?.extra?.donut_workflow?.release !== 'V4 Beta') throw new Error('Expected a tagged Donut V4 Beta workflow.');
+    if (!['V4 Beta','V5'].includes(workflow?.extra?.donut_workflow?.release)) throw new Error('Expected a tagged Donut V4 Beta or V5 workflow.');
     const repair = load('donut_seedvr2_workflow_repair.js','repairSeedVR2Workflow');
     const categorize = load('donut_panel_categories_model.js','organizeV4Panels');
     const report = repair(workflow);
     if (report.warnings.length) throw new Error(report.warnings.join('\n'));
     const panels = categorize(workflow).length;
-    return {...report,panels};
+    const split = load('donut_panel_categories_model.js','splitV4FinishingPanels');
+    const finishingPanels = split(workflow).length;
+    load('donut_panel_categories_model.js','arrangeV4ByFrequency')(workflow);
+    return {...report,panels,finishingPanels};
 }
 if (require.main === module) {
     try {

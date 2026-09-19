@@ -27,6 +27,11 @@ import comfy.k_diffusion.sampling as k_diffusion_sampling
 import latent_preview
 
 try:
+    from .krea2_memory import patch_krea2_upscale_memory
+except ImportError:
+    from krea2_memory import patch_krea2_upscale_memory
+
+try:
     from .donut_inpaint import masked_edit_target
 except ImportError:
     from donut_inpaint import masked_edit_target
@@ -1211,6 +1216,14 @@ class DonutSampler(_DonutSamplerEngine):
                     model_3 = apply_krea2_nag(model_3, negative, **patch_options)
             cfg_start = cfg_halfway = cfg_end = 1.0
         negative = sampler_negative(negative, turbo_mode)
+
+        if edit_mode:
+            model = patch_krea2_upscale_memory(model)
+            if mode == "multi_model":
+                if model_2 is not None:
+                    model_2 = patch_krea2_upscale_memory(model_2)
+                if model_3 is not None:
+                    model_3 = patch_krea2_upscale_memory(model_3)
 
         if mode == "advanced":
             result = self.run_advanced(

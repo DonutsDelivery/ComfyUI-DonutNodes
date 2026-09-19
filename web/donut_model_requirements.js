@@ -38,16 +38,17 @@ export function modelBindings(graph) {
         if (!current || seen.has(current)) return;
         seen.add(current);
         for (const node of current.nodes || []) {
-            if (node.mode === 2 || node.mode === 4) continue;
             visit(node.subgraph);
             const type = node.comfyClass || node.type;
             const selected = name => node.widgets?.find(widget => widget.name === name)?.value;
             const loaders = {...(LOADERS[type] || {})};
-            // These models are loaded inside the existing modules rather than
-            // separate loader nodes. Prepare the chosen feature configuration,
-            // even before its stage/Editing toggle is enabled. Off/Donut and
-            // saved/manual/external masks do not request these optional weights.
-            if (type === "DonutTiledUpscale" && selected("upscale_engine") === "SeedVR2") {
+            if (type === "DonutSubjectMaskPreview" && selected("model_name") === "sam3.1_multiplex_fp16.safetensors") {
+                loaders.model_name = "checkpoints";
+            }
+            // These models are loaded inside existing modules rather than separate
+            // loader nodes. Download every configured feature model whether its
+            // toggle is currently on or off, so one click prepares the whole workflow.
+            if (type === "DonutTiledUpscale") {
                 loaders.seedvr2_model_name = "diffusion_models";
                 loaders.seedvr2_vae_name = "vae";
             }
@@ -55,8 +56,11 @@ export function modelBindings(graph) {
                 loaders.seedvr2_model_name = "diffusion_models";
                 loaders.seedvr2_vae_name = "vae";
             }
-            if (type === "DonutEditStudio" && selected("mask_b_mode") === "Auto subject") {
+            if (type === "DonutEditStudio") {
                 loaders.mask_b_model = "background_removal";
+                if (node.widgets?.some(widget => widget.name === "mask_b_prompt")) {
+                    bindings.push({folder:"checkpoints", name:"sam3.1_multiplex_fp16.safetensors", update() {}});
+                }
             }
             for (const [name, folder] of Object.entries(loaders)) {
                 const widget = node.widgets?.find(widget => widget.name === name);
@@ -64,9 +68,9 @@ export function modelBindings(graph) {
                 const original = widget.value;
                 add(node, widget, folder, original, value => widget.value === original ? value : undefined);
             }
-            if (type === "DonutSampler" && node.widgets?.find(widget => widget.name === "sda_enabled")?.value === true) {
-                // SDA is a native fixed adapter rather than a filename widget.
-                // Expose it to Download missing only while the feature is enabled.
+            if (type === "DonutSampler" && node.widgets?.some(widget => widget.name === "sda_enabled")) {
+                // SDA is a fixed adapter rather than a filename widget. Its presence
+                // means the workflow exposes the feature, even when currently off.
                 bindings.push({folder:"loras", name:KREA2_SDA_LORA, update() {}});
             }
             if (["DonutLoRALoader", "DonutDynamicLoRAStack"].includes(type)) {
@@ -76,7 +80,6 @@ export function modelBindings(graph) {
                 try { rows = JSON.parse(widget.value); } catch { continue; }
                 if (!Array.isArray(rows)) continue;
                 for (const row of rows) {
-                    if (row.enabled === false) continue;
                     add(node, widget, "loras", row.lora_name, value => {
                         const current = JSON.parse(widget.value);
                         const found = current.find(candidate => candidate.id === row.id && candidate.lora_name === row.lora_name);

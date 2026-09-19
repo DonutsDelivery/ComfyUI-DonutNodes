@@ -137,6 +137,21 @@ class EditStudioTests(unittest.TestCase):
         settings['enabled'] = False
         self.assertIsNone(module.DonutEditStudio().prepare(**settings)[8])
 
+    def test_outpaint_roundtrip_uses_existing_output_canvas(self):
+        name=self.reference((64,128))
+        data=json.dumps({'version':1,'image':name,'strokes':[],
+                         'outpaint':{'scale':1,'x':0,'y':.5,'overlap':0}})
+        settings=self.settings(enabled=True,image_a=name,lora_name='None',
+                               resolution_mode='Custom',width=128,height=128,
+                               inpaint_enabled=True,mask_data=data,mask_feather=8)
+        out=module.DonutEditStudio().prepare(**json.loads(json.dumps(settings)),model='model')
+        self.assertEqual(out[3:5],(128,128))
+        self.assertIs(out[0],out[8]['image'])
+        self.assertTrue(torch.all(out[8]['mask'][:,:,:64]==0))
+        self.assertTrue(torch.all(out[8]['mask'][:,:,64:]==1))
+        settings['inpaint_enabled']=False
+        self.assertIsNone(module.DonutEditStudio().prepare(**settings,model='model')[8])
+
     def test_whole_image_editing_ignores_a_saved_mask(self):
         settings = self.settings(enabled=True, image_a=self.reference((80, 80)),
             lora_name="None", inpaint_enabled=False, mask_data="obsolete mask")

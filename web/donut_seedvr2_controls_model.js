@@ -41,6 +41,7 @@ export function addSeedVR2Controls(rootGraph) {
             const title = group.title || entry.node.title || "Upscale";
             const engine = {
                 title:`${title} · engine`,
+                advanced:true,
                 description:"Donut preserves the existing upscale + diffusion recipe. SeedVR2 shares the stage seed, scale and resize filter, but uses its own model, VAE and sampling settings.",
                 controls:[field("upscale_engine", "Upscale engine")],
                 donut_seedvr2:true,

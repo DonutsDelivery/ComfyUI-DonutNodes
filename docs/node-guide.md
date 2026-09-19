@@ -1,6 +1,6 @@
 # DonutNodes node guide
 
-[Back to DonutNodes](../README.md) · [Donut Workflow V4 Beta](../workflows/v4-beta/README.md)
+[Back to DonutNodes](../README.md) · [Donut Workflow V5](../workflows/v5/README.md)
 
 ## Nodes
 

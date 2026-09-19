@@ -68,6 +68,20 @@ manual model-files panel in `distribution/registry/donut_model_downloads.js`.
 The initializer registers the optional backend only when its file is present.
 Neither distribution needs the retired subprocess probes.
 
+Standalone model installers distributed through Civitai or manual release ZIPs
+must also remain outside the Registry archive. `.comfyignore` excludes the
+supported installer filenames and `model-installer/` directory, while
+`tools/prepare_registry.py` rejects a packed archive containing any of them.
+Keep both protections when adding or renaming a standalone installer.
+
+The Registry Model files panel links to the separate GitHub auxiliary ZIP at
+`distribution/manual/DonutNodes-model-installer.zip`. Before publishing a version
+with installer or catalog changes, rebuild it with
+`python tools/build_model_installer.py distribution/manual/DonutNodes-model-installer.zip`
+and push that artifact to GitHub with the source changes. Verify the panel's
+download URL before publishing the Registry build. The entire `distribution/`
+directory is excluded from Registry archives and rejected by staging.
+
 To prepare a registry release, pack with `comfy node pack`, then run:
 
 ```sh

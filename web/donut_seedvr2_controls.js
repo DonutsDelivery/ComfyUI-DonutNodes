@@ -7,7 +7,8 @@ function refresh() {
     pending = true;
     queueMicrotask(() => {
         pending = false;
-        for (const panel of addSeedVR2Controls(app.rootGraph || app.graph)) {
+        if (!app.rootGraph) return;
+        for (const panel of addSeedVR2Controls(app.rootGraph)) {
             panel._donutAppControls?.render();
             panel.setDirtyCanvas?.(true, true);
         }

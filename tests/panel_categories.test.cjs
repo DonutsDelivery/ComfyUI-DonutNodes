@@ -8,7 +8,7 @@ function load(file, names) {
     const context = vm.createContext({});
     return vm.runInContext(`${source}\n({${names.join(',')}})`,context);
 }
-const {organizeV4Panels,categorizeGroups,graphEntries,SIZE_FIELDS} = load('donut_panel_categories_model.js',['organizeV4Panels','categorizeGroups','graphEntries','SIZE_FIELDS']);
+const {organizeV4Panels,categorizeGroups,graphEntries,SIZE_FIELDS,splitV4FinishingPanels} = load('donut_panel_categories_model.js',['organizeV4Panels','categorizeGroups','graphEntries','SIZE_FIELDS','splitV4FinishingPanels']);
 const {repairSeedVR2Workflow,POST_WIDGET_ORDER} = load('donut_seedvr2_workflow_repair.js',['repairSeedVR2Workflow','POST_WIDGET_ORDER']);
 const plain = value => JSON.parse(JSON.stringify(value));
 const same = (a,b) => assert.deepEqual(plain(a),plain(b));
@@ -153,7 +153,7 @@ function validate(graph) {
 }
 test('post widgets follow actual schema order, with enabled=false preserved',()=>{
     const graph=postFixture(); const named=plain(graph.nodes[2].widgets_values_named); const report=repairSeedVR2Workflow(graph);
-    assert.equal(report.widgetOrders,1); same(graph.nodes[2].widgets_values,POST_WIDGET_ORDER.map(key=>named[key])); assert.equal(graph.nodes[2].widgets_values[2],false);
+    assert.equal(report.widgetOrders,1); same(graph.nodes[2].widgets_values,POST_WIDGET_ORDER.map(key=>key === 'control_after_generate' ? 'fixed' : named[key])); assert.equal(graph.nodes[2].widgets_values[2],false);
 });
 for(const arrays of [false,true]) test(`post-pass is before final inpaint preservation; reciprocal links repaired (${arrays?'arrays':'objects'})`,()=>{
     const graph=postFixture(arrays), inputs=plain(graph.inputs), outputs=plain(graph.outputs);
@@ -208,6 +208,62 @@ test('authoring helper uses the same repairs and category definitions',()=>{
     const graph=fixture(); graph.definitions={subgraphs:[postFixture()]};
     const report=migrate(graph); assert.equal(report.inpaintOrders,1); assert.ok(report.panels>0);
     validate(graph.definitions.subgraphs[0]);
-    same(migrate(graph),{widgetOrders:0,inpaintOrders:0,warnings:[],panels:0});
+    same(migrate(graph),{widgetOrders:0,inpaintOrders:0,warnings:[],panels:0,finishingPanels:0});
     assert.throws(()=>migrate({nodes:[]}),/tagged/);
+});
+
+
+test('modern SeedVR2 arrays keep edited values rather than stale named metadata',()=>{
+    const graph=postFixture(); repairSeedVR2Workflow(graph);
+    graph.nodes[2].widgets_values[4]='increment';
+    graph.nodes[2].widgets_values[5]='custom-7b.safetensors';
+    const values=plain(graph.nodes[2].widgets_values);
+    repairSeedVR2Workflow(graph); same(graph.nodes[2].widgets_values,values);
+});
+test('split finishing panels preserve every control and all execution nodes',()=>{
+    const graph=fixture(); graph.extra.donut_layout={columns:[[graph.nodes[1].id]]};
+    graph.extra.linearData={inputs:[[graph.nodes[1].id,'workflow_controls']]};
+    organizeV4Panels(graph);
+    const controls=()=>graph.nodes.flatMap(n=>n.properties?.donut_app_controls?.groups || [])
+        .flatMap(g=>g.controls || []).map(c=>JSON.stringify(c)).sort();
+    const before=controls(); const links=JSON.stringify(graph.links);
+    const created=splitV4FinishingPanels(graph);
+    assert.equal(created.length,4); same(controls(),before);
+    assert.equal(JSON.stringify(graph.links),links);
+    assert.equal(new Set(graph.nodes.map(n=>n.id)).size,graph.nodes.length);
+    const saved=JSON.stringify(graph); same(splitV4FinishingPanels(graph),[]);
+    assert.equal(JSON.stringify(graph),saved);
+    assert.equal(graph.extra.donut_layout.columns.length,3);
+    same(graph.extra.linearData.inputs.slice(1),created.map(n=>[n.id,'workflow_controls']));
+});
+test('shipped SeedVR2 values include ComfyUI frontend seed control and discover both files',()=>{
+    const graph=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v5/DonutWF_v5.json')));
+    const post=graphEntries(graph).find(({node})=>node.type==='DonutSeedVR2Upscale').node;
+    // This is the actual required + optional widget order, INCLUDING the
+    // control automatically inserted by ComfyUI after an INT named seed.
+    const names=['seedvr2_upscale_factor','resampling_method','enabled','seed','control_after_generate',
+        'seedvr2_model_name','seedvr2_vae_name','seedvr2_steps','seedvr2_denoise','seedvr2_color_correction','seedvr2_vae_tile_size'];
+    assert.equal(post.widgets_values.length,names.length);
+    post.widgets=names.map((name,i)=>({name,value:post.widgets_values[i]}));
+    const {modelBindings}=load('donut_model_requirements.js',['modelBindings']);
+    same(modelBindings({nodes:[post]}).map(({folder,name})=>({folder,name})),[
+        {folder:'diffusion_models',name:'seedvr2_3b_int8_convrot.safetensors'},
+        {folder:'vae',name:'seedvr2_ema_vae_fp16.safetensors'}]);
+    assert.equal(post.widgets.find(w=>w.name==='seedvr2_denoise').value,1);
+    assert.equal(post.widgets.find(w=>w.name==='seedvr2_color_correction').value,'none');
+    const original=JSON.stringify(graph); repairSeedVR2Workflow(graph);
+    assert.equal(JSON.stringify(graph),original);
+});
+
+test('fresh-install workflow uses public Krea2 without changing personal model choices',()=>{
+    const shipped=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v5/DonutWF_v5.json')));
+    const nodes=graphEntries(shipped).map(({node})=>node);
+    const loaders=nodes.filter(n=>n.type==='UNETLoader');
+    assert.ok(loaders.length>=1);
+    for(const node of loaders) assert.equal(node.widgets_values_named.unet_name,'krea2_turbo_bf16.safetensors');
+    assert.equal(nodes.find(n=>n.type==='DonutModelMergeKrea2').widgets_values_named.model_mode,'Single model');
+    loaders[0].widgets_values_named.unet_name='personal.safetensors';
+    loaders[0].widgets_values[0]='personal.safetensors';
+    organizeV4Panels(shipped); splitV4FinishingPanels(shipped);
+    assert.equal(loaders[0].widgets_values[0],'personal.safetensors');
 });

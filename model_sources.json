@@ -117,6 +117,16 @@
         "LoadBackgroundRemovalModel",
         "RemoveBackground"
       ]
+    },
+    {
+      "folder": "checkpoints",
+      "filename": "sam3.1_multiplex_fp16.safetensors",
+      "url": "https://huggingface.co/Comfy-Org/sam3.1/resolve/f38cd62b71494b53ac2b56ca36e24f3c8d565581/checkpoints/sam3.1_multiplex_fp16.safetensors",
+      "sha256": "9ba99c92703c2e8b4f47de2d34a539bb8e18923049e238b780d70dbe6368eb03",
+      "size": 1745546848,
+      "requires_nodes": [
+        "SAM3_Detect"
+      ]
     }
   ]
 }

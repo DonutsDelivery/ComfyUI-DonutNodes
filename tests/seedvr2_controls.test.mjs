@@ -53,7 +53,7 @@ test('string IDs and remapped modules resolve without fixed workflow IDs', () =>
 });
 test('SeedVR2 options only appear when its engine is selected', () => {
     const {root, panel} = fixture(); addSeedVR2Controls(root);
-    for (const group of panel.properties.donut_app_controls.groups.filter(g => g.advanced)) {
+    for (const group of panel.properties.donut_app_controls.groups.filter(g => g.controls.some(c => c.widget === 'seedvr2_model_name'))) {
         assert.equal(group.visible_when.widget, 'upscale_engine');
         assert.equal(group.visible_when.value, 'SeedVR2');
         assert.ok(group.controls.some(c => c.widget === 'seedvr2_model_name'));

@@ -1,18 +1,18 @@
-# Donut Workflow V4 Beta
+# Donut Workflow V5
 
 A Krea2 workflow built around DonutNodes, with a redesigned interface for model setup, LoRAs, editing, prompts, generation and saving. DonutNodes supplies the controls and processing nodes; this workflow brings them together.
 
-**Workflow file:** `DonutWF_v4_beta.json` · **[DonutNodes on GitHub](https://github.com/DonutsDelivery/ComfyUI-DonutNodes)**
+**Workflow file:** `DonutWF_v5.json` · **[DonutNodes on GitHub](https://github.com/DonutsDelivery/ComfyUI-DonutNodes)**
 
 ## Quick start
 
-1. Install or update **DonutNodes to the code accompanying this beta**. Restart ComfyUI and refresh the browser after updating. An older registry build that lacks `DonutImageSave` or `DonutEditStudio` cannot run this workflow.
-2. Download `DonutWF_v4_beta.json` from this workflow’s download files. Drag it into ComfyUI or use **Open**. If GitHub shows a file preview, use **Download raw file**.
+1. Install or update **DonutNodes to the code accompanying V5**. Restart ComfyUI and refresh the browser after updating. An older registry build that lacks `DonutImageSave` or `DonutEditStudio` cannot run this workflow.
+2. Download `DonutWF_v5.json` from this workflow’s download files. Drag it into ComfyUI or use **Open**. If GitHub shows a file preview, use **Download raw file**.
 3. Choose **Install Missing Nodes → Install All**, accept the default pack versions, and **Apply Changes/restart**. No WAS package is required.
 4. Select your models in **01 · Models**, then use **Download missing** for files supported by Donut's model catalog. Install any reported uncatalogued files separately, or select models you already have.
 5. Review the enabled LoRAs, prompts, seed, resolution and output settings. Leave **Editing** off for a first text-to-image run, then click **Run**.
 
-The beta workflow must be distributed with the updated node code. The local installation test used the development checkout, not the older registry release. Workflow **V4 Beta** and the DonutNodes package version are separate version numbers.
+The V5 workflow must be distributed with the updated node code. The local installation test used the development checkout, not an older registry release. Workflow **V5** and the DonutNodes package version are separate version numbers.
 
 ### Companion packs
 
@@ -32,8 +32,8 @@ WAS and rgthree's label nodes are no longer needed by this workflow. Existing in
 
 The supplied configuration selects the following files. These are the saved choices, not a promise that every file is needed in every mode or included in this repository.
 
-- **Primary diffusion model:** `finepornV4INT8NVFP4BF16_v4.safetensors`
-- **Secondary diffusion model:** `krea2_turbo_bf16.safetensors`
+- **Primary diffusion model:** `krea2_turbo_bf16.safetensors` (public upstream; Single model mode)
+- **Secondary diffusion model:** `krea2_turbo_bf16.safetensors` (inactive until Merge two models is selected)
 - **Text encoder:** `qwen3vl_4b_fp8_scaled.safetensors`
 - **VAE:** `qwen-image/qwen_image_vae.safetensors`
 - **Upscaler:** `4x_NickelbackFS_72000_G.pth`
@@ -46,19 +46,26 @@ Use ComfyUI's corresponding model folders. Single-model mode does not load the s
 
 **Download missing** only downloads after a click. It uses the repository's reviewed model catalog (`model_sources.json`), checks file size and SHA-256, and can reuse matching renamed files. It reports missing catalog entries rather than guessing download links. Some hosts require your own access credentials: Civitai uses Donut's local API-key setting; Hugging Face can use `HF_TOKEN`.
 
+The shipped SeedVR2 post-pass selects `seedvr2_3b_int8_convrot.safetensors` in `models/diffusion_models/` and `seedvr2_ema_vae_fp16.safetensors` in `models/vae/`. **Download missing** prepares these files even while that post-pass is off. Selecting 7B requests that variant instead. The fresh-install primary model uses public Krea2; existing saved workflows keep their own model choices. The previous primary remains available to select, but its Civitai source requires access credentials.
+
 ## What’s in the workflow
+
+Panels run from setup, through finishing and saving, to the controls you iterate on most: editing/references, prompts, and seed/guidance beside the result. The ordering migration runs once when the workflow is opened.
 
 Numbered cards expose everyday controls, with additional controls under **Advanced**. The source loaders and generation wiring live inside inspectable subgraphs. Graph and App Mode use the same underlying settings.
 
 - **Models:** choose a single model or two-model merge, encoder, VAE and upscaler.
-- **LoRAs & block weights:** add, remove, reorder and enable LoRAs; edit strengths and block weights through sliders or numeric fields.
-- **Image setup & editing:** set the output size and optional editing references.
+- **LoRAs & block weights:** search installed filenames using ComfyUI’s native dropdown filter; add, remove, reorder and enable LoRAs; edit strengths and block weights through sliders or numeric fields.
+- **Image setup & editing:** manage editing references, independent crops and selected-area editing.
 - **Prompts:** edit the general/face, scene and negative text with autosizing
   editors and a shared wildcard tool. The connected Prompt card is prompt 1;
   add blank variants or duplicate it, then set **Active prompt** to a fixed
   1-based set or choose **increment** to advance after each generation.
 - **Seed & guidance:** control the shared seed, NAG and seed variance.
-- **Generate & finish:** adjust sampling, first/second upscale and face detail.
+- **03 · Generation setup:** output size, batch and base sampling.
+- **04 · First upscale** and **05 · Second upscale:** separate hires controls and advanced settings.
+- **06 · Face detail:** face refinement, detection and masks.
+- **07 · SeedVR2 upscale:** optional final native upscale, model/VAE selection and advanced sampling.
 - **Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.
 - **Save images:** choose the destination, format, quality and filename behavior.
 
@@ -69,6 +76,12 @@ For editing, enable **Editing**, upload/paste/drop image **A** as the base scene
 **Reference guidance** is a separate optional path for borrowing visual elements through Krea2's native image conditioning. Describe what to borrow in the prompt. It does not use the edit LoRA and pauses while Editing is enabled.
 
 Save after changing references or crops. Reference images are stored separately under `ComfyUI/user/donut/edit_references/`; copy that folder too when moving a personal workflow to another installation. The distributed beta has empty reference slots.
+
+**Select a specific object in B:** under **Smart subject mask · B**, choose
+**Prompt selection**, enter a **Mask prompt** such as `hat` or `shirt`, and click
+**Select from prompt**. Review the preview and refine it with the mask editor.
+Download missing includes the native SAM3.1 checkpoint. Auto subject remains
+whole-foreground removal. See [prompt masking](../../docs/prompt-subject-mask.md).
 
 ### Inpainting · edit a selected area
 
@@ -96,6 +109,9 @@ The selection is saved inside the workflow and stays aligned when output size
 or crop changes. Replacing A resets the selection; B can change independently.
 Turn **Edit selected area** off to return to whole-image editing without losing
 the saved mask. An empty selection cannot run as an accidental whole-image edit.
+To remove the saved selection completely, open **Paint / outpaint…**, choose
+**Clear selection**, then **Clear & turn off**. Switching the main control on
+without a saved selection opens the editor so it cannot enter an invalid state.
 
 The sampler denoises through the mask using the encoded base image. After base
 decode, each upscale, and Face Detailer, the workflow restores A outside the
@@ -117,9 +133,9 @@ The Donut saver supports 8-bit PNG, JPEG, WebP, TIFF, GIF and BMP; output/temp l
 
 ## Moving from V3
 
-Open V4 Beta as a separate workflow. Keep your V3 JSON and copy your own model choices, LoRAs, prompts and settings through the visible controls. Do not copy raw widget arrays between versions: the layout and inputs changed. Re-select references in Edit Studio and copy any personal wildcard/reference files.
+Open V5 as a separate workflow. Keep your older JSON and copy your own model choices, LoRAs, prompts and settings through the visible controls. Do not copy raw widget arrays between versions: the layout and inputs changed. Re-select references in Edit Studio and copy any personal wildcard/reference files.
 
-V3 already supported editing, face detail, model merging, LoRA stacking and upscaling. V4 Beta reorganizes and extends that workflow; it does not introduce face detailing or promise better image quality simply from the version change. See the accompanying `CHANGELOG.md` for the actual differences.
+V3 already supported editing, face detail, model merging, LoRA stacking and upscaling. V5 reorganizes and extends that workflow; it does not introduce face detailing or promise better image quality simply from the version change. See the accompanying `CHANGELOG.md` for the actual differences.
 
 ## Beta validation and reporting
 
@@ -130,3 +146,35 @@ That acceptance run used editing off and the second upscale disabled, and reused
 When reporting a problem, include your workflow file with private content removed, DonutNodes/ComfyUI versions, OS, GPU/VRAM, active mode and full error traceback. **Donut Dependency Check** can provide dependency diagnostics.
 
 Detailed test notes accompany the node source in `docs/validation/no-was-fresh-install-2026-09-09.md`.
+
+### Outpainting
+
+In Edit Studio, load image A and open **Paint / outpaint…**. Enable **Outpaint**,
+then resize or drag A, or use Left/Right/Top/Bottom to align it. The full original
+A is fitted without cropping. Output shape and pixel count come from the existing
+output controls: outpainting does not add pixels beyond that canvas.
+
+Use **Add right**, **Add left**, **Add below**, or **Add above** to build a
+side-by-side or stacked canvas automatically. Each preset derives the aspect
+ratio from A, chooses the closest pixel-grid resolution within the current
+megapixel budget, places A on the opposite side at maximum size, and selects the
+new half. **Keep current** returns to the canvas dimensions that were active
+when the editor opened. Applying a preset changes Edit Studio to Custom sizing
+with the displayed dimensions.
+
+Green areas are generated automatically. **Overlap** allows editing a strip inside
+A to join the new surroundings; set it to zero to protect all of placed A.
+**Seam width** softens the selected boundary. Brush, rectangle, erase and invert
+still work on A; uncovered canvas always remains selected. Click **Use selection**
+and describe the extension in Prompts. Placement persists with the workflow.
+
+A is resized to fit its placement, so protection applies to those placed pixels.
+Enabled finishing upscales still run afterward. Turn selected-area editing off to
+return to normal full-image editing. Restart ComfyUI and refresh the browser after
+installing this update to load both the backend and editor changes.
+
+The **Latest result** selector includes Base generation, First upscale, Second
+upscale, Face Detailer, and SeedVR2 / final image. Disabled processing stages
+pass through their input, so their previews can match the previous stage.
+Refresh the browser and reopen a tagged V4 or V5 workflow to add missing preview
+branches. Run it again to populate the new stage images.

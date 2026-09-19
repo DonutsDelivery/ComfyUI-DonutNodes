@@ -41,27 +41,32 @@ test("the selected SeedVR2 model and VAE are discovered inside existing subgraph
 test("7B selection does not also download 3B", () => {
     sameValues(refs(graph(stage({seedvr2_model_name:M7}))), [["diffusion_models",M7],["vae",VAE]]);
 });
-test("Donut default and old stages require no SeedVR2 files", () => {
-    sameValues(refs(graph(stage({upscale_engine:"Donut"}), node("DonutTiledUpscale"))), []);
+test("disabled optional stages still prepare every configured workflow model", () => {
+    sameValues(refs(graph(stage({upscale_engine:"Donut",enabled:false}))), [["diffusion_models",M3],["vae",VAE]]);
+    sameValues(refs(graph(node("DonutTiledUpscale"))), []);
 });
-test("muted and bypassed nodes/subgraphs are skipped", () => {
+test("muted and bypassed nodes/subgraphs are still fully prepared", () => {
     for (const mode of [2,4]) {
-        sameValues(refs(graph({...stage(),mode})), []);
-        sameValues(refs(graph({mode,subgraph:graph(stage())})), []);
+        sameValues(refs(graph({...stage(),mode})), [["diffusion_models",M3],["vae",VAE]]);
+        sameValues(refs(graph({mode,subgraph:graph(stage())})), [["diffusion_models",M3],["vae",VAE]]);
     }
 });
-test("selected feature configurations can be prepared before enabling execution", () => {
+test("configured feature models are prepared before enabling execution", () => {
     sameValues(refs(graph(stage({enabled:false}))), [["diffusion_models",M3],["vae",VAE]]);
     sameValues(refs(graph(node("DonutEditStudio", {
         enabled:false, use_reference_b:false, mask_b_mode:"Auto subject", mask_b_model:BG,
     }))), [["background_removal",BG]]);
 });
-test("auto masks need BiRefNet but Off/Saved/External and legacy studios do not", () => {
+test("every current Edit Studio prepares BiRefNet before Auto subject is selected", () => {
     for (const mode of ["Off", "Saved mask", "External mask"]) {
-        sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:mode, mask_b_model:BG}))), []);
+        sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:mode, mask_b_model:BG}))), [["background_removal",BG]]);
     }
     sameValues(refs(graph(node("DonutEditStudio"))), []);
     sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:"Auto subject", mask_b_model:BG}))), [["background_removal",BG]]);
+});
+test("prompt selection checkpoint is prepared even while masking is off", () => {
+    sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:"Off",mask_b_prompt:""}))),
+        [["checkpoints","sam3.1_multiplex_fp16.safetensors"]]);
 });
 test("native background loader and queued preview jobs have bindings too", () => {
     sameValues(refs(graph(node("LoadBackgroundRemovalModel", {bg_removal_name:BG}),
@@ -71,14 +76,14 @@ test("comfyClass takes precedence over UI type", () => {
     const n = stage(); n.comfyClass = n.type; n.type = "visual-wrapper";
     assert.equal(refs(graph(n))[0][1], M3);
 });
-test("existing loader, SDA and LoRA row discovery is unchanged", () => {
+test("existing loaders, configured SDA and enabled or disabled LoRA rows are all discovered", () => {
     const n = node("DonutLoRALoader", {slots_json:JSON.stringify([
         {id:"a", lora_name:"one.safetensors"}, {id:"b",lora_name:"two.safetensors",enabled:false},
     ])});
     const got = refs(graph(node("UNETLoader",{unet_name:"model.safetensors"}),
-        node("DonutSampler",{sda_enabled:true}), n));
-    assert.equal(got.length,3); sameValues(got[0],["diffusion_models","model.safetensors"]);
-    assert.equal(got[2][1],"one.safetensors");
+        node("DonutSampler",{sda_enabled:false}), n));
+    assert.equal(got.length,4); sameValues(got[0],["diffusion_models","model.safetensors"]);
+    assert.equal(got[2][1],"one.safetensors"); assert.equal(got[3][1],"two.safetensors");
 });
 test("verified renamed files update the original feature widgets", () => {
     const a=stage(), b=node("DonutEditStudio",{mask_b_mode:"Auto subject",mask_b_model:BG});
@@ -155,9 +160,11 @@ test("Registry panel creates clickable source links and exact locations, without
         LiteGraph:{registerNodeType(_name,cls){NodeType=cls;}}});
     vm.runInContext(source,context);
     const n=new NodeType();
-    assert.equal(descendants(n.root,"li").length,0);
+    const modelList=descendants(n.root,"ul")[0];
+    assert.equal(descendants(modelList,"li").length,0);
+    assert.equal(descendants(n.root,"ol")[0].children.length,4);
     descendants(n.root,"button")[0].onclick();
-    const entries=descendants(n.root,"li"); assert.equal(entries.length,3);
+    const entries=descendants(modelList,"li"); assert.equal(entries.length,3);
     for (const entry of entries) {
         assert.match(descendants(entry,"code")[0].textContent,/^models\//);
         assert.equal(descendants(entry,"a")[0].rel,"noopener noreferrer");

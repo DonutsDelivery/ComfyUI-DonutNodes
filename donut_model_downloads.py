@@ -231,7 +231,10 @@ class ModelDownloads:
             else:
                 raise ValueError("Too many upstream redirects.")
             if response.status_code in (401, 403):
-                raise ValueError("Upstream requires access. Set your local Civitai key or HF_TOKEN, then retry.")
+                hint = ("Set civitai.api_key in DonutNodes config.yaml" if origin in ("civitai.com", "civitai.red", "civitai.green")
+                        else "Set HF_TOKEN in the ComfyUI environment" if origin == "huggingface.co"
+                        else "Check that your account can access this upstream model")
+                raise ValueError(f"{origin} requires access (HTTP {response.status_code}). {hint}, then retry Download missing.")
             if response.status_code != 200:
                 raise ValueError(f"Upstream returned HTTP {response.status_code}.")
             self.update(state="downloading", bytes=0, total_bytes=entry["size"])

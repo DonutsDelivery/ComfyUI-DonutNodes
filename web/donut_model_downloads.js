@@ -18,7 +18,7 @@ function install(node) {
     const title = document.createElement("h2"); title.textContent = "Download missing";
     const button = document.createElement("button"); button.textContent = "Download missing";
     const progress = document.createElement("progress"); progress.max = 100; progress.hidden = true;
-    const status = document.createElement("p"); status.textContent = "Checks model hashes and installs missing files from DonutNodes’ upstream links. Choose SeedVR2 or Auto subject first to include their models; otherwise optional weights are not downloaded.";
+    const status = document.createElement("p"); status.textContent = "Checks hashes and installs every model configured by this workflow, including disabled optional features such as SeedVR2, SDA and Auto subject.";
     status.setAttribute("aria-live", "polite");
     const errors = document.createElement("div");
     const community = document.createElement("nav");
@@ -33,7 +33,6 @@ function install(node) {
     let job, timer, disposed = false, bindings = [], finished;
     const refresh = async result => {
         if (finished === result.id) return;
-        finished = result.id;
         await app.refreshComboInNodes();
         for (const item of result.results) {
             if (!item.resolved_name || item.resolved_name === item.name) continue;
@@ -50,6 +49,7 @@ function install(node) {
             }
         };
         visit(app.rootGraph);
+        finished = result.id;
     };
     async function render(result) {
         job = result;
@@ -72,9 +72,11 @@ function install(node) {
             const ready = result.results.filter(item => item.status !== "error").length;
             const downloaded = result.results.filter(item => item.status === "downloaded").length;
             const unlisted = result.results.filter(item => item.status === "unlisted").length;
+            const failed = result.results.filter(item => item.status === "error").length;
             status.textContent = result.state === "cancelled" ? `Cancelled. ${ready} models ready.` :
                 result.state === "error" ? result.message : `${ready}/${result.total} models ready · ${downloaded} downloaded.`;
             if (unlisted) status.textContent += ` ${unlisted} installed files have no catalog hash.`;
+            if (failed) status.textContent += ` ${failed} failed — resolve the errors below and retry.`;
             await refresh(result);
         }
     }

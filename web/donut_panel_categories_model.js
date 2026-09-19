@@ -36,7 +36,7 @@ export function panelRole(panel) {
     const config = panel.properties?.donut_app_controls;
     if (!Array.isArray(config?.groups)) return null;
     const saved = panel.properties.donut_panel_role;
-    if (['models','loras','prompts','guidance','generate','save'].includes(saved)) return saved;
+    if (['models','loras','prompts','guidance','generate','save','hires','face','post'].includes(saved)) return saved;
     const title = String(panel.title || '').toLowerCase();
     if (/generate.*finish/.test(title)) return 'generate';
     if (/save images/.test(title)) return 'save';
@@ -213,7 +213,108 @@ export function organizeV4Panels(root) {
     }
     for (const panel of panels) {
         const config = panel.properties.donut_app_controls;
-        config.groups = categorizeGroups(panelRole(panel), config.groups);
+        const role = panelRole(panel);
+        config.groups = categorizeGroups(['hires','face','post'].includes(role) ? 'generate' : role, config.groups);
     }
     return panels.filter(panel => originals.get(panel) !== JSON.stringify(panel.properties));
+}
+
+// Split only the standard, tagged saved layout. Existing control paths and
+// renderer configurations move intact; no generation node or setting changes.
+export function splitV4FinishingPanels(root) {
+    if (!['V4 Beta','V5'].includes(root?.extra?.donut_workflow?.release) || !Array.isArray(root.nodes)
+            || !Array.isArray(root.extra?.donut_layout?.columns)) return [];
+    organizeV4Panels(root);
+    const sources = root.nodes.filter(node => panelRole(node) === 'generate');
+    if (sources.length !== 1) return [];
+    const source = sources[0], config = source.properties.donut_app_controls;
+    const columns = root.extra.donut_layout.columns;
+    const at = columns.findIndex(column => column.some(id => String(id) === String(source.id)));
+    if (at < 0) return [];
+    const definitions = [
+        ['first', '07 · First upscale', 'hires', '#83bbd9', /^Donut hires · first upscale/],
+        ['face', '08 · Face detail', 'face', '#e4a4bf', /^Face detail/],
+        ['second', '09 · Second upscale', 'hires', '#83bbd9', /^Donut hires · second upscale/],
+        ['post', '10 · SeedVR2 upscale', 'post', '#90c9ae', /^SeedVR2 · post upscale/],
+    ];
+    const created = [];
+    let next = Math.max(root.last_node_id || 0, ...graphEntries(root).map(({node}) => Number(node.id) || 0));
+    for (const [stage, title, role, color, pattern] of definitions) {
+        const groups = config.groups.filter(group => pattern.test(group.title));
+        if (!groups.length) continue;
+        // A previously split/customized family must not acquire duplicate panels.
+        if (root.nodes.some(node => node.properties?.donut_finish_stage === stage && sameFamily(node,source))) continue;
+        config.groups = config.groups.filter(group => !groups.includes(group));
+        const panel = {
+            id:++next, type:'DonutWorkflowPanel', title, pos:[...(source.pos || [0,0])],
+            size:[480,400], flags:{}, order:root.nodes.length, mode:0, inputs:[], outputs:[],
+            properties:{donut_panel_role:role, donut_finish_stage:stage, donut_columns:'sections',
+                panel_width:480, panel_min_width:480,
+                donut_app_controls:{...config, title, groups}},
+            color, bgcolor:'#1b242c', widgets_values:[],
+        };
+        root.nodes.push(panel); created.push(panel);
+    }
+    if (!created.length) return [];
+    root.last_node_id = next;
+    source.title = '06 · Generate';
+    const stageId = stage => created.find(node => node.properties.donut_finish_stage === stage)?.id;
+    const additions = [['first','face'],['second','post']].map(stages => stages.map(stageId).filter(id => id != null)).filter(ids => ids.length);
+    columns.splice(at + 1, 0, ...additions);
+    const appInputs = root.extra.linearData?.inputs;
+    if (Array.isArray(appInputs)) {
+        const index = appInputs.findIndex(([id]) => String(id) === String(source.id));
+        appInputs.splice(index < 0 ? appInputs.length : index + 1, 0,
+            ...created.map(panel => [panel.id,'workflow_controls']));
+    }
+    for (const node of root.nodes) {
+        if (node.type === 'DonutLatestPreview') node.title = '11 · Latest result';
+        if (panelRole(node) === 'save') node.title = '12 · Save images';
+    }
+    return created;
+}
+
+// Apply once so later user rearrangements survive saving/reopening. Settings,
+// execution nodes and controls stay untouched; this only orders presentation.
+export function arrangeV4ByFrequency(root) {
+    const layout = root?.extra?.donut_layout;
+    if (!['V4 Beta','V5'].includes(root?.extra?.donut_workflow?.release) || !Array.isArray(layout?.columns)
+            || layout.panel_order === 'setup-finish-iterate-v2') return false;
+    const nodes = root.nodes || [];
+    const unique = predicate => {
+        const matches = nodes.filter(predicate);
+        return matches.length === 1 ? matches[0] : null;
+    };
+    const roles = Object.fromEntries(['models','loras','generate','save','prompts','guidance']
+        .map(role => [role,unique(node => panelRole(node) === role)]));
+    const stages = Object.fromEntries(['first','face','second','post']
+        .map(stage => [stage,unique(node => node.properties?.donut_finish_stage === stage)]));
+    const edit = unique(node => node.type === 'DonutEditStudio');
+    const result = unique(node => node.type === 'DonutLatestPreview');
+    if (![...Object.values(roles),...Object.values(stages),edit,result].every(Boolean)) return false;
+    const reference = unique(node => node.type === 'DonutReferenceStudio');
+    const wildcards = unique(node => node.properties?.donut_app_controls?.groups?.some(group => group.wildcard_library));
+    const order = [roles.models,roles.loras,roles.generate,stages.first,stages.second,
+        stages.face,stages.post,roles.save,edit,roles.prompts,roles.guidance,result];
+    const titles = ['Models','LoRAs & block weights','Generation setup','First upscale','Second upscale',
+        'Face detail','SeedVR2 upscale','Save images','Image setup & editing','Prompts','Seed & guidance','Latest result'];
+    order.forEach((node,index) => {node.title = `${String(index+1).padStart(2,'0')} · ${titles[index]}`;});
+    const columns = [[roles.models,roles.generate],[roles.loras],[stages.first,stages.second],
+        [stages.face,stages.post,roles.save],[edit,reference],[roles.prompts,wildcards],[roles.guidance,result]]
+        .map(column => column.filter(Boolean).map(node => node.id));
+    const assigned = new Set(columns.flat().map(String));
+    // Keep existing auxiliary nodes reachable, beneath setup rather than
+    // between the frequently adjusted controls and the preview.
+    for (const id of layout.columns.flat()) {
+        if (!assigned.has(String(id))) {columns[0].push(id); assigned.add(String(id));}
+    }
+    layout.columns = columns;
+    layout.panel_order = 'setup-finish-iterate-v2';
+    const inputs = root.extra.linearData?.inputs;
+    if (Array.isArray(inputs)) {
+        const rank = new Map([...order.slice(0,9),reference,roles.prompts,wildcards,roles.guidance,result]
+            .filter(Boolean).map((node,index) => [String(node.id),index]));
+        inputs.sort((a,b) => (rank.get(String(a[0])) ?? Infinity) - (rank.get(String(b[0])) ?? Infinity));
+    }
+    return true;
 }

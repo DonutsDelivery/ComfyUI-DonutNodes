@@ -1,0 +1,28 @@
+Built-in image generation; previous poster used as branding reference.
+Portrait poster, black background, pink outlines, cream bold headings and cyan
+accents. Small donut/corgi decoration; no app mockup. Large readable feature text.
+
+DONUTNODES
+WORKFLOW V5
+NEW SINCE 3.0.15
+
+SEEDVR2 UPSCALING
+Native 3B / 7B support • Dedicated finishing stage
+
+INPAINT + OUTPAINT
+Paint, rectangle & invert • Canvas presets within your MP limit
+
+PROMPT-BASED MASKS
+Select objects with SAM3.1 • Refine masks & crop references independently
+
+SDA TURBO CONTROLS
+Optional adapter • Adjustable strength
+
+A CLEARER WORKFLOW
+Separate V5 panels • Preview every upscale & face-detail stage
+
+EASIER MODEL SETUP
+Download missing • Standalone Windows, Linux & macOS installer
+
+Do not advertise features introduced at 3.0.0 or prompt variants from 3.0.15.
+No security/packaging changelog, release claims or perfect-quality promises.

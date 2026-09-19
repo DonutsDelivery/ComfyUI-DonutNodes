@@ -33,20 +33,42 @@ function install(node, definition) {
         input.addEventListener('change',()=>{const value=choices ? input.value : Number(input.value); if(choices || Number.isFinite(value)) commit({[name]:value});});
         label.append(input); section.append(label); controls.push({name,input,choices}); return input;
     };
-    field('mask_b_mode','Reference B mask mode',['Off','Auto subject','Saved mask','External mask']);
+    field('mask_b_mode','Reference B mask mode',['Off','Auto subject','Saved mask','External mask', 'Prompt selection']);
+    const promptLabel=el('label'); promptLabel.className='de-field'; promptLabel.append(el('span','Mask prompt'));
+    const promptInput=el('textarea'); promptInput.rows=2; promptInput.placeholder='hat, jacket, person…'; promptInput.setAttribute('aria-label','Mask prompt');
+    promptInput.addEventListener('input',()=>commit({mask_b_prompt:promptInput.value})); promptLabel.append(promptInput); section.append(promptLabel);
+    const threshold=field('mask_b_threshold','Detection threshold'); threshold.min='0.01'; threshold.max='1'; threshold.step='0.01';
+    section.append(el('p','Prompt selection finds the object you describe. Auto subject selects the whole foreground. Preview and refine before generating.'));
     const values=widgets.get('mask_b_model')?.options?.values;
-    field('mask_b_model','Background removal model',typeof values === 'function' ? values() : values || ['birefnet.safetensors']);
+    const backgroundModel=field('mask_b_model','Background removal model',typeof values === 'function' ? values() : values || ['birefnet.safetensors']);
     field('mask_b_grow','Grow / shrink · B source pixels');
     field('mask_b_feather','Feather · B source pixels');
     field('mask_b_background','Outside the subject',['Neutral gray','White','Black']);
     const actions=el('div'); actions.className='de-ref-actions'; section.append(actions);
     function button(text, callback) {const b=el('button',text); b.type='button'; b.addEventListener('click',callback); actions.append(b); return b;}
+    async function modelInstalled(name) {
+        const response=await api.fetchApi(`/donut/edit-studio/subject-mask-model?name=${encodeURIComponent(name)}`);
+        if(!response.ok) throw new Error(await response.text());
+        return Boolean((await response.json()).installed);
+    }
     const auto=button('Auto select subject',async()=>{
         const reference=get('image_b'); if(!reference || job) return;
-        const nodeId=`donut_subject_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random()}`}`;
-        const pending={nodeId,reference,promptId:null}; job=pending; refresh(); message.textContent='Subject selection queued. Only the mask is processed, not the full workflow.';
+        const prompted=get('mask_b_mode') === 'Prompt selection';
+        const model=prompted ? 'sam3.1_multiplex_fp16.safetensors' : get('mask_b_model');
+        if(prompted && !String(get('mask_b_prompt') || '').trim()) {message.textContent='Enter a mask prompt first, such as hat or jacket.'; return;}
         try {
-            const response=await api.queuePrompt(0,subjectMaskPrompt(reference,get('mask_b_model'),nodeId));
+            if(!await modelInstalled(model)) {
+                message.textContent=`${model} is not installed. Run Download missing or the standalone installer, then retry selection.`;
+                return;
+            }
+        } catch(error) {
+            message.textContent=`Could not check ${model}: ${error.message}`;
+            return;
+        }
+        const nodeId=`donut_subject_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random()}`}`;
+        const pending={nodeId,reference,promptId:null,maskPrompt:prompted ? get('mask_b_prompt') : null,threshold:get('mask_b_threshold')}; job=pending; refresh(); message.textContent='Subject selection queued. Only the mask is processed, not the full workflow.';
+        try {
+            const response=await api.queuePrompt(0,subjectMaskPrompt(reference,model,nodeId,get('mask_b_prompt'),get('mask_b_threshold') ?? 0.5));
             if(job === pending) job.promptId=response.prompt_id;
         } catch(error) {if(!disposed && job === pending) {job=null; refresh(); message.textContent=error.message;}}
     });
@@ -81,6 +103,10 @@ function install(node, definition) {
     function refresh() {
         if(disposed) return;
         const reference=get('image_b'), mode=get('mask_b_mode');
+        promptLabel.hidden=mode !== 'Prompt selection'; threshold.parentElement.hidden=mode !== 'Prompt selection';
+        backgroundModel.parentElement.hidden=mode === 'Prompt selection';
+        if(document.activeElement !== promptInput) promptInput.value=get('mask_b_prompt') || '';
+        auto.textContent=mode === 'Prompt selection' ? 'Select from prompt' : 'Auto select subject';
         for(const {name,input,choices} of controls) {
             const value=get(name);
             if(choices && value && ![...input.options].some(option=>option.value === String(value))) {const option=el('option',value); option.value=value; input.append(option);}
@@ -93,10 +119,11 @@ function install(node, definition) {
     }
     const executed=event=>{
         if(disposed || !job || event.detail.node !== job.nodeId) return;
-        const record=acceptSubjectMaskResult(job,event.detail.node,get('image_b'),event.detail.output);
+        const changed=job.maskPrompt !== null && (job.maskPrompt !== get('mask_b_prompt') || job.threshold !== get('mask_b_threshold'));
+        const record=changed ? null : acceptSubjectMaskResult(job,event.detail.node,get('image_b'),event.detail.output);
         job=null;
         if(record) {commit({mask_b_mode:'Saved mask',mask_b_data:JSON.stringify(record)}); message.textContent='Subject isolated. Refine the mask as needed, then save the workflow.';}
-        else {refresh(); message.textContent='Reference B changed while selection ran; the old result was not applied.';}
+        else {refresh(); message.textContent='Reference B or the mask prompt changed while selection ran; retry with the new settings.';}
     };
     const failed=event=>{
         if(!job || disposed) return;
@@ -113,7 +140,7 @@ function install(node, definition) {
         const record=readSubjectMask(output?.donut_subject_mask?.[0],get('image_b'));
         // Keep Auto/External mode live; only the explicit preview button selects
         // Saved mask. A normal generation supplies a preview for later refining.
-        if(record && !disposed && !job && ['Auto subject','External mask'].includes(get('mask_b_mode'))) commit({mask_b_data:JSON.stringify(record)});
+        if(record && !disposed && !job && ['Auto subject','External mask','Prompt selection'].includes(get('mask_b_mode'))) commit({mask_b_data:JSON.stringify(record)});
         return result;
     };
     let timer;
