@@ -1,6 +1,7 @@
 // DOM adapters reuse the existing panel's widget callbacks and LoRA row editor.
 // No second slots_json implementation, catalog service, or model loader.
 import {graphEntries, SIZE_FIELDS, widgetValue} from './donut_panel_categories_model.js';
+import {sizingVisibility} from './donut_reference_crop_geometry.js';
 let pickerId = 0;
 export const PANEL_CATEGORY_CSS = `
 .donut-section-columns>section:has(textarea),
@@ -59,10 +60,11 @@ export function syncCategorizedPanels(rootGraph) {
             const fields = SIZE_FIELDS.map(([name,label]) => ({name, input:root.querySelector(`[aria-label="${label}"]`)}));
             if (!studio || fields.some(field => !field.input)) continue;
             owners.set(studio,panel);
+            const cropHidden = sizingVisibility(Object.fromEntries(['enabled','geometry_mode','output_canvas','resolution_mode'].map(name => [name,widgetValue(studio,name)])));
             const mode = widgetValue(studio,'resolution_mode');
             const reference = widgetValue(studio,'enabled') && String(mode).startsWith('Reference A');
             for (const {name,input} of fields) {
-                const hidden = ['width','height'].includes(name) ? mode !== 'Custom'
+                const hidden = cropHidden ? cropHidden[name] : ['width','height'].includes(name) ? mode !== 'Custom'
                     : name === 'aspect_ratio' ? mode === 'Custom' || reference
                     : name === 'megapixels' ? mode === 'Custom' || (reference && mode === 'Reference A · crop only') : false;
                 const label = input.closest('label'); if (label) label.hidden = hidden;
