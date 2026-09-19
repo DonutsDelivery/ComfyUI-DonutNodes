@@ -3,6 +3,7 @@ import { api } from "../../scripts/api.js";
 import { ComfyWidgets } from "../../scripts/widgets.js";
 import { createLoraService, installNativeLoras, setHidden } from "./donut_native_lora.js";
 import { repairStreamlinedWorkflowSafely, repairEditStudioMetadata, normalizeEditStudioQueueWidgets, installWorkflowSerializationGuard } from "./donut_workflow_repair.js?v=6";
+import { repairSeedVR2Workflow } from "./donut_seedvr2_workflow_repair.js";
 export { decodeRows, moveRow } from "./donut_native_lora.js";
 
 const service = createLoraService(api);
@@ -22,7 +23,13 @@ app.registerExtension({
         // them into nested nodes during prompt construction.
         api.addEventListener("promptQueueing", () => normalizeEditStudioQueueWidgets(app.graph));
     },
-    beforeConfigureGraph(graphData) { repairEditStudioMetadata(graphData); repairStreamlinedWorkflowSafely(graphData); },
+    beforeConfigureGraph(graphData) {
+        // Repair the post-pass before the generic reciprocal-link validation.
+        const report = repairSeedVR2Workflow(graphData);
+        for (const warning of report.warnings) console.warn(`[Donut workflow] ${warning}`);
+        repairEditStudioMetadata(graphData);
+        repairStreamlinedWorkflowSafely(graphData);
+    },
     afterConfigureGraph() { installWorkflowSerializationGuard(app.graph); },
     loadedGraphNode(node) {
         if (!node.properties?.donut_stage_controls) return;

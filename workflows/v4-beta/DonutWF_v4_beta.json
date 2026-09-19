@@ -34,7 +34,7 @@
           "links": []
         }
       ],
-      "title": "07 · Result · base",
+      "title": "07 \u00b7 Result \u00b7 base",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -78,7 +78,7 @@
           "links": []
         }
       ],
-      "title": "Result · first upscale",
+      "title": "Result \u00b7 first upscale",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -124,7 +124,7 @@
           ]
         }
       ],
-      "title": "Result · final",
+      "title": "Result \u00b7 final",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.28.0",
@@ -413,7 +413,7 @@
           ]
         }
       ],
-      "title": "03 · Image setup & editing",
+      "title": "03 \u00b7 Image setup & editing",
       "properties": {
         "cnr_id": "donutnodes",
         "Node name for S&R": "DonutEditStudio",
@@ -780,7 +780,7 @@
           "type": "IMAGE",
           "shape": 7,
           "link": 1115358,
-          "label": "Reference B · subject"
+          "label": "Reference B \u00b7 subject"
         },
         {
           "name": "edit_instruction",
@@ -1000,7 +1000,7 @@
         "variance_auto_strength_factor": 1,
         "native_reference_enabled": false
       },
-      "title": "Generation engine · open to inspect wiring"
+      "title": "Generation engine \u00b7 open to inspect wiring"
     },
     {
       "id": 1138,
@@ -1134,7 +1134,7 @@
         "donut_widget_order": []
       },
       "widgets_values": [],
-      "title": "Sources · open to inspect wiring",
+      "title": "Sources \u00b7 open to inspect wiring",
       "widgets_values_named": {}
     },
     {
@@ -1153,7 +1153,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "04 · Prompts",
+      "title": "04 \u00b7 Prompts",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1181,7 +1181,7 @@
                     1126
                   ],
                   "widget": "Text",
-                  "title": "Prompt · subject and scene",
+                  "title": "Prompt \u00b7 subject and scene",
                   "ui": {
                     "prompt": true,
                     "autosize": true,
@@ -1249,7 +1249,7 @@
               "color": "#bea8ff"
             },
             {
-              "title": "Advanced · Subject and scene expansion",
+              "title": "Advanced \u00b7 Subject and scene expansion",
               "advanced": true,
               "controls": [
                 {
@@ -1283,7 +1283,7 @@
               "color": "#bea8ff"
             },
             {
-              "title": "Advanced · Face and style expansion",
+              "title": "Advanced \u00b7 Face and style expansion",
               "advanced": true,
               "controls": [
                 {
@@ -1317,7 +1317,7 @@
               "color": "#bea8ff"
             },
             {
-              "title": "Advanced · Negative expansion",
+              "title": "Advanced \u00b7 Negative expansion",
               "advanced": true,
               "controls": [
                 {
@@ -1381,7 +1381,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "05 · Seed & guidance",
+      "title": "05 \u00b7 Seed & guidance",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1448,7 +1448,7 @@
               "color": "#f2cb76"
             },
             {
-              "title": "Advanced · Prompt conditioning and variance",
+              "title": "Advanced \u00b7 Prompt conditioning and variance",
               "advanced": true,
               "controls": [
                 {
@@ -1566,7 +1566,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "06 · Generate & finish",
+      "title": "06 \u00b7 Generate & finish",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -1679,7 +1679,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Latent batch",
+              "title": "Advanced \u00b7 Latent batch",
               "advanced": true,
               "controls": [
                 {
@@ -1694,7 +1694,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Base pass",
+              "title": "Advanced \u00b7 Base pass",
               "advanced": true,
               "controls": [
                 {
@@ -1853,7 +1853,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Face detail",
+              "title": "Advanced \u00b7 Face detail",
               "advanced": true,
               "controls": [
                 {
@@ -2100,7 +2100,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Differential diffusion",
+              "title": "Advanced \u00b7 Differential diffusion",
               "advanced": true,
               "controls": [
                 {
@@ -2115,7 +2115,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · First upscale",
+              "title": "Advanced \u00b7 First upscale",
               "advanced": true,
               "controls": [
                 {
@@ -2218,7 +2218,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Second upscale",
+              "title": "Advanced \u00b7 Second upscale",
               "advanced": true,
               "controls": [
                 {
@@ -2321,7 +2321,92 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · ER SDE sampler",
+              "title": "SeedVR2 \u00b7 post upscale",
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "enabled",
+                  "title": "Enabled"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_upscale_factor",
+                  "title": "Factor"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "resampling_method",
+                  "title": "Resampling"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_model_name",
+                  "title": "Model"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_vae_name",
+                  "title": "VAE"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_steps",
+                  "title": "Steps"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_denoise",
+                  "title": "Denoise"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_color_correction",
+                  "title": "Color correction"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seedvr2_vae_tile_size",
+                  "title": "VAE tile size"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
+                  "widget": "seed",
+                  "title": "Seed"
+                }
+              ]
+            },
+            {
+              "title": "Advanced \u00b7 ER SDE sampler",
               "advanced": true,
               "controls": [
                 {
@@ -2355,7 +2440,7 @@
               "color": "#88b8f3"
             },
             {
-              "title": "Advanced · Sampler preset",
+              "title": "Advanced \u00b7 Sampler preset",
               "advanced": true,
               "controls": [
                 {
@@ -2411,7 +2496,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "02 · LoRAs & block weights",
+      "title": "02 \u00b7 LoRAs & block weights",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -2526,7 +2611,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "01 · Models",
+      "title": "01 \u00b7 Models",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -2744,7 +2829,7 @@
               "color": "#e9a16d"
             },
             {
-              "title": "Advanced · Fusion controls",
+              "title": "Advanced \u00b7 Fusion controls",
               "advanced": true,
               "controls": [
                 {
@@ -2899,7 +2984,7 @@
               "color": "#e9a16d"
             },
             {
-              "title": "Advanced · Model merge",
+              "title": "Advanced \u00b7 Model merge",
               "advanced": true,
               "controls": [
                 {
@@ -3476,7 +3561,7 @@
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "title": "08 · Save images",
+      "title": "08 \u00b7 Save images",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -3673,7 +3758,7 @@
     {
       "id": 1150,
       "type": "DonutReferenceStudio",
-      "title": "Optional · Reference guidance",
+      "title": "Optional \u00b7 Reference guidance",
       "pos": [
         1812,
         1732
@@ -3783,7 +3868,7 @@
         "panel_width": 1000
       },
       "widgets_values": [],
-      "title": "07 · Latest result",
+      "title": "07 \u00b7 Latest result",
       "color": "#243e36",
       "bgcolor": "#15271f"
     },
@@ -4170,8 +4255,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 1163,
-          "lastLinkId": 1115407,
+          "lastNodeId": 1170,
+          "lastLinkId": 1115408,
           "lastRerouteId": 1
         },
         "revision": 2,
@@ -4731,7 +4816,7 @@
               1115356,
               1115357
             ],
-            "label": "Reference B · subject",
+            "label": "Reference B \u00b7 subject",
             "pos": [
               2266.196796870656,
               1895.9767468095727
@@ -6953,6 +7038,163 @@
               "Node name for S&R": "DonutInpaintComposite"
             },
             "widgets_values": []
+          },
+          {
+            "id": 1170,
+            "type": "DonutSeedVR2Upscale",
+            "pos": [
+              4150.0,
+              1960.0
+            ],
+            "size": [
+              352,
+              420
+            ],
+            "flags": {},
+            "order": 19,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "image",
+                "name": "image",
+                "type": "IMAGE",
+                "link": 1115408
+              },
+              {
+                "localized_name": "enabled",
+                "name": "enabled",
+                "type": "BOOLEAN",
+                "widget": {
+                  "name": "enabled"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seed",
+                "name": "seed",
+                "type": "INT",
+                "widget": {
+                  "name": "seed"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_model_name",
+                "name": "seedvr2_model_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "seedvr2_model_name"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_vae_name",
+                "name": "seedvr2_vae_name",
+                "type": "COMBO",
+                "widget": {
+                  "name": "seedvr2_vae_name"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_steps",
+                "name": "seedvr2_steps",
+                "type": "INT",
+                "widget": {
+                  "name": "seedvr2_steps"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_denoise",
+                "name": "seedvr2_denoise",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "seedvr2_denoise"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_color_correction",
+                "name": "seedvr2_color_correction",
+                "type": "COMBO",
+                "widget": {
+                  "name": "seedvr2_color_correction"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_vae_tile_size",
+                "name": "seedvr2_vae_tile_size",
+                "type": "INT",
+                "widget": {
+                  "name": "seedvr2_vae_tile_size"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "seedvr2_upscale_factor",
+                "name": "seedvr2_upscale_factor",
+                "type": "FLOAT",
+                "widget": {
+                  "name": "seedvr2_upscale_factor"
+                },
+                "link": null
+              },
+              {
+                "localized_name": "resampling_method",
+                "name": "resampling_method",
+                "type": "COMBO",
+                "widget": {
+                  "name": "resampling_method"
+                },
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "image",
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  1079868
+                ]
+              }
+            ],
+            "properties": {
+              "cnr_id": "donutnodes",
+              "Node name for S&R": "DonutSeedVR2Upscale",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            },
+            "widgets_values": [
+              false,
+              0,
+              2.0,
+              "lanczos",
+              "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_ema_vae_fp16.safetensors",
+              1,
+              1.0,
+              "none",
+              512
+            ],
+            "widgets_values_named": {
+              "enabled": false,
+              "seed": 0,
+              "seedvr2_upscale_factor": 2.0,
+              "resampling_method": "lanczos",
+              "seedvr2_model_name": "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_vae_name": "seedvr2_ema_vae_fp16.safetensors",
+              "seedvr2_steps": 1,
+              "seedvr2_denoise": 1.0,
+              "seedvr2_color_correction": "none",
+              "seedvr2_vae_tile_size": 512
+            },
+            "title": "SeedVR2 \u00b7 post upscale"
           }
         ],
         "groups": [
@@ -7656,7 +7898,7 @@
           },
           {
             "id": 1079868,
-            "origin_id": 1163,
+            "origin_id": 1170,
             "origin_slot": 0,
             "target_id": -20,
             "target_slot": 0,
@@ -8077,6 +8319,14 @@
             "target_id": 1163,
             "target_slot": 1,
             "type": "DONUT_INPAINT"
+          },
+          {
+            "id": 1115408,
+            "origin_id": 1163,
+            "origin_slot": 0,
+            "target_id": 1170,
+            "target_slot": 0,
+            "type": "IMAGE"
           }
         ],
         "extra": {
@@ -8557,7 +8807,7 @@
                 ]
               }
             ],
-            "title": "Primary model · optional Krea2 merge",
+            "title": "Primary model \u00b7 optional Krea2 merge",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "9a6b90788a41f2f5f4dc6f448872fe83b8368942",
@@ -8848,7 +9098,7 @@
                 ]
               }
             ],
-            "title": "Shared seed · text / sampling / filename",
+            "title": "Shared seed \u00b7 text / sampling / filename",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "f5b0b2a3dd10f36c902ff0f3c504b8625e3cb84b",
@@ -9707,10 +9957,10 @@
               }
             },
             "widgets_values": [
-              "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback → 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
+              "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback \u2192 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
             ],
             "widgets_values_named": {
-              "text": "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback → 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
+              "text": "  face_yolov8m.pt\n  - URL: https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt\n  - Size: 52 MB\n  - SHA256: 717923c19b3f4bbf5250b728f1fa6b2cb72a33aed1d236ea9caf0e21ad943e5f\n  - Folder: ComfyUI/models/ultralytics/bbox/\n\n  nickelback \u2192 4x_Nickelback_70000G.pth (ESRGAN upscaler)\n  - URL: https://huggingface.co/licyk/sd-upscaler-models/resolve/3a2094a57f456c41b79e5a4d196f2222c9940b89/ESRGAN/4x_Nickelback_70000G.pth?download=true\n  - Size: 67 MB\n  - Folder: ComfyUI/models/upscale_models/\n\n  sam_vit_b_01ec64.pth\n  - URL: https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth\n  - Size: 375 MB\n  - SHA256: ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912\n  - Folder: ComfyUI/models/sams/\n\n  zImageClearVae_halfNatural.safetensors\n  - URL: https://huggingface.co/easygoing0114/Z-Image_clear_vae/resolve/main/Z-Image_half_natural_vae.safetensors\n  - Size: 335 MB\n  - Folder: ComfyUI/models/vae/\n  - Note: HF filename is Z-Image_half_natural_vae.safetensors (underscores); the receiver would need to rename to zImageClearVae_halfNatural.safetensors to match the workflow reference, or we ship an alias.\n  - Also has variants in the same repo: natural, clear, vivid."
             },
             "color": "#432",
             "bgcolor": "#653"
@@ -9914,7 +10164,7 @@
                 ]
               }
             ],
-            "title": "Shared seed · Fixed / Randomize",
+            "title": "Shared seed \u00b7 Fixed / Randomize",
             "properties": {
               "cnr_id": "comfy-core",
               "ver": "0.34.0",
@@ -10205,7 +10455,7 @@
                 "links": []
               }
             ],
-            "title": "LoRAs · add / remove / reorder",
+            "title": "LoRAs \u00b7 add / remove / reorder",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "f5b0b2a3dd10f36c902ff0f3c504b8625e3cb84b",
@@ -10524,7 +10774,7 @@
               "uniform",
               "values"
             ],
-            "title": "Required pack · krea-seed-variance-enhancer"
+            "title": "Required pack \u00b7 krea-seed-variance-enhancer"
           },
           {
             "id": 1155,
@@ -10571,7 +10821,7 @@
               1000,
               0
             ],
-            "title": "Required pack · krea2-nag"
+            "title": "Required pack \u00b7 krea2-nag"
           },
           {
             "id": 1156,
@@ -10616,7 +10866,7 @@
               1,
               "fit"
             ],
-            "title": "Required pack · comfyui-krea2edit"
+            "title": "Required pack \u00b7 comfyui-krea2edit"
           }
         ],
         "groups": [],
