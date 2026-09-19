@@ -209,11 +209,15 @@ export function installEditStudio(node, definition) {
         if (claim) activeStudio = studio;
     }
     function outputSize() {
+        const independent = node.donutCropOutputSize?.();
+        if (independent) return independent;
         const image = get("enabled") && slots.a?.image;
         const b = get("enabled") && slots.b?.image;
         return targetDimensions(values(), image ? [image.naturalWidth, image.naturalHeight] : undefined, b ? [b.naturalWidth, b.naturalHeight] : undefined);
     }
     function boxFor(key) {
+        const independent = node.donutCropBox?.(key);
+        if (independent) return independent;
         const image = slots[key].image;
         return cropBox(image.naturalWidth, image.naturalHeight, ...outputSize(),
             Number(get(`crop_${key}_x`)), Number(get(`crop_${key}_y`)),
@@ -285,7 +289,7 @@ export function installEditStudio(node, definition) {
             if (!response.ok) throw new Error(`Upload failed (${response.status})`);
             const saved = await response.json();
             if (disposed || epoch !== slot.uploadEpoch) return;
-            commitValues({[`image_${key}`]:saved.reference, [`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5,
+            commitValues({[`crop_data_${key}`]:"", [`image_${key}`]:saved.reference, [`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5,
                 ...(key === "a" ? {mask_data:"", inpaint_enabled:false} : {}),
                 enabled:true, ...(key === "b" ? {use_reference_b:true} : {})});
             slot.path = null; activate(key); render();
@@ -337,7 +341,7 @@ export function installEditStudio(node, definition) {
         const pasteButton = button("Paste", `Paste reference ${key.toUpperCase()} from clipboard`, () => pasteFromButton(key));
         const center = button("Center", `Center the crop for reference ${key.toUpperCase()}`, () => { commitValues({[`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5}); render(); });
         const clear = button("×", `Clear reference ${key.toUpperCase()}`, () => {
-            ++slots[key].uploadEpoch; commitValues({[`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {mask_data:"", inpaint_enabled:false})}); render();
+            ++slots[key].uploadEpoch; commitValues({[`crop_data_${key}`]:"", [`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {mask_data:"", inpaint_enabled:false})}); render();
         }); clear.className = "de-clear";
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
         slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
@@ -363,6 +367,7 @@ export function installEditStudio(node, definition) {
         }
         canvas.addEventListener("pointerdown", event => {
             if (event.button !== 0) return;
+            if (node.donutOpenReferenceCrop?.(key)) { event.stopPropagation(); return; }
             event.stopPropagation(); activate(key); stage.focus();
             const slot = slots[key]; if (!slot.image || !slot.layout) return;
             const rect = canvas.getBoundingClientRect(), {width, height, scale, ox, oy} = slot.layout;
@@ -386,7 +391,7 @@ export function installEditStudio(node, definition) {
         commit("enabled", true); render();
         closeMaskEditor?.();
         closeMaskEditor = openInpaintEditor({image:slots.a.image, imageName:get("image_a"),
-            value:get("mask_data"), crop:boxFor("a"), outputSize:outputSize(), feather:get("mask_feather"), onApply:(value, feather) => {
+            value:get("mask_data"), crop:boxFor("a"), outputSize:node.donutCropInpaintSize?.() || outputSize(), feather:get("mask_feather"), onApply:(value, feather) => {
                 commitValues({mask_data:value, mask_feather:feather, inpaint_enabled:true, enabled:true}); render();
             }});
     });
@@ -504,6 +509,7 @@ export function installEditStudio(node, definition) {
                 : get("use_reference_b") ? "Two references · A sets the scene; B supplies subject identity."
                 : "One reference · enable B to combine two images.";
         }
+        node.donutApplyCropSizing?.();
     }
 
     for (const widget of backend.values()) {

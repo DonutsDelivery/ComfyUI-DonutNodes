@@ -8,7 +8,7 @@ const el = (tag, text) => {
     return item;
 };
 function install(node) {
-    const root = el("div"), status = el("p"), previews = [];
+    const root = el("div"), status = el("p"), previews = [], slots = {};
     root.className = "donut-edit-studio donut-reference-studio";
     root.tabIndex = 0;
     const top = el("div"), heading = el("div"), eyebrow = el("div", "DONUT / KREA 2"), title = el("div", "Reference guidance");
@@ -18,6 +18,10 @@ function install(node) {
     const get = name => widget(name)?.value;
     function set(name, value) {
         node.graph.beforeChange(); widget(name).value = value;
+        if (name === "image_a" || name === "image_b") {
+            const crop = widget(`crop_data_${name.slice(-1)}`);
+            if (crop) crop.value = "";
+        }
         node.graph.afterChange(); node.setDirtyCanvas(true, true); refresh();
     }
     function toggle(name, title) {
@@ -85,6 +89,7 @@ function install(node) {
             const image = [...event.clipboardData.items].find(item => item.type.startsWith("image/"))?.getAsFile();
             if (image) { event.preventDefault(); event.stopPropagation(); upload(image); }
         };
+        slots[name.slice(-1)] = {card:box, image:img, stage, meta};
         previews.push(() => {
             box.classList.toggle("de-active", name === "image_a" || !!get("use_reference_b"));
             const value = get(name);
@@ -126,7 +131,7 @@ function install(node) {
     node.onAdded = function() { disposed = false; observer.observe(root); return added?.apply(this, arguments); };
     node.onRemoved = function() { disposed = true; clearInterval(timer); observer.disconnect(); return removed?.apply(this, arguments); };
     node.onConfigure = function() { const result = configured?.apply(this, arguments); refresh(); return result; };
-    node.size = [540, 720]; node._donutReferenceStudio = {refresh}; refresh();
+    node.size = [540, 720]; node._donutReferenceStudio = {refresh, root, slots}; refresh();
 }
 app.registerExtension({
     name:"Donut.ReferenceStudio",

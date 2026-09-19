@@ -166,7 +166,7 @@ def _merge_legacy_edit_patches(model, edit_model):
     return patched
 
 
-def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True):
+def _resolve_krea2_edit_model_legacy(model, edit_model=None, fallback_to_edit_model=True):
     """Keep upstream model patches while adding Edit Studio's adapter.
 
     The Edit Studio output is a separate ModelPatcher clone.  Using it as the
@@ -206,6 +206,17 @@ def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True
         return publish_execution_mode(model, metadata[2])
     name, strength, execution_mode = metadata
     return apply_krea2_edit_lora(model, name, strength, execution_mode)
+
+
+def resolve_krea2_edit_model(model, edit_model=None, fallback_to_edit_model=True):
+    """Resolve LoRA/fusion branches, then carry explicit pixel-fit preparation."""
+    result = _resolve_krea2_edit_model_legacy(model, edit_model, fallback_to_edit_model)
+    fit_options = getattr(edit_model, "model_options", None)
+    if not isinstance(fit_options, dict) or fit_options.get("donut_reference_fit") is not True:
+        return result
+    result = result.clone()
+    result.model_options["donut_reference_fit"] = True
+    return result
 
 
 def scale_image_to_megapixels(image, megapixels=1.0):
@@ -636,10 +647,21 @@ def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
             + ", ".join(missing)
         )
 
+    # Legacy geometry stays exact; independently selected crops must not
+    # be center-cut again by later hires/detail stages. Both branches
+    # still VAE-encode a target-shaped pixel canvas.
+    reference_resize = resize_center_crop
+    fit_options = getattr(model, "model_options", None)
+    if isinstance(fit_options, dict) and fit_options.get("donut_reference_fit") is True:
+        try:
+            from .donut_reference_geometry import fit_tensor
+        except ImportError:
+            from donut_reference_geometry import fit_tensor
+        reference_resize = fit_tensor
     conditioning_image = scale_image_to_megapixels(source_image)
     patch_image = conditioning_image
     if target_width is not None and target_height is not None:
-        patch_image = resize_center_crop(
+        patch_image = reference_resize(
             source_image, target_width, target_height,
         )
     source_latent = nodes.VAEEncode().encode(vae, patch_image)[0]
@@ -651,7 +673,7 @@ def prepare_krea2_edit(model, clip, vae, source_image, positive_prompt="",
         conditioning_image_b = scale_image_to_megapixels(source_image_b)
         patch_image_b = conditioning_image_b
         if target_width is not None and target_height is not None:
-            patch_image_b = resize_center_crop(source_image_b, target_width, target_height)
+            patch_image_b = reference_resize(source_image_b, target_width, target_height)
         source_latent_b = nodes.VAEEncode().encode(vae, patch_image_b)[0]
         source_latent = [source_latent, source_latent_b]
         grounding_options["image_b"] = conditioning_image_b

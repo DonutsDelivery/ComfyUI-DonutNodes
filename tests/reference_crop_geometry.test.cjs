@@ -1,0 +1,28 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const path=require('node:path');const vm=require('node:vm');
+const src=fs.readFileSync(path.join(__dirname,'../web/donut_reference_crop_geometry.js'),'utf8').replace(/^export /gm,'');
+const g=vm.runInNewContext(src+'\n({LEGACY,INDEPENDENT,parseCrop,cropBox,aspectCrop,moveCrop,resizeCrop,subjectBounds,fitGeometry,outputDimensions,sizingVisibility})',{});
+const eq=(a,b)=>assert.deepEqual(JSON.parse(JSON.stringify(a)),b);
+const doc=(bounds=[0,0,1,1],aspect='Free')=>({version:1,image:'B',source_size:[100,200],bounds,aspect});
+test('full source default',()=>eq(g.cropBox('','B',[100,200]),[0,0,100,200]));
+test('source crop is independent of output dimensions',()=>eq(g.cropBox(doc([.1,.2,.9,.8]),'B',[100,200]),[10,40,90,160]));
+test('half-up rounding matches Python',()=>eq(g.cropBox(doc([.025,.0125,.975,.9875]),'B',[100,200]),[3,3,98,198]));
+test('stale image and dimensions rejected',()=>{assert.throws(()=>g.parseCrop(doc(),'A',[100,200]));assert.throws(()=>g.parseCrop(doc(),'B',[101,200]));});
+test('invalid coordinates rejected',()=>{for(const b of [[false,0,1,1],[-1,0,1,1],[0,0,NaN,1],[0,0,Infinity,1],[0,0,0,1],[0,0,.001,.001]])assert.throws(()=>g.parseCrop(doc(b),'B',[100,200]));});
+test('free aspect does not recrop',()=>eq(g.aspectCrop([.1,.2,.9,.8],'Free',[100,200]),[.1,.2,.9,.8]));
+test('square crop inside portrait source',()=>eq(g.aspectCrop([0,0,1,1],'1:1',[100,200]),[0,.25,1,.75]));
+test('original aspect is source ratio',()=>eq(g.aspectCrop([0,0,1,1],'Original',[100,200]),[0,0,1,1]));
+test('move clamps without resizing',()=>eq(g.moveCrop([.1,.2,.6,.8],2,-2),[.5,0,1,.6000000000000001]));
+test('free corner resize respects anchor',()=>eq(g.resizeCrop([.1,.2,.8,.9],'se',[.7,.6],'Free',[100,200]),[.1,.2,.7,.6]));
+test('locked resize preserves pixel aspect and stays inside image',()=>{const b=g.resizeCrop([0,0,1,1],'se',[.5,.3],'1:1',[100,200]);assert.ok(Math.abs((b[2]-b[0])*100-(b[3]-b[1])*200)<1e-7);assert.ok(b.every(v=>v>=0&&v<=1));});
+test('subject bounds use grayscale, not alpha, and add padding',()=>{const pixels=new Uint8ClampedArray(10*10*4);for(let y=3;y<7;y++)for(let x=2;x<8;x++)pixels[(y*10+x)*4]=255;eq(g.subjectBounds(pixels,10,10,0),[.2,.3,.8,.7]);const b=g.subjectBounds(pixels,10,10,10);assert.ok(b[0]<.2&&b[1]<.3&&b[2]>.8&&b[3]>.7);});
+test('empty mask and invalid padding rejected',()=>{assert.throws(()=>g.subjectBounds(new Uint8ClampedArray(400),10,10));assert.throws(()=>g.subjectBounds(new Uint8ClampedArray(400),10,10,-1));});
+test('fitted content matches Python geometry',()=>eq(g.fitGeometry([100,200],[200,120]),{canvas:[200,120],content:[60,120],offset:[70,0]}));
+test('legacy and disabled preview bypass',()=>{assert.equal(g.outputDimensions({}),null);assert.equal(g.outputDimensions({geometry_mode:g.INDEPENDENT,enabled:false}),null);});
+test('follow A crop preview matches Python',()=>eq(g.outputDimensions({geometry_mode:g.INDEPENDENT,enabled:true,megapixels:1,multiple:32},[300,200],[0,0,100,200]),[736,1440]));
+test('custom output preserves crop selection',()=>{const box=[0,0,100,200];eq(g.outputDimensions({geometry_mode:g.INDEPENDENT,enabled:true,output_canvas:'Independent output',resolution_mode:'Custom',width:1536,height:864,multiple:32},[100,200],box),[1536,864]);eq(box,[0,0,100,200]);});
+test('crop-only uses selected source size',()=>eq(g.outputDimensions({geometry_mode:g.INDEPENDENT,enabled:true,resolution_mode:'Reference A · crop only',multiple:32},[200,200],[0,0,135,170]),[128,160]));
+test('JSON roundtrip retains independent state',()=>{const d=doc([.125,.25,.875,.75],'Free');eq(g.parseCrop(JSON.stringify(d),'B',[100,200]),d);});
+
+test('Follow A hides independent aspect/size but keeps pixel budget',()=>{const v=g.sizingVisibility({enabled:true,geometry_mode:g.INDEPENDENT,output_canvas:'Follow A crop',resolution_mode:'Custom'});assert.equal(v.width,true);assert.equal(v.aspect_ratio,true);assert.equal(v.megapixels,false);});
+test('independent Custom shows width and height',()=>{const v=g.sizingVisibility({enabled:true,geometry_mode:g.INDEPENDENT,output_canvas:'Independent output',resolution_mode:'Custom'});assert.equal(v.width,false);assert.equal(v.height,false);assert.equal(v.megapixels,true);});
+test('legacy/disabled sizing visibility is left to existing UI',()=>{assert.equal(g.sizingVisibility({}),null);assert.equal(g.sizingVisibility({enabled:false,geometry_mode:g.INDEPENDENT}),null);});
