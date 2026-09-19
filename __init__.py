@@ -42,7 +42,7 @@ _NODE_MODULES = (
     "donut_krea2_fusion_experiments",
     "DonutImageAdjust", "DonutImageSave",
     "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",
-    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio", "donut_inpaint",
+    "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio", "donut_reference_mask", "donut_inpaint",
 )
 _REQUIRED_OVERRIDES = {
     "DonutSafeApplyLoRAStack": ("DonutApplyLoRAStack",),
@@ -53,6 +53,7 @@ _REQUIRED_OVERRIDES = {
     "donut_upscale_stage": ("DonutTiledUpscale",),
     "donut_prompt_injection_recursive": ("DonutPromptInjection",),
     "donut_grouped_merge": ("DonutModelMergeKrea2",),
+    "donut_reference_mask": ("DonutEditStudio",),
 }
 for _module in _NODE_MODULES:
     import_component(
