@@ -2,7 +2,24 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { modelBindings, manualModelFiles } from "../web/donut_model_requirements.js";
+
+// The web modules import ComfyUI's app.js as ESM, and this directory has no
+// package.json "type": "module", so node loads web/*.js as CommonJS and
+// rejects named ESM imports. Evaluate the module source in a vm context and
+// collect its exports, matching the repo's other web-extension tests.
+function loadModule(relPath) {
+    const source = fs.readFileSync(new URL(relPath, import.meta.url), "utf8")
+        .replace(/^import .*;\n/gm, "")
+        .replace(/export function/g, "function")
+        .replace(/export const/g, "const")
+        .replace(/export \{[^}]*\};?/g, "");
+    const sandbox = { __exports: {}, URL };
+    vm.createContext(sandbox);
+    vm.runInContext(source + "\nthis.__exports = {modelBindings, manualModelFiles};", sandbox);
+    return sandbox.__exports;
+}
+const { modelBindings, manualModelFiles } = loadModule("../web/donut_model_requirements.js");
+const sameValues = (a, b) => assert.deepEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)));
 
 const catalog = JSON.parse(fs.readFileSync(new URL("../model_sources.json", import.meta.url))).models;
 const M3 = "seedvr2_3b_int8_convrot.safetensors", M7 = "seedvr2_7b_int8_convrot.safetensors";
@@ -19,35 +36,35 @@ const refs = value => modelBindings(value).map(({folder,name}) => [folder,name])
 const widget = (n, name) => n.widgets.find(w => w.name === name);
 
 test("the selected SeedVR2 model and VAE are discovered inside existing subgraphs", () => {
-    assert.deepEqual(refs(graph({subgraph:graph(stage())})), [["diffusion_models",M3],["vae",VAE]]);
+    sameValues(refs(graph({subgraph:graph(stage())})), [["diffusion_models",M3],["vae",VAE]]);
 });
 test("7B selection does not also download 3B", () => {
-    assert.deepEqual(refs(graph(stage({seedvr2_model_name:M7}))), [["diffusion_models",M7],["vae",VAE]]);
+    sameValues(refs(graph(stage({seedvr2_model_name:M7}))), [["diffusion_models",M7],["vae",VAE]]);
 });
 test("Donut default and old stages require no SeedVR2 files", () => {
-    assert.deepEqual(refs(graph(stage({upscale_engine:"Donut"}), node("DonutTiledUpscale"))), []);
+    sameValues(refs(graph(stage({upscale_engine:"Donut"}), node("DonutTiledUpscale"))), []);
 });
 test("muted and bypassed nodes/subgraphs are skipped", () => {
     for (const mode of [2,4]) {
-        assert.deepEqual(refs(graph({...stage(),mode})), []);
-        assert.deepEqual(refs(graph({mode,subgraph:graph(stage())})), []);
+        sameValues(refs(graph({...stage(),mode})), []);
+        sameValues(refs(graph({mode,subgraph:graph(stage())})), []);
     }
 });
 test("selected feature configurations can be prepared before enabling execution", () => {
-    assert.deepEqual(refs(graph(stage({enabled:false}))), [["diffusion_models",M3],["vae",VAE]]);
-    assert.deepEqual(refs(graph(node("DonutEditStudio", {
+    sameValues(refs(graph(stage({enabled:false}))), [["diffusion_models",M3],["vae",VAE]]);
+    sameValues(refs(graph(node("DonutEditStudio", {
         enabled:false, use_reference_b:false, mask_b_mode:"Auto subject", mask_b_model:BG,
     }))), [["background_removal",BG]]);
 });
 test("auto masks need BiRefNet but Off/Saved/External and legacy studios do not", () => {
     for (const mode of ["Off", "Saved mask", "External mask"]) {
-        assert.deepEqual(refs(graph(node("DonutEditStudio", {mask_b_mode:mode, mask_b_model:BG}))), []);
+        sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:mode, mask_b_model:BG}))), []);
     }
-    assert.deepEqual(refs(graph(node("DonutEditStudio"))), []);
-    assert.deepEqual(refs(graph(node("DonutEditStudio", {mask_b_mode:"Auto subject", mask_b_model:BG}))), [["background_removal",BG]]);
+    sameValues(refs(graph(node("DonutEditStudio"))), []);
+    sameValues(refs(graph(node("DonutEditStudio", {mask_b_mode:"Auto subject", mask_b_model:BG}))), [["background_removal",BG]]);
 });
 test("native background loader and queued preview jobs have bindings too", () => {
-    assert.deepEqual(refs(graph(node("LoadBackgroundRemovalModel", {bg_removal_name:BG}),
+    sameValues(refs(graph(node("LoadBackgroundRemovalModel", {bg_removal_name:BG}),
         node("DonutSubjectMaskPreview", {model_name:BG}))), [["background_removal",BG],["background_removal",BG]]);
 });
 test("comfyClass takes precedence over UI type", () => {
@@ -60,7 +77,7 @@ test("existing loader, SDA and LoRA row discovery is unchanged", () => {
     ])});
     const got = refs(graph(node("UNETLoader",{unet_name:"model.safetensors"}),
         node("DonutSampler",{sda_enabled:true}), n));
-    assert.equal(got.length,3); assert.deepEqual(got[0],["diffusion_models","model.safetensors"]);
+    assert.equal(got.length,3); sameValues(got[0],["diffusion_models","model.safetensors"]);
     assert.equal(got[2][1],"one.safetensors");
 });
 test("verified renamed files update the original feature widgets", () => {
