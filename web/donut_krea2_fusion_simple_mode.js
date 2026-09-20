@@ -24,6 +24,7 @@ const LEGACY_TO_SIMPLE = {
   "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": "Rebalance + Bypass 2",
   "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
   "DONUT settings: RMS-balanced classic": "Balanced",
+  "DONUT settings: RMS-balanced classic, raw NAG negative": "Balanced + raw NAG",
   "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
   "DONUT settings: Krea2 C33 TeacherFix EMA5000": UNCENSORFIX,
   "TeacherFix": UNCENSORFIX,
@@ -142,6 +143,21 @@ const SIMPLE_PRESETS = {
     fusion_method: FUSION_STANDARD,
     fusion_strength: 1.0,
   },
+  "Balanced + raw NAG": {
+    tap_method: TAP_DONUT,
+    tap_profile: "classic",
+    tap_strength: 1.0,
+    tap_formula: "scale_around_1",
+    tap_normalization: "tensor_rms",
+    projector_method: PROJECTOR_DONUT,
+    projector_profile: "off",
+    projector_strength: 1.0,
+    projector_formula: "scale_around_1",
+    projector_normalization: "none",
+    fusion_method: FUSION_STANDARD,
+    fusion_strength: 1.0,
+    nag_match_taps: false,
+  },
   "Balanced + Enhancer": {
     tap_method: TAP_DONUT,
     tap_profile: "classic",
@@ -171,6 +187,10 @@ const SIMPLE_PRESETS = {
     fusion_strength: 1.0,
   },
 };
+
+for (const preset of Object.values(SIMPLE_PRESETS)) {
+  if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
+}
 
 const SIMPLE_PROJECTOR_STRENGTH = new Set([
   "Bypass 2",

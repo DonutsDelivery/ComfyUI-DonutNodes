@@ -50,6 +50,7 @@ PRESET_REBALANCE_ENHANCER = "HYBRID settings: Rebalance + Krea2T-Enhancer"
 PRESET_REBALANCE_BYPASS_2 = "HYBRID settings: Rebalance + Krea2FilterBypass 2vector"
 PRESET_REBALANCE_BYPASS_3 = "HYBRID settings: Rebalance + Krea2FilterBypass 3vector"
 PRESET_DONUT_BALANCED = "DONUT settings: RMS-balanced classic"
+PRESET_DONUT_BALANCED_RAW_NAG = "DONUT settings: RMS-balanced classic, raw NAG negative"
 PRESET_DONUT_BALANCED_ENHANCER = "DONUT settings: RMS-balanced classic + Krea2T-Enhancer"
 COMPATIBILITY_PRESETS = (
     PRESET_MANUAL,
@@ -61,6 +62,7 @@ COMPATIBILITY_PRESETS = (
     PRESET_REBALANCE_BYPASS_2,
     PRESET_REBALANCE_BYPASS_3,
     PRESET_DONUT_BALANCED,
+    PRESET_DONUT_BALANCED_RAW_NAG,
     PRESET_DONUT_BALANCED_ENHANCER,
 )
 
@@ -248,7 +250,8 @@ def _tap_signature(config):
 def prepare_nag_conditioning(model, conditioning):
     """Apply the model's upstream tap transform to NAG's separate text input."""
     config = getattr(model, "model_options", {}).get("transformer_options", {}).get(FUSION_BUDGET_KEY)
-    if not config or _is_neutral(config["tap_gains"]) or conditioning is None:
+    if (not config or _is_neutral(config["tap_gains"]) or conditioning is None
+            or not config.get("nag_match_taps", True)):
         return conditioning
     signature = _tap_signature(config)
     output = []
@@ -265,6 +268,42 @@ def prepare_nag_conditioning(model, conditioning):
         value, meta = transformed[0]
         output.append([value, dict(meta, **{_TAP_METADATA_KEY: signature})])
     return output
+
+
+_NAG_TAP_WRAP = "_donut_prepare_nag_conditioning"
+
+
+def ensure_standalone_nag_uses_fusion_taps():
+    """Make krea2-nag's own node apply Fusion taps to nag_negative.
+
+    DonutSampler already does this in apply_krea2_nag. KSampler uses the
+    upstream NAG node, which otherwise keeps a raw negative next to a
+    Rebalanced positive and produces leftover grain.
+    """
+    import nodes
+
+    for node_id in (
+        "Krea2NormalizedAttentionGuidance",
+        "Krea2EditNormalizedAttentionGuidance",
+    ):
+        cls = nodes.NODE_CLASS_MAPPINGS.get(node_id)
+        if cls is None or getattr(cls.patch, _NAG_TAP_WRAP, False):
+            continue
+        original = cls.patch
+
+        def patch(self, *args, _original=original, **kwargs):
+            if "nag_negative" in kwargs:
+                kwargs["nag_negative"] = prepare_nag_conditioning(
+                    kwargs["model"], kwargs["nag_negative"],
+                )
+                return _original(self, *args, **kwargs)
+            model, nag_negative, *rest = args
+            nag_negative = prepare_nag_conditioning(model, nag_negative)
+            return _original(self, model, nag_negative, *rest, **kwargs)
+
+        setattr(patch, _NAG_TAP_WRAP, True)
+        cls.patch = patch
+
 
 def _run_txtfusion_parts(txtfusion, value, mask=None, transformer_options=None):
     transformer_options = transformer_options or {}
@@ -570,11 +609,13 @@ class DonutKrea2FusionControl:
         fusion_method=FUSION_METHOD_STANDARD,
         fusion_strength=1.0,
         detail_clip=None,
+        nag_match_taps=True,
     ):
         # Older saved workflows/subgraphs may still submit this removed input.
         # It never participates in the current fusion path, but accepting it
         # keeps those workflows executable after updating the node pack.
         del detail_clip
+        ensure_standalone_nag_uses_fusion_taps()
         if compatibility_preset not in COMPATIBILITY_PRESETS:
             raise ValueError(f"Unknown compatibility preset label: {compatibility_preset}")
         conditioning_inputs = (
@@ -697,6 +738,7 @@ class DonutKrea2FusionControl:
                     "projector_normalization": projector_normalization,
                     "fusion_method": fusion_method,
                     "fusion_strength": float(fusion_strength),
+                    "nag_match_taps": bool(nag_match_taps),
                 },
             )
 
@@ -714,6 +756,7 @@ class DonutKrea2FusionControl:
             f"{tap_details}\n"
             f"{projector_details}\n"
             f"{fusion_details}\n"
+            f"nag_match_taps={str(bool(nag_match_taps)).lower()}\n"
             f"conditioning_routes={sum(value is not None for value in conditioning_inputs)}/"
             f"{CONDITIONING_SLOT_COUNT}\n"
             "external_files_loaded=none"

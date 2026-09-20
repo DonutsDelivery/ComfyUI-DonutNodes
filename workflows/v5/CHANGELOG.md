@@ -13,6 +13,14 @@ release identity.
   above/below layouts. They derive a grid-aligned resolution from A while
   remaining within the current megapixel budget, and apply it as Custom sizing.
 
+## Unreleased · live CFG negative when Turbo is off
+
+- Sampler, both upscalers, and Face Detailer now take Prompt Conditioning
+  `negative_raw` on their `negative` sockets. Turbo still zeros that tensor
+  at sample time. With Turbo off, CFG can use the live negative. NAG still
+  uses the same raw wire on `nag_negative`. `negative_zeroed` remains on the
+  node but is unused in this graph.
+
 ## Unreleased · individual finishing previews
 
 - Latest result now selects Base generation, First upscale, Second upscale, Face Detailer, or SeedVR2 / final image. Existing tagged V4 workflows gain the missing preview branches on import.

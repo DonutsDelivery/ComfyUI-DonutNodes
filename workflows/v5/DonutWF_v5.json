@@ -6973,12 +6973,7 @@
                 "localized_name": "negative_zeroed",
                 "name": "negative_zeroed",
                 "type": "CONDITIONING",
-                "links": [
-                  1073490,
-                  1073497,
-                  1073507,
-                  1073515
-                ]
+                "links": []
               },
               {
                 "localized_name": "negative_raw",
@@ -6988,7 +6983,11 @@
                   1115360,
                   1115362,
                   1115364,
-                  1115366
+                  1115366,
+                  1073490,
+                  1073497,
+                  1073507,
+                  1073515
                 ]
               }
             ],
@@ -8024,7 +8023,7 @@
           {
             "id": 1073490,
             "origin_id": 996,
-            "origin_slot": 5,
+            "origin_slot": 6,
             "target_id": 983,
             "target_slot": 4,
             "type": "CONDITIONING"
@@ -8056,7 +8055,7 @@
           {
             "id": 1073497,
             "origin_id": 996,
-            "origin_slot": 5,
+            "origin_slot": 6,
             "target_id": 984,
             "target_slot": 5,
             "type": "CONDITIONING"
@@ -8088,7 +8087,7 @@
           {
             "id": 1073507,
             "origin_id": 996,
-            "origin_slot": 5,
+            "origin_slot": 6,
             "target_id": 989,
             "target_slot": 4,
             "type": "CONDITIONING"
@@ -8120,7 +8119,7 @@
           {
             "id": 1073515,
             "origin_id": 996,
-            "origin_slot": 5,
+            "origin_slot": 6,
             "target_id": 993,
             "target_slot": 2,
             "type": "CONDITIONING"

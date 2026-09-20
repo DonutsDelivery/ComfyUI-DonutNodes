@@ -24,6 +24,7 @@ const FUSION_PRESETS = {
     "Rebalance + Bypass 2": FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Krea2FilterBypass 2vector diff", "Standard Krea2 fusion"),
     "Rebalance + Bypass 3": FUSION_PRESET("nova452 Rebalance operation", "classic", "none", "Krea2FilterBypass 3vector diff", "Standard Krea2 fusion"),
     Balanced: FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
+    "Balanced + raw NAG": { ...FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"), nag_match_taps: false },
     "Balanced + Enhancer": FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
     UncensorFix: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
 };
@@ -36,10 +37,14 @@ for (const [legacy, current] of Object.entries({
     "HYBRID settings: Rebalance + Krea2FilterBypass 2vector": "Rebalance + Bypass 2",
     "HYBRID settings: Rebalance + Krea2FilterBypass 3vector": "Rebalance + Bypass 3",
     "DONUT settings: RMS-balanced classic": "Balanced",
+    "DONUT settings: RMS-balanced classic, raw NAG negative": "Balanced + raw NAG",
     "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
     TeacherFix: "UncensorFix",
     "DONUT settings: Krea2 C33 TeacherFix EMA5000": "UncensorFix",
 })) FUSION_PRESETS[legacy] = FUSION_PRESETS[current];
+for (const preset of Object.values(FUSION_PRESETS)) {
+    if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
+}
 
 function applyFusionPreset(node, preset) {
     const values = preset === "Off" ? FUSION_PRESETS.UncensorFix : FUSION_PRESETS[preset];

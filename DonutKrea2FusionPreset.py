@@ -27,6 +27,7 @@ PRESET_REBALANCE_ENHANCER = "Rebalance + Enhancer"
 PRESET_REBALANCE_BYPASS_2 = "Rebalance + Bypass 2"
 PRESET_REBALANCE_BYPASS_3 = "Rebalance + Bypass 3"
 PRESET_BALANCED = "Balanced"
+PRESET_BALANCED_RAW_NAG = "Balanced + raw NAG"
 PRESET_BALANCED_ENHANCER = "Balanced + Enhancer"
 PRESET_UNCENSORFIX = "UncensorFix"
 LEGACY_TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000"
@@ -42,6 +43,7 @@ SIMPLE_PRESET_TO_LEGACY = {
     PRESET_REBALANCE_BYPASS_2: base.PRESET_REBALANCE_BYPASS_2,
     PRESET_REBALANCE_BYPASS_3: base.PRESET_REBALANCE_BYPASS_3,
     PRESET_BALANCED: base.PRESET_DONUT_BALANCED,
+    PRESET_BALANCED_RAW_NAG: base.PRESET_DONUT_BALANCED_RAW_NAG,
     PRESET_BALANCED_ENHANCER: base.PRESET_DONUT_BALANCED_ENHANCER,
 }
 SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_UNCENSORFIX,)
@@ -252,6 +254,11 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         optional["uncensorfix_strength"] = ("FLOAT", {
             "default": 1.0, "min": -20.0, "max": 20.0, "step": 0.05,
             "tooltip": "UncensorFix weight strength, independent of tap/fusion strength.",
+        })
+        optional["nag_match_taps"] = ("BOOLEAN", {
+            "default": True,
+            "tooltip": "Apply Fusion taps to NAG's negative so both streams match. "
+                       "Off keeps a raw NAG negative (Balanced + raw NAG).",
         })
         return {**schema, "required": required, "optional": optional}
 

@@ -55,5 +55,38 @@ class NAGTapTests(unittest.TestCase):
         model.model_options = {'transformer_options': {fusion.FUSION_BUDGET_KEY: {'tap_gains': (1.,)*12}}}
         self.assertIs(fusion.prepare_nag_conditioning(model, raw), raw)
 
+    def test_nag_match_taps_off_leaves_negative_raw(self):
+        value = torch.randn(1, 2, 30720)
+        gains = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
+        config = dict(tap_method=fusion.TAP_METHOD_DONUT, tap_gains=gains,
+                      tap_normalization='tensor_rms', nag_match_taps=False)
+        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+        raw = [[value, {}]]
+        self.assertIs(fusion.prepare_nag_conditioning(model, raw), raw)
+
+    def test_standalone_nag_node_receives_fusion_taps(self):
+        captured = []
+        class NAG:
+            def patch(self, model, nag_negative, phi=4., tau=2.5, alpha=.25,
+                      sigma_start=1000., sigma_end=0.):
+                captured.append(nag_negative)
+                return (model,)
+        nodes = types.ModuleType('nodes')
+        nodes.NODE_CLASS_MAPPINGS = {'Krea2NormalizedAttentionGuidance': NAG}
+        value = torch.ones(1, 2, 30720)
+        profile = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
+        config = dict(tap_method=fusion.TAP_METHOD_REBALANCE,
+                      tap_gains=profile, tap_normalization='none',
+                      tap_multiplier=1., tap_profile_values=profile)
+        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+        with patch.dict(sys.modules, {'nodes': nodes}):
+            fusion.ensure_standalone_nag_uses_fusion_taps()
+            NAG().patch(model, [[value, {}]])
+            fusion.ensure_standalone_nag_uses_fusion_taps()
+        expected = fusion.prepare_nag_conditioning(model, [[value, {}]])[0][0]
+        torch.testing.assert_close(captured[0][0][0], expected)
+        self.assertEqual(len(captured), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

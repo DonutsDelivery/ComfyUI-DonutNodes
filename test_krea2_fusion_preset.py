@@ -25,11 +25,12 @@ BASE_NAMES = {
     "PRESET_REBALANCE_BYPASS_2": "HYBRID settings: Rebalance + Krea2FilterBypass 2vector",
     "PRESET_REBALANCE_BYPASS_3": "HYBRID settings: Rebalance + Krea2FilterBypass 3vector",
     "PRESET_DONUT_BALANCED": "DONUT settings: RMS-balanced classic",
+    "PRESET_DONUT_BALANCED_RAW_NAG": "DONUT settings: RMS-balanced classic, raw NAG negative",
     "PRESET_DONUT_BALANCED_ENHANCER": "DONUT settings: RMS-balanced classic + Krea2T-Enhancer",
 }
 SHORT_NAMES = ["Off", "Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
                "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
-               "Balanced", "Balanced + Enhancer", "UncensorFix"]
+               "Balanced", "Balanced + raw NAG", "Balanced + Enhancer", "UncensorFix"]
 LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
                   "tap_profile", "per_layer_weights", "tap_strength", "tap_formula",
                   "tap_normalization", "projector_method", "projector_profile",

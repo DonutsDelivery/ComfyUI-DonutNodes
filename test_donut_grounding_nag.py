@@ -203,8 +203,8 @@ class NAGTests(unittest.TestCase):
             model, pos, neg = self.prepare(nag_negative=explicit)
         seen = self.exercise(model, pos, neg, (512, 768, 1088))
         self.assertEqual(len(self.calls), 1)
-        self.assertTrue(all(torch.equal(n, explicit[0][0]) for _, n in seen))
-        self.assertEqual(self.fusion_inputs, [])
+        self.assertTrue(all(torch.equal(n, explicit[0][0] * 2) for _, n in seen))
+        self.assertIs(self.fusion_inputs[0], explicit)
 
     def test_reference_geometry_masks_and_nag_parameters_forwarded(self):
         for fit_mode in ("fit", "crop (legacy)"):

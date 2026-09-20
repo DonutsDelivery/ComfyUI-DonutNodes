@@ -151,6 +151,14 @@ const PRESETS = {
   },
 };
 
+for (const preset of Object.values(PRESETS)) {
+  if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
+}
+PRESETS["DONUT settings: RMS-balanced classic, raw NAG negative"] = {
+  ...PRESETS["DONUT settings: RMS-balanced classic"],
+  nag_match_taps: false,
+};
+
 const MANAGED_WIDGETS = [
   "tap_profile",
   "tap_strength",
@@ -170,6 +178,7 @@ const SETTINGS_WIDGETS = [
   ...MANAGED_WIDGETS,
   "projector_method",
   "fusion_method",
+  "nag_match_taps",
 ];
 
 const HIDDEN_PREFIX = "donuthidden-";

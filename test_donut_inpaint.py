@@ -142,6 +142,17 @@ class InpaintTests(unittest.TestCase):
                 mask_input = next(p for p in node['inputs'] if p['type'] == 'DONUT_INPAINT')
                 edge = links[mask_input['link']]
                 self.assertEqual((edge['origin_id'], edge['origin_slot']), (-10, inpaint_slot))
+        prompt = next(n for n in engine['nodes'] if n['type'] == 'DonutPromptConditioning')
+        raw_slot = next(i for i, o in enumerate(prompt['outputs']) if o['name'] == 'negative_raw')
+        zero_slot = next(i for i, o in enumerate(prompt['outputs']) if o['name'] == 'negative_zeroed')
+        self.assertFalse(prompt['outputs'][zero_slot].get('links'))
+        for node in engine['nodes']:
+            if node['type'] not in ('DonutSampler', 'DonutTiledUpscale', 'DonutFaceDetailer'):
+                continue
+            for name in ('negative', 'nag_negative'):
+                socket = next(p for p in node['inputs'] if p['name'] == name)
+                edge = links[socket['link']]
+                self.assertEqual((edge['origin_id'], edge['origin_slot']), (prompt['id'], raw_slot), node['type'] + '.' + name)
 
 
 
