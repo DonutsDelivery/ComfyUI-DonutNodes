@@ -344,6 +344,10 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                     f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
                     "external_files_loaded=none"
                 )
+                if nag_text_energy_compensation or nag_batch_txtfusion:
+                    # No fusion budget is created on this path, so the NAG
+                    # experiment has nothing to read its flags from.
+                    diagnostics += "\nnag_experiment_flags_inactive=no fusion budget in LoRA-only mode"
                 result = [kwargs["model"], *conditionings, diagnostics]
             else:
                 delegated = dict(kwargs)

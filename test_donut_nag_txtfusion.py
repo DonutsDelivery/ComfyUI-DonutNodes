@@ -290,6 +290,65 @@ class DonutForwardMirrorTests(unittest.TestCase):
         self.assertEqual(fusion_calls[0][1], (2, 12, 2560))
 
 
+class FusionBudgetFlagTests(unittest.TestCase):
+    """The UI toggles must land in the model's fusion budget (base node level)."""
+
+    def _model(self):
+        model = types.SimpleNamespace()
+        model.model_options = {}
+
+        def clone():
+            cloned = self._model()
+            cloned.model_options = {key: dict(value) for key, value in model.model_options.items()}
+            return cloned
+
+        model.clone = clone
+        return model
+
+    def _apply(self, **flag_overrides):
+        import DonutKrea2FusionControl as base_fusion
+
+        settings = dict(
+            model=self._model(),
+            conditioning_in_1=[[torch.ones(1, 2, 30720), {}]],
+            compatibility_preset=base_fusion.PRESET_REBALANCE,
+            tap_method=base_fusion.TAP_METHOD_REBALANCE,
+            tap_profile="classic",
+            per_layer_weights=",".join(["1"] * 7 + ["2.5", "5", "1.1", "4", "1"]),
+            tap_strength=1.0,
+            tap_formula="scale_around_1",
+            tap_normalization="none",
+            projector_method=base_fusion.PROJECTOR_METHOD_DONUT,
+            projector_profile="off",
+            projector_strength=1.0,
+            projector_formula="scale_around_1",
+            projector_normalization="none",
+            fusion_method=base_fusion.FUSION_METHOD_STANDARD,
+            fusion_strength=1.0,
+            projector_layer_weights=",".join(["1"] * 12),
+        )
+        settings.update(flag_overrides)
+        return base_fusion.DonutKrea2FusionControl().apply(**settings)
+
+    def test_experiment_flags_land_in_fusion_budget(self):
+        flags = (NAG_TEXT_ENERGY_COMPENSATION, NAG_BATCH_TXTFUSION)
+        for flag in flags:
+            with self.subTest(flag=flag):
+                model, *_rest, diagnostics = self._apply(**{flag: True})
+                budget = model.model_options["transformer_options"][FUSION_BUDGET_KEY]
+                self.assertIs(budget[flag], True)
+                other = flags[0] if flag == flags[1] else flags[1]
+                self.assertIs(budget[other], False)
+                self.assertIn(f"{flag}=true", diagnostics)
+
+    def test_flags_default_false_in_budget(self):
+        model, *_rest, diagnostics = self._apply()
+        budget = model.model_options["transformer_options"][FUSION_BUDGET_KEY]
+        self.assertIs(budget[NAG_TEXT_ENERGY_COMPENSATION], False)
+        self.assertIs(budget[NAG_BATCH_TXTFUSION], False)
+        self.assertIn("nag_text_energy_compensation=false", diagnostics)
+
+
 class InstallExperimentTests(unittest.TestCase):
     def _model(self, budget=None, wrappers=None):
         model = types.SimpleNamespace()
