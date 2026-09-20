@@ -33,8 +33,8 @@ class DonutSeedVR2Upscale:
                 "seedvr2_steps": ("INT", {"default": 1, "min": 1, "max": 100, "lazy": True}),
                 "seedvr2_denoise": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1.0, "step": 0.01, "lazy": True}),
                 "seedvr2_color_correction": (["none", "lab", "wavelet", "adain"], {"default": "none", "lazy": True}),
-                "seedvr2_vae_tile_size": ("INT", {"default": 512, "min": 128, "max": 4096, "step": 64, "lazy": True,
-                    "tooltip": "Native VAE encode/decode tiling only, NOT diffusion tiling. SeedVR2 diffusion still needs enough memory for the full output canvas."}),
+                "seedvr2_vae_tile_size": donut_seedvr2.input_types()["seedvr2_vae_tile_size"],
+                "seedvr2_vae_overlap": donut_seedvr2.input_types()["seedvr2_vae_overlap"],
             },
         }
 
@@ -52,6 +52,7 @@ class DonutSeedVR2Upscale:
         required = donut_seedvr2.SHARED_INPUTS - {"seed"} - {"rescale_factor"} | {
             "seedvr2_model_name", "seedvr2_vae_name", "seedvr2_steps",
             "seedvr2_denoise", "seedvr2_color_correction", "seedvr2_vae_tile_size",
+            "seedvr2_vae_overlap",
         }
         return [key for key, value in kwargs.items() if key in required and value is None]
 

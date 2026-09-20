@@ -3,7 +3,7 @@
 export const POST_WIDGET_ORDER = [
     'seedvr2_upscale_factor', 'resampling_method', 'enabled', 'seed', 'control_after_generate',
     'seedvr2_model_name', 'seedvr2_vae_name', 'seedvr2_steps', 'seedvr2_denoise',
-    'seedvr2_color_correction', 'seedvr2_vae_tile_size',
+    'seedvr2_color_correction', 'seedvr2_vae_tile_size', 'seedvr2_vae_overlap',
 ];
 const fields = ['id','origin_id','origin_slot','target_id','target_slot','type'];
 const edge = raw => Array.isArray(raw) ? Object.fromEntries(fields.map((key,i) => [key,raw[i]])) : raw;
@@ -22,7 +22,13 @@ function validSettings(v) {
         && Number.isInteger(v.seedvr2_steps) && v.seedvr2_steps >= 1
         && Number.isFinite(v.seedvr2_denoise) && v.seedvr2_denoise > 0 && v.seedvr2_denoise <= 1
         && ['none','lab','wavelet','adain'].includes(v.seedvr2_color_correction)
-        && Number.isInteger(v.seedvr2_vae_tile_size) && v.seedvr2_vae_tile_size >= 128;
+        && Number.isInteger(v.seedvr2_vae_tile_size) && v.seedvr2_vae_tile_size >= 128
+        && (!Object.hasOwn(v,'seedvr2_vae_overlap')
+            || Number.isInteger(v.seedvr2_vae_overlap)
+                && v.seedvr2_vae_overlap >= 0
+                && v.seedvr2_vae_overlap <= 1024
+                && v.seedvr2_vae_overlap % 32 === 0
+                && v.seedvr2_vae_overlap < v.seedvr2_vae_tile_size);
 }
 export function repairSeedVR2Workflow(workflow) {
     const report = {widgetOrders:0, inpaintOrders:0, warnings:[]};
@@ -39,13 +45,20 @@ export function repairSeedVR2Workflow(workflow) {
             // The old ten-value exports omitted it, shifting every model and
             // sampling field. Only repair that known shape; a modern saved
             // array is authoritative over potentially stale named metadata.
-            if (post.widgets_values?.length === POST_WIDGET_ORDER.length - 1 && named
-                    && POST_WIDGET_ORDER.filter(key => key !== 'control_after_generate')
-                        .every(key => Object.hasOwn(named,key)) && validSettings(named)) {
+            const missingControl = post.widgets_values?.length === POST_WIDGET_ORDER.length - 2
+                && named && POST_WIDGET_ORDER.filter(key => key !== 'control_after_generate')
+                    .every(key => Object.hasOwn(named,key));
+            const missingOverlap = post.widgets_values?.length === POST_WIDGET_ORDER.length - 1
+                && named && !Object.hasOwn(named,'seedvr2_vae_overlap')
+                && POST_WIDGET_ORDER.filter(key => key !== 'seedvr2_vae_overlap')
+                    .every(key => Object.hasOwn(named,key));
+            if ((missingControl || missingOverlap) && validSettings(named)) {
                 const control = ['fixed','increment','decrement','randomize'].includes(named.control_after_generate)
                     ? named.control_after_generate : 'fixed';
-                post.widgets_values = POST_WIDGET_ORDER.map(key => key === 'control_after_generate' ? control : named[key]);
-                post.widgets_values_named = {...named, control_after_generate:control};
+                const overlap = Object.hasOwn(named,'seedvr2_vae_overlap') ? named.seedvr2_vae_overlap : 128;
+                post.widgets_values = POST_WIDGET_ORDER.map(key => key === 'control_after_generate' ? control
+                    : key === 'seedvr2_vae_overlap' ? overlap : named[key]);
+                post.widgets_values_named = {...named, control_after_generate:control, seedvr2_vae_overlap:overlap};
                 report.widgetOrders++;
             }
             const inputSlot = post.inputs?.findIndex(input => input.name === 'image');

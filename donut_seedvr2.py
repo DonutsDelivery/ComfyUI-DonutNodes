@@ -20,7 +20,8 @@ DEFAULTS = {
     "seedvr2_steps": 1,
     "seedvr2_denoise": 1.0,
     "seedvr2_color_correction": "none",
-    "seedvr2_vae_tile_size": 512,
+    "seedvr2_vae_tile_size": 1024,
+    "seedvr2_vae_overlap": 128,
 }
 
 
@@ -44,8 +45,10 @@ def input_types():
         "seedvr2_steps": ("INT", {"default": 1, "min": 1, "max": 100, "lazy": True}),
         "seedvr2_denoise": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1.0, "step": 0.01, "lazy": True}),
         "seedvr2_color_correction": (["none", "lab", "wavelet", "adain"], {"default": "none", "lazy": True}),
-        "seedvr2_vae_tile_size": ("INT", {"default": 512, "min": 128, "max": 4096, "step": 64, "lazy": True,
-            "tooltip": "Native VAE encode/decode tiling only, NOT diffusion tiling. SeedVR2 diffusion still needs enough memory for the full output canvas."}),
+        "seedvr2_vae_tile_size": ("INT", {"default": 1024, "min": 128, "max": 4096, "step": 64, "lazy": True,
+            "tooltip": "Native VAE encode/decode tiling only, NOT diffusion tiling. 1024 is the quality-oriented high-resolution default; SeedVR2 diffusion still uses the full output canvas."}),
+        "seedvr2_vae_overlap": ("INT", {"default": 128, "min": 0, "max": 1024, "step": 32, "lazy": True,
+            "tooltip": "VAE tile overlap in pixels. 128 is the upstream high-resolution recommendation for 1024-pixel tiles."}),
     }
 
 
@@ -112,12 +115,16 @@ def upscale(owner, image, *, seed=0, rescale_factor=2.0, resampling_method="lanc
     settings = {**DEFAULTS, **options}
     steps, denoise = settings["seedvr2_steps"], settings["seedvr2_denoise"]
     tile = settings["seedvr2_vae_tile_size"]
+    overlap = settings["seedvr2_vae_overlap"]
     if isinstance(steps, bool) or not isinstance(steps, int) or not 1 <= steps <= 100:
         raise ValueError("SeedVR2 steps must be an integer between 1 and 100.")
     if not math.isfinite(float(denoise)) or not 0 < float(denoise) <= 1:
         raise ValueError("SeedVR2 denoise must be finite, greater than zero and at most one.")
     if isinstance(tile, bool) or not isinstance(tile, int) or tile < 128 or tile > 4096 or tile % 64:
         raise ValueError("SeedVR2 VAE tile size must be a multiple of 64 between 128 and 4096.")
+    if (isinstance(overlap, bool) or not isinstance(overlap, int) or overlap < 0
+            or overlap > 1024 or overlap % 32 or overlap >= tile):
+        raise ValueError("SeedVR2 VAE overlap must be a multiple of 32, at least 0, at most 1024, and smaller than the tile size.")
     if settings["seedvr2_color_correction"] not in ("none", "lab", "wavelet", "adain"):
         raise ValueError("Unknown SeedVR2 color correction method.")
     if resampling_method not in ("lanczos", "nearest", "bilinear", "bicubic"):
@@ -145,7 +152,7 @@ def upscale(owner, image, *, seed=0, rescale_factor=2.0, resampling_method="lanc
             )[0]
             padded = call_node(registry, "SeedVR2Preprocess", resized_images=resized)[0]
             latent = nodes.VAEEncodeTiled().encode(
-                vae, padded, tile, tile // 4, temporal_size=4096, temporal_overlap=8,
+                vae, padded, tile, overlap, temporal_size=4096, temporal_overlap=8,
             )[0]
             positive, negative = call_node(registry, "SeedVR2Conditioning", model=model, vae_conditioning=latent)
             sampled = nodes.KSampler().sample(
@@ -153,7 +160,7 @@ def upscale(owner, image, *, seed=0, rescale_factor=2.0, resampling_method="lanc
                 positive, negative, latent, denoise=float(denoise),
             )[0]
             decoded = nodes.VAEDecodeTiled().decode(
-                vae, sampled, tile, tile // 4, temporal_size=4096, temporal_overlap=8,
+                vae, sampled, tile, overlap, temporal_size=4096, temporal_overlap=8,
             )[0]
             result = call_node(registry, "SeedVR2PostProcessing", images=decoded,
                 original_resized_images=resized, color_correction_method=settings["seedvr2_color_correction"])[0]

@@ -30,7 +30,7 @@ function fixture() {
         {title:'Advanced · Second upscale',advanced:true,controls:fields([800,4],['rescale_factor','tiled_diffusion','nag_phi'])},
         {title:'Advanced · First upscale · engine',donut_seedvr2:true,controls:fields([800,3],['upscale_engine'])},
         {title:'Advanced · First upscale · SeedVR2',advanced:true,donut_seedvr2:true,visible_when:{path:[800,3],widget:'upscale_engine',value:'SeedVR2'},controls:fields([800,3],['seedvr2_model_name','seedvr2_denoise'])},
-        {title:'SeedVR2 · post upscale',controls:fields([800,8],['enabled','seedvr2_upscale_factor','resampling_method','seedvr2_model_name','seedvr2_vae_name','seedvr2_steps','seedvr2_denoise','seedvr2_color_correction','seedvr2_vae_tile_size','seed'])},
+        {title:'SeedVR2 · post upscale',controls:fields([800,8],['enabled','seedvr2_upscale_factor','resampling_method','seedvr2_model_name','seedvr2_vae_name','seedvr2_steps','seedvr2_denoise','seedvr2_color_correction','seedvr2_vae_tile_size','seedvr2_vae_overlap','seed'])},
     ]);
     const loras = panel(3,'02 · LoRAs & block weights',[
         {title:'LoRAs',loras:[900,7],controls:[]},
@@ -130,7 +130,7 @@ test('serialized subgraphs are resolved for image-size paths',()=>{
 });
 
 function postFixture(asArrays=false) {
-    const named={enabled:false,seed:0,seedvr2_upscale_factor:2,resampling_method:'lanczos',seedvr2_model_name:'3b.safetensors',seedvr2_vae_name:'vae.safetensors',seedvr2_steps:1,seedvr2_denoise:1,seedvr2_color_correction:'none',seedvr2_vae_tile_size:512};
+    const named={enabled:false,seed:0,seedvr2_upscale_factor:2,resampling_method:'lanczos',seedvr2_model_name:'3b.safetensors',seedvr2_vae_name:'vae.safetensors',seedvr2_steps:1,seedvr2_denoise:1,seedvr2_color_correction:'none',seedvr2_vae_tile_size:1024,seedvr2_vae_overlap:128};
     const graph={extra:{donut_workflow:{release:'V4 Beta'}},nodes:[
         {id:11,type:'Finisher',outputs:[{name:'image',type:'IMAGE',links:[90]}]},
         {id:12,type:'DonutInpaintComposite',inputs:[{name:'image',type:'IMAGE',link:90},{name:'inpaint',type:'DONUT_INPAINT',link:93}],outputs:[{name:'image',type:'IMAGE',links:[92]}]},
@@ -242,7 +242,7 @@ test('shipped SeedVR2 values include ComfyUI frontend seed control and discover 
     // This is the actual required + optional widget order, INCLUDING the
     // control automatically inserted by ComfyUI after an INT named seed.
     const names=['seedvr2_upscale_factor','resampling_method','enabled','seed','control_after_generate',
-        'seedvr2_model_name','seedvr2_vae_name','seedvr2_steps','seedvr2_denoise','seedvr2_color_correction','seedvr2_vae_tile_size'];
+        'seedvr2_model_name','seedvr2_vae_name','seedvr2_steps','seedvr2_denoise','seedvr2_color_correction','seedvr2_vae_tile_size','seedvr2_vae_overlap'];
     assert.equal(post.widgets_values.length,names.length);
     post.widgets=names.map((name,i)=>({name,value:post.widgets_values[i]}));
     const {modelBindings}=load('donut_model_requirements.js',['modelBindings']);

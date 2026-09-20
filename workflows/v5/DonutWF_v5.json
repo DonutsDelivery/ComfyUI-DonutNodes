@@ -4588,6 +4588,14 @@
                     1014,
                     1170
                   ],
+                  "widget": "seedvr2_vae_overlap",
+                  "title": "VAE overlap"
+                },
+                {
+                  "path": [
+                    1014,
+                    1170
+                  ],
                   "widget": "seed",
                   "title": "Seed"
                 }
@@ -7797,6 +7805,15 @@
                 "link": null
               },
               {
+                "localized_name": "seedvr2_vae_overlap",
+                "name": "seedvr2_vae_overlap",
+                "type": "INT",
+                "widget": {
+                  "name": "seedvr2_vae_overlap"
+                },
+                "link": null
+              },
+              {
                 "localized_name": "seedvr2_upscale_factor",
                 "name": "seedvr2_upscale_factor",
                 "type": "FLOAT",
@@ -7845,7 +7862,8 @@
               1,
               1,
               "none",
-              512
+              1024,
+              128
             ],
             "widgets_values_named": {
               "enabled": false,
@@ -7857,7 +7875,8 @@
               "seedvr2_steps": 1,
               "seedvr2_denoise": 1,
               "seedvr2_color_correction": "none",
-              "seedvr2_vae_tile_size": 512,
+              "seedvr2_vae_tile_size": 1024,
+              "seedvr2_vae_overlap": 128,
               "control_after_generate": "fixed"
             },
             "title": "SeedVR2 \u00b7 post upscale"

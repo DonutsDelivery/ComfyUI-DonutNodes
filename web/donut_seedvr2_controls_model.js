@@ -57,6 +57,7 @@ export function addSeedVR2Controls(rootGraph) {
                     field("seedvr2_denoise", "SeedVR2 denoise", {weights:{min:0.01, max:1, step:0.01}}),
                     field("seedvr2_color_correction", "SeedVR2 color correction"),
                     field("seedvr2_vae_tile_size", "SeedVR2 VAE tile size"),
+                    field("seedvr2_vae_overlap", "SeedVR2 VAE overlap"),
                 ],
             };
             groups.splice(groups.indexOf(group), 0, engine, settings);

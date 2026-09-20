@@ -55,6 +55,8 @@ class PostUpscaleTests(unittest.TestCase):
         schema = self.module.DonutSeedVR2Upscale.INPUT_TYPES()
         self.assertEqual(list(schema["required"]), ["image", "seedvr2_upscale_factor", "resampling_method"])
         self.assertIn("seedvr2_model_name", schema["optional"])
+        self.assertEqual(schema["optional"]["seedvr2_vae_tile_size"][1]["default"], 1024)
+        self.assertEqual(schema["optional"]["seedvr2_vae_overlap"][1]["default"], 128)
         self.assertTrue(schema["optional"]["enabled"][1]["default"] is True)
 
     def test_lazy_status_skips_pass_through_and_requests_model_files(self):

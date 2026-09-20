@@ -173,6 +173,13 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual(sum(e[0] == 'model' for e in self.events), 1)
         self.assertEqual(sum(e[0] == 'vae' for e in self.events), 1)
 
+    def test_quality_defaults_use_1024_tiles_with_128_overlap(self):
+        self.run_engine(torch.zeros(1, 4, 6, 3))
+        encode = next(e for e in self.events if e[0] == 'encode')
+        decode = next(e for e in self.events if e[0] == 'decode')
+        self.assertEqual(encode[2:4], (1024, 128))
+        self.assertEqual(decode[2:4], (1024, 128))
+
     def test_even_dimensions_chosen_before_padding_and_alpha_preserved(self):
         image = torch.rand(1, 5, 7, 4)
         result = self.run_engine(image, rescale_factor=1.5)
@@ -205,7 +212,9 @@ class RecipeTests(unittest.TestCase):
 
     def test_rejects_invalid_options_before_model_load(self):
         for kw in (dict(seedvr2_denoise=float('nan')), dict(seedvr2_denoise=0), dict(seedvr2_steps=0),
-                   dict(seedvr2_vae_tile_size=513), dict(rescale_factor=0.5), dict(seedvr2_color_correction='bad')):
+                   dict(seedvr2_vae_tile_size=513), dict(seedvr2_vae_overlap=33),
+                   dict(seedvr2_vae_tile_size=128, seedvr2_vae_overlap=128),
+                   dict(rescale_factor=0.5), dict(seedvr2_color_correction='bad')):
             with self.subTest(kw=kw), self.assertRaises(ValueError):
                 self.run_engine(torch.zeros(1, 4, 6, 3), **kw)
         self.assertEqual(self.events, [])
