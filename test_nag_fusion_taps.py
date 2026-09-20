@@ -48,6 +48,20 @@ class NAGTapTests(unittest.TestCase):
         expected = (value.float().reshape(1, 2, 12, 2560) * torch.tensor(profile).reshape(1, 1, 12, 1)).reshape_as(value).bfloat16() * .7
         self.assertTrue(torch.equal(actual, expected))
 
+    def test_rebalance_tensor_rms_restores_original_energy(self):
+        torch.manual_seed(3)
+        value = torch.randn(1, 2, 30720)
+        profile = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
+        config = dict(tap_method=fusion.TAP_METHOD_REBALANCE,
+                      tap_gains=profile, tap_normalization='tensor_rms',
+                      tap_multiplier=1., tap_profile_values=profile)
+        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+        actual = fusion.prepare_nag_conditioning(model, [[value, {}]])[0][0]
+        torch.testing.assert_close(
+            actual.float().square().mean().sqrt(),
+            value.float().square().mean().sqrt(),
+        )
+
     def test_no_tap_change_is_passthrough(self):
         raw = [[torch.ones(1, 2, 30720), {}]]
         model = types.SimpleNamespace(model_options={})
@@ -86,6 +100,34 @@ class NAGTapTests(unittest.TestCase):
         expected = fusion.prepare_nag_conditioning(model, [[value, {}]])[0][0]
         torch.testing.assert_close(captured[0][0][0], expected)
         self.assertEqual(len(captured), 1)
+
+    def test_rebalance_is_applied_once_when_prepare_runs_twice(self):
+        value = torch.randn(1, 2, 30720)
+        profile = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
+        config = dict(tap_method=fusion.TAP_METHOD_REBALANCE,
+                      tap_gains=profile, tap_normalization='none',
+                      tap_multiplier=1., tap_profile_values=profile)
+        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+        first = fusion.prepare_nag_conditioning(model, [[value, {}]])
+        second = fusion.prepare_nag_conditioning(model, first)
+        self.assertIs(second[0][0], first[0][0])
+        expected = (value.float().reshape(1, 2, 12, 2560) * torch.tensor(profile).reshape(1, 1, 12, 1)).reshape_as(value)
+        torch.testing.assert_close(first[0][0], expected)
+
+    def test_donut_sampler_patch_callable_skips_the_standalone_wrap(self):
+        seen = []
+        class NAG:
+            def patch(self, model, nag_negative, **kwargs):
+                seen.append('original')
+                return (model,)
+        nodes = types.ModuleType('nodes')
+        nodes.NODE_CLASS_MAPPINGS = {'Krea2NormalizedAttentionGuidance': NAG}
+        with patch.dict(sys.modules, {'nodes': nodes}):
+            fusion.ensure_standalone_nag_uses_fusion_taps()
+            fn = fusion.nag_patch_callable(NAG)
+            self.assertIs(fn, getattr(NAG.patch, fusion._NAG_PATCH_ORIGINAL))
+            fn(NAG(), model=object(), nag_negative=[[torch.ones(1, 2, 30720), {}]])
+        self.assertEqual(seen, ['original'])
 
 
 if __name__ == '__main__':

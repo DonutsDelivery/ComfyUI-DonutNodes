@@ -57,6 +57,11 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     # NAG compares two text streams. Fusion Rebalance/taps on only the positive
     # leaves a scale mismatch that shows up as leftover grain. Apply the same
     # marked transform to whichever negative NAG will use.
+    try:
+        from .donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
+    except ImportError:
+        from donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
+    ensure_nag_txtfusion_is_batched()
     nag_cond = prepare_nag_conditioning(
         model, negative if nag_negative is None else nag_negative,
     )
@@ -70,7 +75,8 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     except ImportError:
         from donut_grounding_nag import prepare_nag_arguments, record_nag_preparation
     arguments = prepare_nag_arguments(arguments, nag_negative is not None)
-    patched = node_class().patch(**arguments)[0]
+    patch = getattr(node_class.patch, "_donut_nag_patch_original", node_class.patch)
+    patched = patch(node_class(), **arguments)[0]
     record_nag_preparation(patched, node_class, arguments, nag_negative is not None)
     return patched
 

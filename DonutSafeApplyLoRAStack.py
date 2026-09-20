@@ -949,6 +949,11 @@ class DonutApplyLoRAStackSafe:
         for key, enabled in (("chunk_lora", chunk_lora), ("chunk_edit_mlp", chunk_edit_mlp), ("chunk_edit_norm", chunk_edit_norm)):
             model.model_options["donut_" + key] = bool(enabled or model.model_options.get("donut_" + key, False))
         publish_execution_mode(model, execution_mode)
+        try:
+            from .donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
+        except ImportError:
+            from donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
+        ensure_nag_txtfusion_is_batched()
         if lora_stack is None or len(lora_stack) == 0:
             return (model, clip, help_url)
         if fusion_aware not in _FUSION_AWARE_MODES:
