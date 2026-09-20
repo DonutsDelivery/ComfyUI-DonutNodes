@@ -58,10 +58,18 @@ const signature = control => JSON.stringify(control);
 function findGroup(graph,widget,pathEnd) {return graph.nodes.flatMap(node => groupsSafe(node)).find(group => group.controls?.some(control => control.widget === widget && (pathEnd === undefined || control.path.at(-1) === pathEnd)));}
 
 test('every existing control and all backend values/links survive regrouping',()=>{
-    const graph=fixture(), before=controls(graph).map(signature).sort(), links=plain(graph.links), state=plain(graph.nodes.at(-1).widgets_values_named);
+    const graph=fixture(), links=plain(graph.links), state=plain(graph.nodes.at(-1).widgets_values_named);
+    const before=controls(graph).map(signature).sort();
     organizeV4Panels(graph);
     const after=controls(graph).filter(control=>control.path[0] !== 700).map(signature).sort();
-    same(after,before); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
+    // The NAG experiment entries are injected aliases of existing Fusion
+    // Control widgets (path [800]); they are additions, not moves, so the
+    // surviving set is the pre-organize set plus the two aliases.
+    const aliases=[
+        '{"path":[800],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
+        '{"path":[800],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
+    ];
+    same(after,[...before,...aliases].sort()); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
 });
 test('repeated imports/save/reload are idempotent',()=>{
     const graph=fixture(); organizeV4Panels(graph); const saved=JSON.stringify(graph);
