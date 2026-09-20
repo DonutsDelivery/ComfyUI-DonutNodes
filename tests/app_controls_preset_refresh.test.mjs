@@ -55,8 +55,10 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   const normalization = add("tap_normalization", "none");
   const weights = add("per_layer_weights", Array(12).fill("1.0").join(","));
   const method = add("fusion_method", "Standard Krea2 fusion");
-  const composition = add("uncensorfix_controls", "Fusion + UncensorFix weights");
+  const composition = add("uncensorfix_controls", "LoRA only");
   const preset = add("compatibility_preset", "Custom");
+  const seedPolicy = add("fixed", "fixed");
+  seedPolicy.options.values = ["fixed", "randomize"];
   const projectorStrength = add("projector_strength", 1);
   const innerStrength = add("tap_strength", 1, value => { projectorStrength.value = value; });
   preset.options.values = ["Custom", "UncensorFix", "Balanced", "Balanced + Enhancer"];
@@ -99,8 +101,15 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
     { path: [1014, 1118], widget: "tap_method", title: "Tap method" },
     { path: [1014, 1118], widget: "tap_profile", title: "Tap profile" },
     { path: [1014, 1118], widget: "fusion_method", title: "Fusion method" },
+    { path: [1014, 1118], widget: "uncensorfix_controls", title: "Uncensorfix controls" },
+    { path: [1014, 1118], widget: "fixed", title: "After generation" },
   ] }] };
   panel._donutAppControls.render();
+  assert.equal(seedPolicy.value, "fixed", "opening an older workflow preserves its saved seed policy");
+  assert.equal(findControl(panel._donutAppControls.root, "After generation").value, "fixed");
+
+  assert.equal(composition.value, "Fusion only", "stale legacy composition is migrated before queueing");
+  assert.equal(findControl(panel._donutAppControls.root, "Uncensorfix controls").value, "Fusion only");
 
   const selector = findControl(panel._donutAppControls.root, "Compatibility preset");
   selector.value = "UncensorFix";

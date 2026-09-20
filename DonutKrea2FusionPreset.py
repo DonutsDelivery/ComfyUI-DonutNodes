@@ -269,6 +269,26 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             kwargs = signature(super().apply).bind_partial(*args, **kwargs).arguments
             args = ()
         preset = kwargs.get("compatibility_preset", PRESET_CUSTOM)
+        if preset == PRESET_OFF:
+            # Off is authoritative for every old and new composition mode.
+            # Hidden tap/projector/fusion settings from the last active preset
+            # can still be non-neutral, so never delegate them to the base
+            # node. Return the original objects, including upstream patches,
+            # injections and conditioning metadata.
+            inputs = kwargs
+            conditionings = (
+                inputs["conditioning_in_1"],
+                inputs.get("conditioning_in_2"),
+                inputs.get("conditioning_in_3"),
+                inputs.get("conditioning_in_4"),
+            )
+            diagnostics = (
+                "preset_label=Off; preset_is_ui_only=false\n"
+                "fusion_control=off; uncensorfix_targets=0\n"
+                f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
+                "external_files_loaded=none"
+            )
+            return (inputs["model"], *conditionings, diagnostics)
         if uncensorfix_controls in (FUSION_ONLY, FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
             # New controls are authoritative: the preset label cannot enable
             # or disable either operation. Legacy workflows use the old path.
@@ -285,26 +305,6 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                                f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
             result[-1] += f"\nuncensorfix_controls={uncensorfix_controls}"
             return tuple(result)
-        if preset == PRESET_OFF:
-            # Do not call the base node: hidden tap/projector/fusion settings
-            # from the last active preset can still be non-neutral. Return the
-            # original objects, including upstream patches, injections and
-            # conditioning metadata. Off only disables this node's changes.
-            inputs = kwargs
-            conditionings = (
-                inputs["conditioning_in_1"],
-                inputs.get("conditioning_in_2"),
-                inputs.get("conditioning_in_3"),
-                inputs.get("conditioning_in_4"),
-            )
-            diagnostics = (
-                "preset_label=Off; preset_is_ui_only=false\n"
-                "fusion_control=off; uncensorfix_targets=0\n"
-                f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
-                "external_files_loaded=none"
-            )
-            return (inputs["model"], *conditionings, diagnostics)
-
         if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
             execution_mode = resolve_execution_mode(kwargs.get("model"), execution_mode)
             if uncensorfix_controls not in UNCENSORFIX_CONTROL_MODES:

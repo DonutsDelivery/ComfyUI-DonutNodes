@@ -289,16 +289,25 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
             mock.patch.object(self.module, "_apply_uncensorfix",
                               side_effect=AssertionError("embedded patches applied")),
         ):
-            model, conditioning = object(), object()
-            result = self.module.DonutKrea2FusionControl().apply(
-                model=model, conditioning_in_1=conditioning, compatibility_preset="Off",
-                tap_method=BASE_NAMES["PRESET_REBALANCE"], tap_profile="custom",
-                per_layer_weights="invalid dormant profile", tap_strength=3.,
-                projector_method="Krea2FilterBypass 3vector diff", projector_strength=2.,
-                fusion_method="capitan01R Krea2T-Enhancer operation", fusion_strength=2.)
-            self.assertIs(result[0], model)
-            self.assertIs(result[1], conditioning)
-            self.assertEqual(result[2:5], (None, None, None))
+            for composition in (
+                self.module.FUSION_ONLY,
+                self.module.FUSION_WITH_LORA,
+                self.module.FUSION_WITH_WEIGHTS,
+                self.module.UNCENSORFIX_LORA_ONLY,
+                self.module.UNCENSORFIX_WITH_CONTROLS,
+            ):
+                with self.subTest(composition=composition):
+                    model, conditioning = object(), object()
+                    result = self.module.DonutKrea2FusionControl().apply(
+                        model=model, conditioning_in_1=conditioning,
+                        compatibility_preset="Off", uncensorfix_controls=composition,
+                        tap_method=BASE_NAMES["PRESET_REBALANCE"], tap_profile="custom",
+                        per_layer_weights="invalid dormant profile", tap_strength=3.,
+                        projector_method="Krea2FilterBypass 3vector diff", projector_strength=2.,
+                        fusion_method="capitan01R Krea2T-Enhancer operation", fusion_strength=2.)
+                    self.assertIs(result[0], model)
+                    self.assertIs(result[1], conditioning)
+                    self.assertEqual(result[2:5], (None, None, None))
 
     def test_off_is_safe_without_any_optional_conditioning(self):
         result = self.module.DonutKrea2FusionControl().apply(

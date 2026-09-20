@@ -26,3 +26,45 @@ discovery.
 
 The purpose is to prevent a shipped fix from remaining unavailable unnoticed
 for weeks because publication succeeded but registry review did not.
+
+# User-facing panels and workflow verification
+
+Treat panel layout, grouping, labels, dropdowns, presets, promoted inputs, and
+workflow migrations as potential behavior changes. A control rendering correctly
+does not prove that generation uses its displayed value.
+
+- Trace affected controls through their target widgets, nested subgraph inputs,
+  and backend consumers. Check for stale paths, remapped IDs, duplicate controls,
+  and outer inputs overriding inner widget values. Displayed labels must describe
+  the behavior actually queued, including legacy composition modes.
+- Preserve saved user choices when rendering or reloading. Do not silently apply
+  new defaults or reapply preset recipes over manual adjustments. Keep any needed
+  legacy migration narrowly scoped and test both migrated and current workflows.
+- Exercise relevant transitions, not just initial defaults: enabled to disabled,
+  one preset to another, active presets to Off/None, and manual adjustments
+  followed by save/reload. Verify that obsolete hidden settings cannot remain
+  effective after a feature is disabled. Preserve independent controls according
+  to their documented behavior.
+- For changes affecting panel bindings, serialization, presets, or workflow
+  structure, set distinctive valid values through the actual user-facing panels
+  and queue using ComfyUI's Run button. Enable the affected stages so they execute.
+  Direct API submission bypasses the panel path and is not end-to-end proof.
+- Save a PNG with workflow metadata enabled. Compare the observed panel values
+  at queue time against both its embedded workflow and execution prompt. Resolve
+  linked inputs to their sources, including promoted inputs and seed domains.
+  Metadata proves serialized inputs; inspect backend logic or runtime evidence
+  separately when the concern is whether those inputs are actually honored.
+- Reload the saved workflow and verify that the same choices survive. Confirm
+  that the browser loaded the changed frontend code; restart the backend when
+  needed to verify Python changes. Do not count an old running version as proof
+  of a new fix.
+- Add focused regression tests for discovered failures. Static checks and unit
+  tests supplement the UI generation check; they do not replace it. For purely
+  cosmetic changes with no binding or workflow changes, visual and interaction
+  checks are sufficient.
+- Use a separate audit workflow/session and preserve the user's working settings.
+  Record the tested transitions, expected/actual values, output PNG paths, and
+  verification limits in docs/validation. If generation is blocked, report that
+  explicitly rather than claiming end-to-end success.
+- When a fix changes the distributed workflow JSON, explicitly tell the user
+  which updated JSON must be uploaded manually to Civitai.

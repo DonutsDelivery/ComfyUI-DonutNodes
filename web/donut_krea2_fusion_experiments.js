@@ -71,6 +71,8 @@ function applyExperiment(node, name) {
     if (tapWeights) tapWeights.value = CLASSIC;
     const projectorWeights = widget(node, "projector_layer_weights");
     if (projectorWeights) projectorWeights.value = NEUTRAL;
+    const composition = widget(node, "uncensorfix_controls");
+    if (composition) composition.value = "Fusion only";
     if (preset) preset.value = name;
   } finally {
     node._donutApplyingKrea2Preset = false;
@@ -112,9 +114,13 @@ function decorate(node) {
     return result;
   };
   if (EXPERIMENTS[preset.value]) {
-    applyOuterExperimentInputs(node, preset.value);
     const target = widget(node, "tap_method") ? node : fusionDescendant(node.subgraph);
-    if (target) applyExperiment(target, preset.value);
+    // A restored, configured recipe can contain intentional user adjustments.
+    // Only repair old outer-only selections whose inner recipe was never set.
+    if (target && widget(target, "compatibility_preset")?.value !== preset.value) {
+      applyOuterExperimentInputs(node, preset.value);
+      applyExperiment(target, preset.value);
+    }
   }
 }
 

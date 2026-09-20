@@ -167,13 +167,8 @@ function install(node, appOnly = false) {
             return;
         }
         const widget = target?.widgets?.find(w => w.name === name);
-        // Migrate the shared generation control once. Subsequent selections,
-        // including Fixed, are preserved across refreshes and workflow saves.
-        if (widget && name === "fixed" && title === "After generation" && !target.properties?.donut_randomize_default_v1) {
-            target.properties ||= {};
-            widget.value = "randomize";
-            target.properties.donut_randomize_default_v1 = true;
-        }
+        // Defaults belong to the workflow/node schema. Rendering a panel must
+        // preserve a saved seed policy, including older workflows using Fixed.
         if (!widget) {
             parent.append(element("p", `${title}: control unavailable`));
             return;
@@ -214,8 +209,6 @@ function install(node, appOnly = false) {
             if (document.activeElement === input) return;
             if (boolean) input.checked = widget.value;
             else if (composition) {
-                // Keep legacy serialization/behavior until the user edits it,
-                // but never offer obsolete modes as new choices.
                 const presetControl = node.properties?.donut_app_controls?.groups
                     ?.flatMap(group => group.controls || [])
                     .find(item => item.widget === "compatibility_preset"
@@ -223,6 +216,14 @@ function install(node, appOnly = false) {
                 const presetNode = presetControl ? resolve(presetControl.path) : target;
                 const preset = presetNode?.widgets?.find(item => item.name === "compatibility_preset")?.value;
                 const legacyActive = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset);
+                // Old workflows serialized LoRA-only modes here. Outside the
+                // legacy UncensorFix preset those values are stale and can make
+                // the backend do something different from the visible panel.
+                // Migrate the actual widget value, not merely the select label,
+                // so the queued prompt matches what the user sees.
+                if (!legacyActive && ["LoRA only", "LoRA + fusion controls"].includes(widget.value)) {
+                    widget.value = "Fusion only";
+                }
                 input.value = widget.value === "Fusion + LoRA" || widget.value === "Fusion + UncensorFix weights"
                     || (legacyActive && ["LoRA only", "LoRA + fusion controls"].includes(widget.value))
                     ? "Fusion + UncensorFix weights" : "Fusion only";

@@ -7510,7 +7510,7 @@
               "Standard Krea2 fusion",
               1,
               "Advanced",
-              "LoRA only",
+              "Fusion only",
               "Experimental bypass"
             ],
             "widgets_values_named": {
@@ -7530,7 +7530,7 @@
               "fusion_method": "Standard Krea2 fusion",
               "fusion_strength": 1,
               "ui_mode": "Advanced",
-              "uncensorfix_controls": "LoRA only",
+              "uncensorfix_controls": "Fusion only",
               "execution_mode": "Experimental bypass"
             }
           },

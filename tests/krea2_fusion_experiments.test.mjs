@@ -24,6 +24,7 @@ function makeFusion(id = 7) {
     makeWidget("projector_layer_weights", ""),
     makeWidget("fusion_method", "Standard Krea2 fusion"),
     makeWidget("fusion_strength", 1),
+    makeWidget("uncensorfix_controls", "Fusion + UncensorFix weights"),
   ];
   return { id, type: "DonutKrea2FusionControl", widgets, setDirtyCanvas() {} };
 }
@@ -59,6 +60,8 @@ test("experimental preset choices and recipes are applied to a Fusion node", () 
   assert.ok(names.includes("Experiment · soft tensor RMS 0.75"));
 
   preset.value = "Experiment · NAG-friendly mean"; preset.callback(preset.value);
+  assert.equal(widget(fusion, "uncensorfix_controls").value, "Fusion only",
+    "switching away from UncensorFix must clear its weight composition");
   assert.equal(widget(fusion, "tap_normalization").value, "mean_gain");
   assert.equal(widget(fusion, "tap_strength").value, 1);
   assert.equal(widget(fusion, "tap_formula").value, "scale_around_1");
@@ -113,4 +116,21 @@ test("restoring an experimental V4 workflow also repairs its outer execution str
   assert.equal(outerStrength.value, 0.75);
   assert.equal(widget(fusion, "tap_strength").value, 0.75);
   assert.equal(widget(fusion, "tap_normalization").value, "tensor_rms");
+});
+
+test("reload preserves adjusted experimental strength and explicit composition", () => {
+  const fusion = makeFusion(22);
+  const name = "Experiment · soft tensor RMS 0.75";
+  widget(fusion, "compatibility_preset").value = name;
+  widget(fusion, "tap_strength").value = 0.42;
+  widget(fusion, "tap_normalization").value = "mean_gain";
+  const outerStrength = makeWidget("tap_strength", 0.42);
+  const stage = { widgets: [makeWidget("compatibility_preset", name, [name]), outerStrength],
+    subgraph: {nodes: [fusion]}, setDirtyCanvas() {} };
+  const {extension, flush} = load({nodes: [stage]});
+  extension.afterConfigureGraph(); flush();
+  assert.equal(outerStrength.value, 0.42);
+  assert.equal(widget(fusion, "tap_strength").value, 0.42);
+  assert.equal(widget(fusion, "tap_normalization").value, "mean_gain");
+  assert.equal(widget(fusion, "uncensorfix_controls").value, "Fusion + UncensorFix weights");
 });
