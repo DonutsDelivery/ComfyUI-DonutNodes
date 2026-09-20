@@ -12,4 +12,11 @@ Validation: see panel-regressions-2026-09-20.md for UI-queued PNG evidence and
 test results. The backend Off guard is unit-tested; runtime Python verification
 requires a ComfyUI restart. Unconfirmed Edit Studio switch changes are excluded.
 
-Registry publication and approval: not yet verified.
+Release commit `bb1c535` pushed to main. Registry upload succeeded.
+Exact version checked at 2026-09-20 01:05:42 UTC: `NodeVersionStatusPending`;
+status reason empty. Approval is unverified. Hourly checks offered; no monitor
+scheduled without the user's yes.
+
+Published ZIP verified against staged upload: every member matches. Standalone
+installers, downloader backend, credentials and development-only files excluded.
+SHA-256: `d2b43de8c3b1078cb6a1d0aee2440920ef33cc5a733ce1c1744a40dbfdcba0f6`.
