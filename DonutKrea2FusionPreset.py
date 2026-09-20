@@ -313,6 +313,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             # or disable either operation. Legacy workflows use the old path.
             delegated = dict(kwargs)
             delegated["compatibility_preset"] = base.PRESET_MANUAL
+            delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
+            delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
             result = list(super().apply(**delegated))
             result[-1] = _rewrite_preset_diagnostics(result[-1], base.PRESET_MANUAL, preset)
             if uncensorfix_controls in (FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
