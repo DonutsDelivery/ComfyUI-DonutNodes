@@ -237,6 +237,21 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
                 self.assertIs(result[0], original)
                 self.assertEqual(self.module.base.calls[-1]["compatibility_preset"], legacy)
 
+    def test_current_composition_forwards_nag_experiment_flags(self):
+        original = object()
+        self.module.DonutKrea2FusionControl().apply(
+            model=original,
+            conditioning_in_1=object(),
+            compatibility_preset="Rebalance",
+            uncensorfix_controls=self.module.FUSION_ONLY,
+            nag_text_energy_compensation=True,
+            nag_batch_txtfusion=True,
+        )
+        forwarded = self.module.base.calls[-1]
+        self.assertIs(forwarded["model"], original)
+        self.assertIs(forwarded["nag_text_energy_compensation"], True)
+        self.assertIs(forwarded["nag_batch_txtfusion"], True)
+
     def test_uncensorfix_weights_mode_forwards_nag_experiment_flags(self):
         # Regression: explicit wrapper parameters were previously dropped in
         # the Fusion-only / Fusion + UncensorFix weights delegation branch, so
