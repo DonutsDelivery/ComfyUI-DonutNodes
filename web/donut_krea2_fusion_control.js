@@ -179,6 +179,8 @@ const SETTINGS_WIDGETS = [
   "projector_method",
   "fusion_method",
   "nag_match_taps",
+  "nag_text_energy_compensation",
+  "nag_batch_txtfusion",
 ];
 
 const HIDDEN_PREFIX = "donuthidden-";

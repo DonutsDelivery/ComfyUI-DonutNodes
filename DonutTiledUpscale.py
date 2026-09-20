@@ -651,6 +651,13 @@ class DonutTiledUpscale:
                     })
 
             # Encode all tiles before sampling so the VAE remains resident.
+            # Regular (non-edit) NAG must wrap the model once. Re-patching per
+            # tile re-bakes txtfusion LoRAs under DynamicVRAM and can dump
+            # leftover grain on the upscale after a clean base pass.
+            shared_model = shared_negative = None
+            if not edit_mode:
+                shared_model = apply_krea2_nag(model, negative, **nag_options)
+                shared_negative = sampler_negative(negative, turbo_mode)
             for record in tile_records:
                 sampling_model = model
                 sampling_positive = positive
@@ -671,18 +678,21 @@ class DonutTiledUpscale:
                         tile_width, tile_height,
                         source_image_b=reference_b,
                     )
-                if edit_mode:
                     sampling_positive = reapply_edit_variance(sampling_positive, positive)
                 latent = vae_encoder.encode(vae, record.pop("tile_tensor"))[0]
-                sampling_model = apply_krea2_nag(
-                    sampling_model, sampling_negative, **nag_options,
-                    source_latent=_source_latent, vae=vae,
-                    source_image=reference_tile, source_image_b=reference_b,
-                    target_latent=latent,
-                )
                 if edit_mode:
+                    sampling_model = apply_krea2_nag(
+                        sampling_model, sampling_negative, **nag_options,
+                        source_latent=_source_latent, vae=vae,
+                        source_image=reference_tile, source_image_b=reference_b,
+                        target_latent=latent,
+                    )
                     sampling_model = patch_krea2_upscale_memory(sampling_model)
-                sampling_negative = sampler_negative(sampling_negative, turbo_mode)
+                    sampling_negative = sampler_negative(sampling_negative, turbo_mode)
+                else:
+                    sampling_model = shared_model
+                    sampling_positive = positive
+                    sampling_negative = shared_negative
                 record["model"] = sampling_model
                 record["positive"] = sampling_positive
                 record["negative"] = sampling_negative

@@ -307,7 +307,9 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                 execution_mode = resolve_execution_mode(kwargs.get("model"), execution_mode)
                 fallback = kwargs.get("tap_strength", 1.0) if uncensorfix_controls == FUSION_WITH_LORA else 1.0
                 strength = float(fallback if uncensorfix_strength is None else uncensorfix_strength)
-                result[0], count, source = _apply_uncensorfix(result[0], strength, execution_mode)
+                fused_model = result[0]
+                result[0], count, source = _apply_uncensorfix(fused_model, strength, execution_mode)
+                result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(result[0], fused_model)
                 result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
                                f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
             result[-1] += f"\nuncensorfix_controls={uncensorfix_controls}"
@@ -336,7 +338,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             patched_model, loaded_count, source_details = _apply_uncensorfix(
                 result[0], strength, execution_mode=execution_mode,
             )
-            result[0] = patched_model
+            result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(patched_model, result[0])
             result[-1] = _rewrite_uncensorfix_diagnostics(result[-1], strength, loaded_count, source_details)
             result[-1] += (
                 f"\nuncensorfix_controls={uncensorfix_controls}; "
