@@ -66,8 +66,8 @@ test('every existing control and all backend values/links survive regrouping',()
     // Control widgets (path [800]); they are additions, not moves, so the
     // surviving set is the pre-organize set plus the two aliases.
     const aliases=[
-        '{"path":[800],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
-        '{"path":[800],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
+        '{"path":[800,9],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
+        '{"path":[800,9],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
     ];
     same(after,[...before,...aliases].sort()); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
 });
