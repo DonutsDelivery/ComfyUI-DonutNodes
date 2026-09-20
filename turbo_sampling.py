@@ -1,6 +1,7 @@
 """Scheduler-aware quantization for distilled/Turbo sampling."""
 
 from bisect import bisect_left
+from math import nextafter
 
 
 # User-verified bong_tangent denoise points for an 8-step Turbo schedule.
@@ -54,6 +55,8 @@ def resolve_turbo_sampling(supported_steps, requested_denoise, scheduler):
     ``matched_denoise`` is the scheduler's user-facing noise position. ComfyUI's
     denoise argument must instead be ``effective_steps / supported_steps`` so
     it reconstructs the model's complete supported schedule before slicing it.
+    The execution ratio is nudged down by one float only when division would
+    otherwise make ComfyUI truncate the reconstructed schedule by one step.
     Ties select the higher matched denoise/effective-step point.
     """
     supported_steps = int(supported_steps)
@@ -76,4 +79,10 @@ def resolve_turbo_sampling(supported_steps, requested_denoise, scheduler):
 
     effective_steps, matched_denoise = selected
     execution_denoise = effective_steps / supported_steps
+    # KSampler.set_steps uses int(steps / denoise), not rounding. For example,
+    # 7 / (7 / 50) is 49.99999999999999, which would build a 49-step schedule.
+    # Keep the advertised noise position and the selected step count unchanged;
+    # adjust only the execution ratio, and leave exact round trips untouched.
+    if int(effective_steps / execution_denoise) < supported_steps:
+        execution_denoise = nextafter(execution_denoise, 0.0)
     return effective_steps, execution_denoise, matched_denoise
