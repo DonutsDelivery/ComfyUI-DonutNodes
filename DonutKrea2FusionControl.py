@@ -204,19 +204,6 @@ def _rebalance_conditioning(conditioning, gains, normalization):
     return output
 
 
-def _rms_match_conditioning(original, scaled):
-    """Restore original tensor RMS after a tap reshape (Balanced's energy rule)."""
-    if original is None or scaled is None:
-        return scaled
-    output = []
-    for (raw, _), (value, metadata) in zip(original, scaled):
-        if torch.is_tensor(raw) and torch.is_tensor(value):
-            output.append([_match_batch_rms(raw, value), metadata])
-        else:
-            output.append([value, metadata])
-    return output
-
-
 def _nova452_rebalance_tensor(value, multiplier, profile):
     """Reproduce nova452's default float32-profile/cast/multiplier order."""
     flat = value.shape[-1]
@@ -275,8 +262,6 @@ def prepare_nag_conditioning(model, conditioning):
         if config["tap_method"] == TAP_METHOD_REBALANCE:
             transformed = _nova452_rebalance_structure(
                 [[cond, metadata]], config["tap_multiplier"], config["tap_profile_values"])
-            if config.get("tap_normalization") == "tensor_rms":
-                transformed = _rms_match_conditioning([[cond, metadata]], transformed)
         else:
             transformed = _rebalance_conditioning(
                 [[cond, metadata]], config["tap_gains"], config["tap_normalization"])
@@ -656,11 +641,6 @@ class DonutKrea2FusionControl:
         # keeps those workflows executable after updating the node pack.
         del detail_clip
         ensure_standalone_nag_uses_fusion_taps()
-        try:
-            from .donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
-        except ImportError:
-            from donut_nag_txtfusion import ensure_nag_txtfusion_is_batched
-        ensure_nag_txtfusion_is_batched()
         if compatibility_preset not in COMPATIBILITY_PRESETS:
             raise ValueError(f"Unknown compatibility preset label: {compatibility_preset}")
         conditioning_inputs = (
@@ -708,15 +688,9 @@ class DonutKrea2FusionControl:
                     )
                     for conditioning in conditioning_inputs
                 )
-                if tap_normalization == "tensor_rms":
-                    output_conditionings = tuple(
-                        None if original is None else _rms_match_conditioning(original, scaled)
-                        for original, scaled in zip(conditioning_inputs, output_conditionings)
-                    )
                 tap_details = (
                     f"tap[{tap_method}; {tap_profile}]={_format_gains(tap_profile_values)}; "
                     f"multiplier={multiplier:g}"
-                    + ("; tensor_rms" if tap_normalization == "tensor_rms" else "")
                 )
         else:
             raise ValueError(f"Unknown tap method: {tap_method}")
@@ -808,7 +782,6 @@ class DonutKrea2FusionControl:
             f"{projector_details}\n"
             f"{fusion_details}\n"
             f"nag_match_taps={str(bool(nag_match_taps)).lower()}\n"
-            "nag_txtfusion=batched\n"
             f"conditioning_routes={sum(value is not None for value in conditioning_inputs)}/"
             f"{CONDITIONING_SLOT_COUNT}\n"
             "external_files_loaded=none"

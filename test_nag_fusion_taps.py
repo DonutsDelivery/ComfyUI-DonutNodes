@@ -48,19 +48,16 @@ class NAGTapTests(unittest.TestCase):
         expected = (value.float().reshape(1, 2, 12, 2560) * torch.tensor(profile).reshape(1, 1, 12, 1)).reshape_as(value).bfloat16() * .7
         self.assertTrue(torch.equal(actual, expected))
 
-    def test_rebalance_tensor_rms_restores_original_energy(self):
-        torch.manual_seed(3)
-        value = torch.randn(1, 2, 30720)
+    def test_rebalance_ignores_tensor_rms_normalization(self):
+        value = torch.randn(1, 2, 30720).bfloat16()
         profile = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
-        config = dict(tap_method=fusion.TAP_METHOD_REBALANCE,
-                      tap_gains=profile, tap_normalization='tensor_rms',
-                      tap_multiplier=1., tap_profile_values=profile)
-        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
-        actual = fusion.prepare_nag_conditioning(model, [[value, {}]])[0][0]
-        torch.testing.assert_close(
-            actual.float().square().mean().sqrt(),
-            value.float().square().mean().sqrt(),
-        )
+        base = dict(tap_method=fusion.TAP_METHOD_REBALANCE,
+                    tap_gains=profile, tap_multiplier=1., tap_profile_values=profile)
+        def run(normalization):
+            config = dict(base, tap_normalization=normalization)
+            model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+            return fusion.prepare_nag_conditioning(model, [[value.clone(), {}]])[0][0]
+        torch.testing.assert_close(run('tensor_rms').float(), run('none').float())
 
     def test_no_tap_change_is_passthrough(self):
         raw = [[torch.ones(1, 2, 30720), {}]]
