@@ -5,8 +5,10 @@ import comfy.patcher_extension
 
 try:
     from .DonutKrea2FusionControl import prepare_nag_conditioning
+    from .donut_nag_txtfusion import install_donut_nag_experiment
 except ImportError:
     from DonutKrea2FusionControl import prepare_nag_conditioning
+    from donut_nag_txtfusion import install_donut_nag_experiment
 
 
 def nag_input_types():
@@ -72,6 +74,15 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     arguments = prepare_nag_arguments(arguments, nag_negative is not None)
     patch = getattr(node_class.patch, "_donut_nag_patch_original", node_class.patch)
     patched = patch(node_class(), **arguments)[0]
+    patched = install_donut_nag_experiment(
+        patched,
+        nag_negative=arguments["nag_negative"],
+        phi=nag_phi,
+        tau=nag_tau,
+        alpha=nag_alpha,
+        sigma_start=nag_sigma_start,
+        sigma_end=nag_sigma_end,
+    )
     record_nag_preparation(patched, node_class, arguments, nag_negative is not None)
     return patched
 

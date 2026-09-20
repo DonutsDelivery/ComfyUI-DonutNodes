@@ -220,6 +220,8 @@ const ADVANCED_WIDGETS = [
   "projector_normalization",
   "fusion_method",
   "fusion_strength",
+  "nag_text_energy_compensation",
+  "nag_batch_txtfusion",
 ];
 
 const HIDDEN_PREFIX = "donuthidden-";
@@ -342,6 +344,10 @@ function updateModeVisibility(node) {
   }
 
   if (fusionMethod === FUSION_ENHANCER) visible.add("fusion_strength");
+
+  // Experiment toggles are always visible in Advanced mode; hidden in Simple.
+  visible.add("nag_text_energy_compensation");
+  visible.add("nag_batch_txtfusion");
 
   for (const name of ADVANCED_WIDGETS) {
     const item = widget(node, name);

@@ -1,16 +1,19 @@
-"""Opt-in NAG txtfusion helpers: missing config must be a no-op."""
+"""Opt-in NAG text-energy experiment: missing config must be a no-op."""
 import sys
 import types
 import unittest
 from unittest.mock import patch
+
 import torch
 
 from donut_nag_txtfusion import (
     NAG_BATCH_TXTFUSION,
-    NAG_RMS_COMPENSATION,
+    NAG_TEXT_ENERGY_COMPENSATION,
     _fused_text,
     _nudge_tap_energy,
+    donut_nag_forward,
     ensure_nag_txtfusion_is_batched,
+    install_donut_nag_experiment,
 )
 from DonutKrea2FusionControl import FUSION_BUDGET_KEY, copy_fusion_budget, prepare_nag_conditioning
 
@@ -29,7 +32,7 @@ class TxtfusionHelperTests(unittest.TestCase):
         self.assertIs(n2, n)
 
     def test_one_pair_unchanged_when_another_batch_item_is_added(self):
-        on = {"donut_krea2_fusion_budget": {NAG_RMS_COMPENSATION: True}}
+        on = {"donut_krea2_fusion_budget": {NAG_TEXT_ENERGY_COMPENSATION: True}}
         p, n = torch.ones(1, 4, 12, 8), torch.ones(1, 4, 12, 8)
         solo_p, solo_n = _nudge_tap_energy(p, n, 0.26, on)
         both_p = torch.cat([p, p * 100], dim=0)
@@ -39,11 +42,20 @@ class TxtfusionHelperTests(unittest.TestCase):
         torch.testing.assert_close(batch_n[:1], solo_n)
 
     def test_zero_alpha_preserves_original_objects(self):
-        on = {"donut_krea2_fusion_budget": {NAG_RMS_COMPENSATION: True}}
+        on = {"donut_krea2_fusion_budget": {NAG_TEXT_ENERGY_COMPENSATION: True}}
         p, n = torch.randn(2, 3, 12, 8), torch.randn(2, 2, 12, 8)
         p2, n2 = _nudge_tap_energy(p, n, 0, on)
         self.assertIs(p2, p)
         self.assertIs(n2, n)
+
+    def test_compensation_at_alpha_one_meets_at_midpoint(self):
+        on = {"donut_krea2_fusion_budget": {NAG_TEXT_ENERGY_COMPENSATION: True}}
+        p, n = torch.ones(1, 4, 12, 8), torch.full((1, 4, 12, 8), 4.)
+        p2, n2 = _nudge_tap_energy(p, n, 1.0, on)
+        torch.testing.assert_close(
+            p2.float().square().mean().sqrt(), n2.float().square().mean().sqrt()
+        )
+        self.assertAlmostEqual(p2.float().square().mean().sqrt().item(), 2.5, places=4)
 
     def test_default_fused_text_is_two_calls_even_when_shapes_match(self):
         calls = []
@@ -100,7 +112,7 @@ class TxtfusionHelperTests(unittest.TestCase):
         self.assertEqual(calls, [1, 1])
 
     def test_compensation_gain_is_capped(self):
-        on = {"donut_krea2_fusion_budget": {NAG_RMS_COMPENSATION: True}}
+        on = {"donut_krea2_fusion_budget": {NAG_TEXT_ENERGY_COMPENSATION: True}}
         p, n = torch.ones(1, 4, 12, 8), torch.full((1, 4, 12, 8), 1e-5)
         _, n2 = _nudge_tap_energy(p, n, 0.26, on)
         gain = (n2.square().mean() / n.square().mean()).sqrt().item()
@@ -133,6 +145,238 @@ class TxtfusionHelperTests(unittest.TestCase):
             self.assertEqual(already_registered(*([None] * 9)), "original")
 
 
+class DonutForwardMirrorTests(unittest.TestCase):
+    def _upstream_stub(self):
+        upstream = types.SimpleNamespace()
+
+        def _nag_block(block, positive_text, negative_text, image, vec,
+                       positive_freqs, negative_freqs, phi, tau, alpha, options):
+            return positive_text, negative_text, image
+
+        upstream._nag_block = _nag_block
+        return upstream
+
+    def _fake_model(self):
+        model = types.SimpleNamespace()
+        calls = []
+
+        def txtfusion(ctx, mask=None, transformer_options=None):
+            calls.append(("txtfusion", tuple(ctx.shape)))
+            return ctx
+
+        def txtmlp(value):
+            calls.append(("txtmlp", tuple(value.shape)))
+            return value
+
+        model.txtfusion = txtfusion
+        model.txtmlp = txtmlp
+        model.calls = calls
+        return model
+
+    def test_forward_uses_fused_text_and_keeps_upstream_block_loop(self):
+        model = self._fake_model()
+        upstream = self._upstream_stub()
+        pos, neg = torch.ones(1, 12, 2560), torch.zeros(1, 8, 2560)
+        x = torch.zeros(1, 4, 4, 4)
+
+        class Dummy:
+            def __init__(self, m):
+                self.patch = 1
+                self._m = m
+
+        holder = Dummy(model)
+
+        def unpack(context):
+            return context
+
+        holder._unpack_context = unpack
+        holder.txtfusion = model.txtfusion
+        holder.txtmlp = model.txtmlp
+        holder.process_img = lambda img: (torch.zeros(1, 4, 2560), torch.zeros(1, 4, 3), 2, 2)
+        holder.first = lambda img: img
+        holder.tmlp = lambda t: t
+        holder.tdim = 256
+        holder.tproj = lambda t: t
+        holder.pe_embedder = lambda cat: torch.zeros(cat.shape[0], cat.shape[1], 3)
+        holder.blocks = []
+        holder.last = lambda combined, t: combined[:, :combined.shape[1]]
+        holder.channels = 3
+        timestep_embedding = types.ModuleType("comfy.ldm.flux.layers")
+        timestep_embedding.timestep_embedding = lambda t, dim: t
+        comfy_pkg = types.ModuleType("comfy")
+        comfy_ldm = types.ModuleType("comfy.ldm")
+        comfy_flux = types.ModuleType("comfy.ldm.flux")
+        comfy_layers = types.ModuleType("comfy.ldm.flux.layers")
+        comfy_layers.timestep_embedding = timestep_embedding.timestep_embedding
+        comfy_pkg.ldm = comfy_ldm
+        comfy_ldm.flux = comfy_flux
+        comfy_flux.layers = comfy_layers
+        einops = types.ModuleType("einops")
+        einops.rearrange = lambda tensor, *a, **kw: torch.zeros(tensor.shape[0], 3, 2, 2)
+        comfy_utils = types.ModuleType("comfy.utils")
+        comfy_utils.repeat_to_batch_size = lambda tensor, batch: tensor
+        comfy_pkg.utils = comfy_utils
+        with patch.dict(sys.modules, {
+            "comfy": comfy_pkg,
+            "comfy.ldm": comfy_ldm,
+            "comfy.ldm.flux": comfy_flux,
+            "comfy.ldm.flux.layers": comfy_layers,
+            "comfy.utils": comfy_utils,
+            "einops": einops,
+        }):
+            out = donut_nag_forward(
+                holder, x, torch.zeros(1), pos, neg, {}, 4.0, 2.5, 0.26, upstream,
+            )
+        fusion_calls = [c for c in model.calls if c[0] == "txtfusion"]
+        self.assertEqual(len(fusion_calls), 2)
+        self.assertEqual(fusion_calls[0][1], (1, 12, 2560))
+        self.assertEqual(fusion_calls[1][1], (1, 8, 2560))
+        self.assertTrue(torch.is_tensor(out))
+
+    def test_forward_batches_equal_lengths_when_opted_in(self):
+        model = self._fake_model()
+        upstream = self._upstream_stub()
+        opts = {"donut_krea2_fusion_budget": {NAG_BATCH_TXTFUSION: True}}
+        pos, neg = torch.ones(1, 12, 2560), torch.zeros(1, 12, 2560)
+        x = torch.zeros(1, 4, 4, 4)
+
+        class Dummy:
+            def __init__(self, m):
+                self.patch = 1
+
+        holder = Dummy(model)
+
+        def unpack(context):
+            return context
+
+        holder._unpack_context = unpack
+        holder.txtfusion = model.txtfusion
+        holder.txtmlp = model.txtmlp
+        holder.process_img = lambda img: (torch.zeros(1, 4, 2560), torch.zeros(1, 4, 3), 2, 2)
+        holder.first = lambda img: img
+        holder.tmlp = lambda t: t
+        holder.tdim = 256
+        holder.tproj = lambda t: t
+        holder.pe_embedder = lambda cat: torch.zeros(cat.shape[0], cat.shape[1], 3)
+        holder.blocks = []
+        holder.last = lambda combined, t: combined[:, :combined.shape[1]]
+        holder.channels = 3
+        timestep_embedding = types.ModuleType("comfy.ldm.flux.layers")
+        timestep_embedding.timestep_embedding = lambda t, dim: t
+        comfy_pkg = types.ModuleType("comfy")
+        comfy_ldm = types.ModuleType("comfy.ldm")
+        comfy_flux = types.ModuleType("comfy.ldm.flux")
+        comfy_layers = types.ModuleType("comfy.ldm.flux.layers")
+        comfy_layers.timestep_embedding = timestep_embedding.timestep_embedding
+        comfy_pkg.ldm = comfy_ldm
+        comfy_ldm.flux = comfy_flux
+        comfy_flux.layers = comfy_layers
+        einops = types.ModuleType("einops")
+        einops.rearrange = lambda tensor, *a, **kw: torch.zeros(tensor.shape[0], 3, 2, 2)
+        comfy_utils = types.ModuleType("comfy.utils")
+        comfy_utils.repeat_to_batch_size = lambda tensor, batch: tensor
+        comfy_pkg.utils = comfy_utils
+        with patch.dict(sys.modules, {
+            "comfy": comfy_pkg,
+            "comfy.ldm": comfy_ldm,
+            "comfy.ldm.flux": comfy_flux,
+            "comfy.ldm.flux.layers": comfy_layers,
+            "comfy.utils": comfy_utils,
+            "einops": einops,
+        }):
+            donut_nag_forward(holder, x, torch.zeros(1), pos, neg, opts, 4.0, 2.5, 0.26, upstream)
+        fusion_calls = [c for c in model.calls if c[0] == "txtfusion"]
+        self.assertEqual(len(fusion_calls), 1)
+        self.assertEqual(fusion_calls[0][1], (2, 12, 2560))
+
+
+class InstallExperimentTests(unittest.TestCase):
+    def _model(self, budget=None, wrappers=None):
+        model = types.SimpleNamespace()
+        transformer_options = {}
+        if budget is not None:
+            transformer_options[FUSION_BUDGET_KEY] = budget
+        model.model_options = {"transformer_options": transformer_options}
+        model.wrappers = wrappers if wrappers is not None else {}
+        model.removed = []
+        model.added = []
+
+        def remove_wrappers_with_key(wrapper_type, key):
+            model.removed.append((wrapper_type, key))
+            model.wrappers.setdefault(wrapper_type, {}).pop(key, None)
+
+        def add_wrapper_with_key(wrapper_type, key, wrapper):
+            model.added.append((wrapper_type, key, wrapper))
+            model.wrappers.setdefault(wrapper_type, {})[key] = [wrapper]
+
+        model.remove_wrappers_with_key = remove_wrappers_with_key
+        model.add_wrapper_with_key = add_wrapper_with_key
+        return model
+
+    def test_no_flags_leaves_model_untouched(self):
+        model = self._model(budget={"nag_match_taps": True})
+        cond = [[torch.ones(1, 2, 30720), {}]]
+        result = install_donut_nag_experiment(
+            model, nag_negative=cond, phi=4.0, tau=2.5, alpha=0.26,
+            sigma_start=1000.0, sigma_end=0.0,
+        )
+        self.assertIs(result, model)
+        self.assertEqual(model.removed, [])
+        self.assertEqual(model.added, [])
+
+    def test_experiment_flag_installs_model_local_wrapper(self):
+        budget = {NAG_TEXT_ENERGY_COMPENSATION: True}
+        model = self._model(budget=budget)
+        cond = [[torch.ones(1, 2, 30720), {}]]
+        wrapper_type = "diffusion_model"
+        import comfy.patcher_extension as pe
+        pe.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL=wrapper_type)
+        fake_krea = types.SimpleNamespace(_nag_block=lambda *a, **k: None)
+        fake_pack = types.ModuleType("_fake_nag_pack")
+        fake_pack.krea2_nag = fake_krea
+        fake_pack_nodes = types.ModuleType("_fake_nag_pack.nodes")
+
+        class FakeNAG:
+            pass
+
+        FakeNAG.__module__ = "_fake_nag_pack.nodes"
+        fake_pack_nodes.NODE_CLASS_MAPPINGS = {
+            "Krea2NormalizedAttentionGuidance": FakeNAG,
+        }
+        fake_nodes = types.ModuleType("nodes")
+        fake_nodes.NODE_CLASS_MAPPINGS = fake_pack_nodes.NODE_CLASS_MAPPINGS
+        with patch.dict(sys.modules, {
+            "nodes": fake_nodes,
+            "_fake_nag_pack": fake_pack,
+            "_fake_nag_pack.nodes": fake_pack_nodes,
+            "_fake_nag_pack.krea2_nag": fake_krea,
+        }):
+            result = install_donut_nag_experiment(
+                model, nag_negative=cond, phi=4.0, tau=2.5, alpha=0.26,
+                sigma_start=1000.0, sigma_end=0.0,
+            )
+        self.assertEqual(len(model.added), 1)
+        self.assertEqual(model.added[0][1], "donut_nag_text_energy_experiment")
+        self.assertIs(model.added[0][2]._donut_uses_upstream_nag_module, fake_krea)
+        self.assertIn(("diffusion_model", "krea2_normalized_attention_guidance"), model.removed)
+
+    def test_edit_nag_path_is_left_alone(self):
+        budget = {NAG_TEXT_ENERGY_COMPENSATION: True}
+        wrapper_type = "diffusion_model"
+        model = self._model(budget=budget, wrappers={wrapper_type: {
+            "krea2_edit_normalized_attention_guidance": [object()],
+        }})
+        cond = [[torch.ones(1, 2, 30720), {}]]
+        import comfy.patcher_extension as pe
+        pe.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL=wrapper_type)
+        result = install_donut_nag_experiment(
+            model, nag_negative=cond, phi=4.0, tau=2.5, alpha=0.26,
+            sigma_start=1000.0, sigma_end=0.0,
+        )
+        self.assertIs(result, model)
+        self.assertEqual(model.added, [])
+
+
 class FusionBudgetCopyTests(unittest.TestCase):
     def test_uncensorfix_clone_keeps_nag_match_budget(self):
         budget = dict(
@@ -144,7 +388,7 @@ class FusionBudgetCopyTests(unittest.TestCase):
             nag_match_taps=True,
         )
         src = types.SimpleNamespace(model_options={"transformer_options": {FUSION_BUDGET_KEY: budget}})
-        dst = types.SimpleNamespace(model_options={"transformer_options": {}})
+        dst = types.SimpleNamespace(model_options={"transformer_options": {FUSION_BUDGET_KEY: budget}})
         copy_fusion_budget(dst, src)
         raw = [[torch.ones(1, 2, 30720), {}]]
         tapped = prepare_nag_conditioning(dst, raw)

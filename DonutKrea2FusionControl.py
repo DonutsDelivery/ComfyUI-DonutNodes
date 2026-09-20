@@ -587,6 +587,14 @@ class DonutKrea2FusionControl:
                     "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
                     "tooltip": "Strength used by the selected fusion operation.",
                 }),
+                "nag_text_energy_compensation": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "EXPERIMENT: blend NAG's two text streams toward shared RMS, weighted by NAG alpha, before txtfusion. Off leaves both streams untouched.",
+                }),
+                "nag_batch_txtfusion": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "EXPERIMENT: run NAG's two text streams through one txtfusion call when their token lengths match. Off keeps the upstream two-call path.",
+                }),
             },
             "optional": {
                 "conditioning_in_2": ("CONDITIONING",),
@@ -635,6 +643,8 @@ class DonutKrea2FusionControl:
         fusion_strength=1.0,
         detail_clip=None,
         nag_match_taps=True,
+        nag_text_energy_compensation=False,
+        nag_batch_txtfusion=False,
     ):
         # Older saved workflows/subgraphs may still submit this removed input.
         # It never participates in the current fusion path, but accepting it
@@ -746,6 +756,8 @@ class DonutKrea2FusionControl:
                 and float(projector_strength) != 0.0
             )
             or (fusion_method == FUSION_METHOD_ENHANCER and fusion_strength != 0.0)
+            or bool(nag_text_energy_compensation)
+            or bool(nag_batch_txtfusion)
         )
         if fusion_budget_active:
             output_model = _attach_fusion_budget(
@@ -764,6 +776,8 @@ class DonutKrea2FusionControl:
                     "fusion_method": fusion_method,
                     "fusion_strength": float(fusion_strength),
                     "nag_match_taps": bool(nag_match_taps),
+                    "nag_text_energy_compensation": bool(nag_text_energy_compensation),
+                    "nag_batch_txtfusion": bool(nag_batch_txtfusion),
                 },
             )
 
@@ -782,6 +796,8 @@ class DonutKrea2FusionControl:
             f"{projector_details}\n"
             f"{fusion_details}\n"
             f"nag_match_taps={str(bool(nag_match_taps)).lower()}\n"
+            f"nag_text_energy_compensation={str(bool(nag_text_energy_compensation)).lower()}\n"
+            f"nag_batch_txtfusion={str(bool(nag_batch_txtfusion)).lower()}\n"
             f"conditioning_routes={sum(value is not None for value in conditioning_inputs)}/"
             f"{CONDITIONING_SLOT_COUNT}\n"
             "external_files_loaded=none"
