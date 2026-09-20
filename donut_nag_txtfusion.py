@@ -248,8 +248,6 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     budget = (options.get("transformer_options") or {}).get("donut_krea2_fusion_budget") or {}
     wants_energy = budget.get(NAG_TEXT_ENERGY_COMPENSATION) is True
     wants_batch = budget.get(NAG_BATCH_TXTFUSION) is True
-    print(f"[DonutNAG-experiment] install check: energy={wants_energy} batch={wants_batch} "
-          f"budget_present={bool(budget)} nag_negative={bool(nag_negative)}")
     if not (wants_energy or wants_batch) or not nag_negative:
         return patched
 
@@ -274,9 +272,6 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     upstream = _nag_module()
 
     def wrapper(executor, *args, state=state, upstream=upstream, **kwargs):
-        if not getattr(wrapper, "_donut_ran_once", False):
-            wrapper._donut_ran_once = True
-            print("[DonutNAG-experiment] experimental forward executing (first call)")
         if len(args) < 3:
             raise RuntimeError("Krea2 NAG encountered an unexpected diffusion-model signature.")
         x, timesteps, context = args[:3]
@@ -320,6 +315,4 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     patched.remove_wrappers_with_key(wrapper_type, _UPSTREAM_WRAPPER_KEY)
     patched.remove_wrappers_with_key(wrapper_type, _EXPERIMENT_WRAPPER_KEY)
     patched.add_wrapper_with_key(wrapper_type, _EXPERIMENT_WRAPPER_KEY, wrapper)
-    print(f"[DonutNAG-experiment] wrapper installed; diffusion wrapper keys now: "
-          f"{sorted((getattr(patched, 'wrappers', {}) or {}).get(wrapper_type, {}) or {})}")
     return patched
