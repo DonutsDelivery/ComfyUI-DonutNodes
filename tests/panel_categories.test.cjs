@@ -88,6 +88,15 @@ test('uncensorfix is standard and retains its original callback target',()=>{
     const graph=fixture(); organizeV4Panels(graph); const group=findGroup(graph,'uncensorfix_controls');
     assert.equal(group.title,'UncensorFix'); assert.equal(group.advanced,false); same(group.controls[0].path,[800,9]);
 });
+test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control',()=>{
+    const graph=fixture(); organizeV4Panels(graph);
+    const guidance=groups(graph.nodes[4]);
+    for(const widget of ['nag_text_energy_compensation','nag_batch_txtfusion']) {
+        const group=guidance.find(group=>group.controls?.some(control=>control.widget===widget));
+        assert.ok(group); assert.equal(group.title,'Negative attention guidance · NAG'); assert.equal(group.advanced,true);
+        same(group.controls.find(control=>control.widget===widget).path,[800]);
+    }
+});
 test('AuraFlow moves from Models to the sampling panel without duplication',()=>{
     const graph=fixture(); organizeV4Panels(graph);
     assert.ok(!groups(graph.nodes[0]).some(group=>/AuraFlow/.test(group.title)));
