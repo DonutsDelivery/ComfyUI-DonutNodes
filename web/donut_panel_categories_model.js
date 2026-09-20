@@ -200,9 +200,13 @@ export function organizeV4Panels(root) {
         const prompts = family.filter(panel => panelRole(panel) === 'prompts');
         if (models.length === 1 && guidance.length === 1) {
             const modelGroups = models[0].properties.donut_app_controls.groups;
-            const fusionAnchor = modelGroups
-                .flatMap(group => group.controls || [])
-                .find(control => control.widget === 'compatibility_preset');
+            const fusionControls = modelGroups.flatMap(group => group.controls || []);
+            // compatibility_preset can be promoted onto the outer subgraph in V5.
+            // The experiment widgets live on the actual inner Fusion Control, so
+            // prefer an existing inner-only widget as the path anchor.
+            const fusionAnchor = fusionControls.find(control => control.widget === 'uncensorfix_controls')
+                || fusionControls.find(control => control.widget === 'tap_method')
+                || fusionControls.find(control => control.widget === 'compatibility_preset');
             const guidanceGroups = guidance[0].properties.donut_app_controls.groups;
             const experimentWidgets = [
                 ['nag_text_energy_compensation', 'Text-energy compensation'],
