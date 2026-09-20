@@ -66,8 +66,8 @@ test('every existing control and all backend values/links survive regrouping',()
     // Control widgets (path [800]); they are additions, not moves, so the
     // surviving set is the pre-organize set plus the two aliases.
     const aliases=[
-        '{"path":[800],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
-        '{"path":[800],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
+        '{"path":[800,9],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
+        '{"path":[800,9],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
     ];
     same(after,[...before,...aliases].sort()); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
 });
@@ -102,7 +102,7 @@ test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control'
     for(const widget of ['nag_text_energy_compensation','nag_batch_txtfusion']) {
         const group=guidance.find(group=>group.controls?.some(control=>control.widget===widget));
         assert.ok(group); assert.equal(group.title,'Negative attention guidance · NAG'); assert.equal(group.advanced,true);
-        same(group.controls.find(control=>control.widget===widget).path,[800]);
+        same(group.controls.find(control=>control.widget===widget).path,[800,9]);
     }
 });
 test('AuraFlow moves from Models to the sampling panel without duplication',()=>{
