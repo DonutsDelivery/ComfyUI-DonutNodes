@@ -8,7 +8,6 @@ between differently shaped text embeddings or encoded inside a model forward.
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass
-from inspect import signature
 import math
 import operator
 import re
@@ -243,24 +242,104 @@ class DonutSampler(_BaseDonutSampler):
         return inputs
 
     @capture_nag_preparations(enabled=False)
-    def sample(self, *args, grounding_schedule="constant", grounding_start_px=512,
-               grounding_end_px=1088, **kwargs):
+    def sample(
+        self,
+        model,
+        seed,
+        steps,
+        cfg_start,
+        cfg_halfway,
+        cfg_end,
+        halfway_step,
+        sampler_name,
+        scheduler,
+        positive,
+        negative,
+        latent_image,
+        denoise,
+        mode='simple',
+        cfg_curve='linear',
+        add_noise='enable',
+        start_at_step=0,
+        end_at_step=10000,
+        return_with_leftover_noise='disable',
+        randomize_seed_per_model='enable',
+        switch_at_step_1=10,
+        switch_at_step_2=15,
+        model_2=None,
+        model_3=None,
+        edit_mode=False,
+        source_image=None,
+        vae=None,
+        clip=None,
+        edit_prompt='',
+        edit_negative_prompt='',
+        grounding_px=768,
+        edit_model=None,
+        turbo_mode=False,
+        source_image_b=None,
+        edit_inpaint=None,
+        sda_enabled=False,
+        sda_strength=1.0,
+        *,
+        grounding_schedule="constant",
+        grounding_start_px=512,
+        grounding_end_px=1088,
+        **nag_options,
+    ):
+        inputs = dict(
+            model=model,
+            seed=seed,
+            steps=steps,
+            cfg_start=cfg_start,
+            cfg_halfway=cfg_halfway,
+            cfg_end=cfg_end,
+            halfway_step=halfway_step,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            positive=positive,
+            negative=negative,
+            latent_image=latent_image,
+            denoise=denoise,
+            mode=mode,
+            cfg_curve=cfg_curve,
+            add_noise=add_noise,
+            start_at_step=start_at_step,
+            end_at_step=end_at_step,
+            return_with_leftover_noise=return_with_leftover_noise,
+            randomize_seed_per_model=randomize_seed_per_model,
+            switch_at_step_1=switch_at_step_1,
+            switch_at_step_2=switch_at_step_2,
+            model_2=model_2,
+            model_3=model_3,
+            edit_mode=edit_mode,
+            source_image=source_image,
+            vae=vae,
+            clip=clip,
+            edit_prompt=edit_prompt,
+            edit_negative_prompt=edit_negative_prompt,
+            grounding_px=grounding_px,
+            edit_model=edit_model,
+            turbo_mode=turbo_mode,
+            source_image_b=source_image_b,
+            edit_inpaint=edit_inpaint,
+            sda_enabled=sda_enabled,
+            sda_strength=sda_strength,
+        )
+        inputs.update(nag_options)
         parent = super().sample
         # Even a nested, unrelated run must not inherit another run's request.
         token = _REQUEST.set(None)
         try:
             if grounding_schedule == "constant":
-                return parent(*args, **kwargs)
-            bound = signature(parent).bind(*args, **kwargs)
-            bound.apply_defaults()
-            inputs = bound.arguments
+                return parent(**inputs)
             if not inputs.get("edit_mode", False):
-                return parent(*args, **kwargs)
+                return parent(**inputs)
             start, end = _pixel_value(grounding_start_px), _pixel_value(grounding_end_px)
             grounding_values(start, end, 2, grounding_schedule)  # validate curve
             inputs["grounding_px"] = start
             if start == end:
-                return parent(*bound.args, **bound.kwargs)
+                return parent(**inputs)
             if start == 0 or end == 0:
                 raise ValueError("Zero grounding px means native/unlimited resolution, not no grounding. "
                                  "Use positive start/end values for a changing schedule.")
@@ -277,38 +356,106 @@ class DonutSampler(_BaseDonutSampler):
                                inputs.get("turbo_mode", False))
             _REQUEST.set(request)
             with capture_nag_preparations():
-                return parent(*bound.args, **bound.kwargs)
+                return parent(**inputs)
         finally:
             _REQUEST.reset(token)
 
-    def _scheduled_run(self, parent, args, kwargs, advanced=False):
+    def _scheduled_run(self, parent, inputs, advanced=False):
         request = _REQUEST.get()
         if request is None:
-            return parent(*args, **kwargs)
-        bound = signature(parent).bind(*args, **kwargs)
-        bound.apply_defaults()
-        inputs = bound.arguments
+            return parent(**inputs)
         count = inputs["steps"]
         if advanced:
             count = max(0, min(count, inputs["end_at_step"]) - inputs["start_at_step"])
         values = grounding_values(request.start, request.end, count, request.curve)
         if not values:
-            return parent(*args, **kwargs)
+            return parent(**inputs)
         inputs["model"], inputs["positive"], inputs["negative"] = _prepare_conditions(
             request, inputs["model"], inputs["positive"], inputs["negative"], values,
         )
-        latent, info = parent(*bound.args, **bound.kwargs)
+        latent, info = parent(**inputs)
         shown = [str(value) for value in values]
         if len(shown) > 16:
             shown = shown[:8] + ["..."] + shown[-4:]
         return latent, (f"Grounding {request.curve} ({len(values)} steps): "
                         f"{' -> '.join(shown)} px; {len(set(values))} resolutions\n{info}")
 
-    def run_simple(self, *args, **kwargs):
-        return self._scheduled_run(super().run_simple, args, kwargs)
+    def run_simple(
+        self,
+        model,
+        seed,
+        steps,
+        cfg_start,
+        cfg_halfway,
+        cfg_end,
+        halfway_step,
+        sampler_name,
+        scheduler,
+        positive,
+        negative,
+        latent_image,
+        denoise,
+    ):
+        inputs = dict(
+            model=model,
+            seed=seed,
+            steps=steps,
+            cfg_start=cfg_start,
+            cfg_halfway=cfg_halfway,
+            cfg_end=cfg_end,
+            halfway_step=halfway_step,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            positive=positive,
+            negative=negative,
+            latent_image=latent_image,
+            denoise=denoise,
+        )
+        return self._scheduled_run(super().run_simple, inputs)
 
-    def run_advanced(self, *args, **kwargs):
-        return self._scheduled_run(super().run_advanced, args, kwargs, advanced=True)
+    def run_advanced(
+        self,
+        model,
+        add_noise,
+        noise_seed,
+        steps,
+        cfg_start,
+        cfg_halfway,
+        cfg_end,
+        halfway_step,
+        sampler_name,
+        scheduler,
+        positive,
+        negative,
+        latent_image,
+        start_at_step,
+        end_at_step,
+        return_with_leftover_noise,
+        cfg_curve='linear',
+        denoise=1.0,
+    ):
+        inputs = dict(
+            model=model,
+            add_noise=add_noise,
+            noise_seed=noise_seed,
+            steps=steps,
+            cfg_start=cfg_start,
+            cfg_halfway=cfg_halfway,
+            cfg_end=cfg_end,
+            halfway_step=halfway_step,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            positive=positive,
+            negative=negative,
+            latent_image=latent_image,
+            start_at_step=start_at_step,
+            end_at_step=end_at_step,
+            return_with_leftover_noise=return_with_leftover_noise,
+            cfg_curve=cfg_curve,
+            denoise=denoise,
+        )
+        return self._scheduled_run(super().run_advanced, inputs, advanced=True)
+
 
 
 NODE_CLASS_MAPPINGS = {"DonutSampler": DonutSampler}

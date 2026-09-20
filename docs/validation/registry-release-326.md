@@ -20,3 +20,15 @@ scheduled without the user's yes.
 Published ZIP verified against staged upload: every member matches. Standalone
 installers, downloader backend, credentials and development-only files excluded.
 SHA-256: `d2b43de8c3b1078cb6a1d0aee2440920ef33cc5a733ce1c1744a40dbfdcba0f6`.
+
+## Earlier V5 review findings
+
+Rechecked 2026-09-20 01:07:31 UTC: 3.0.23 and 3.0.24 are Flagged;
+3.0.22 is Active. 3.0.26 remains Pending. The listing has no 3.0.25 entry.
+Both flagged versions report the same YARA `$socket4` / `any-network-requests`
+findings on `.bind(` in `donut_reference_mask.py`, `donut_grounding_schedule.py`,
+and `donut_crop_studio.py`. These calls bind Python function arguments through
+`inspect.signature`, not network sockets. All three reported lines also exist
+in the verified 3.0.26 published ZIP, so approval must not be assumed.
+Resolve through Registry review with the exact findings; do not obscure or
+rename equivalent operations merely to evade the scanner.

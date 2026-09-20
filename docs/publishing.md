@@ -27,6 +27,7 @@ not a complete scanner specification or a guarantee about future decisions.
 | Reading `HF_TOKEN` and using `requests.get(...)` | Environment manipulation and network operations | Legitimate network features can be flagged. Document their behavior and seek review or explicitly omit them from the restricted distribution. |
 | Base85 weight data embedded in Python strings | Minified code and privilege escalation | Keep numerical data in a documented non-executable asset; verify size and checksum. Random encoded strings can match command-name and semicolon rules. |
 | A local graph helper's `.connect(...)` | Network operations | A match may be unrelated to networking. Inspect the actual code and exclude development-only authoring tools from runtime packages. |
+| `inspect.signature(...).bind(...)` in V5 runtime wrappers | Socket/network operations (`$socket4`) | 3.0.23 and 3.0.24 were flagged for argument binding in mask, crop and grounding wrappers. 3.0.27 replaces reflection with explicit method signatures and keyword forwarding, with parent-signature contract tests. Approval still requires the exact version's Active status. |
 | Tests reading environment variables or embedding CSS | Environment manipulation and minified code | Keep tests in GitHub source, but exclude development tests from the runtime ZIP. |
 
 All thirteen findings on 3.0.2 were labelled `info`, yet the version was Flagged.

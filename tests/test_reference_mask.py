@@ -57,7 +57,7 @@ class MaskTests(unittest.TestCase):
             @classmethod
             def IS_CHANGED(cls, **kwargs): return 'original-cache-key'
             def check_lazy_status(self, enabled=False, model=None, **kwargs): return ['model'] if enabled and model is None else []
-            def prepare(self, enabled=True, image_a='A', image_b='', use_reference_b=True, crop_b_x=.5, crop_b_y=.5):
+            def prepare(self, enabled=True, image_a='A', image_b='', use_reference_b=True, crop_b_x=.5, crop_b_y=.5, **unused):
                 if not enabled or not use_reference_b: return (original[0], None, *original[2:])
                 return original
         base = types.ModuleType(package.__name__ + '.DonutEditStudio')
@@ -80,7 +80,14 @@ class MaskTests(unittest.TestCase):
         sys.modules['nodes'] = self.nodes = nodes
         spec = importlib.util.spec_from_file_location(package.__name__ + '.donut_reference_mask', ROOT / 'donut_reference_mask.py')
         self.module = importlib.util.module_from_spec(spec); sys.modules[spec.name] = self.module; spec.loader.exec_module(self.module)
-        self.studio = self.module.DonutSubjectMaskStudio()
+        class StudioFixture(self.module.DonutSubjectMaskStudio):
+            def prepare(self, **kwargs):
+                values = dict(enabled=True, image_a='A', image_b='', use_reference_b=True,
+                    prompt='', resolution_mode='Custom', aspect_ratio='1:1 Square',
+                    megapixels=1., width=4, height=4, multiple=1, grounding_px=1088,
+                    lora_name='None', lora_strength=1.)
+                return super().prepare(**{**values, **kwargs})
+        self.studio = StudioFixture()
 
     def tearDown(self): self.env.stop()
 

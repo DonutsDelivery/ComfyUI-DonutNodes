@@ -4,7 +4,6 @@ New inputs append after the existing masking inputs. The legacy route is
 forwarded unchanged. Model/VAE reference resolutions are deliberately not exposed.
 """
 from copy import deepcopy
-import inspect
 import json
 
 from .donut_inpaint import prepare_outpaint
@@ -16,9 +15,7 @@ from .donut_reference_geometry import (
 )
 
 _Base = subjects.DonutSubjectMaskStudio
-_BASE_ARGUMENTS = set(inspect.signature(studio.DonutEditStudio.prepare).parameters) - {"self"}
-_MASK_ARGUMENTS = {"mask_b_mode", "mask_b_model", "mask_b_data", "mask_b_grow",
-                   "mask_b_feather", "mask_b_background", "mask_b", "mask_b_prompt", "mask_b_threshold"}
+
 
 
 def crop_input_types(edit=True):
@@ -72,22 +69,95 @@ class DonutCropEditStudio(_Base):
         result["optional"].update(subjects.prompt_mask_inputs())
         return result
 
-    def prepare(self, *args, geometry_mode=LEGACY, crop_data_a="", crop_data_b="",
-                output_canvas="Follow A crop", **kwargs):
+    def prepare(
+        self,
+        enabled,
+        image_a,
+        image_b,
+        use_reference_b,
+        prompt,
+        resolution_mode,
+        aspect_ratio,
+        megapixels,
+        width,
+        height,
+        multiple,
+        grounding_px,
+        lora_name,
+        lora_strength,
+        crop_a_x=0.5,
+        crop_a_y=0.5,
+        crop_b_x=0.5,
+        crop_b_y=0.5,
+        model=None,
+        text_seed=0,
+        inpaint_enabled=False,
+        mask_data='',
+        mask_feather=8,
+        grounding_schedule='constant',
+        grounding_start_px=512,
+        grounding_end_px=1088,
+        *,
+        mask_b_mode="Off",
+        mask_b_model=subjects.MODEL_NAME,
+        mask_b_data="",
+        mask_b_grow=0,
+        mask_b_feather=0,
+        mask_b_background="Neutral gray",
+        mask_b=None,
+        mask_b_prompt="",
+        mask_b_threshold=0.5,
+        geometry_mode=LEGACY,
+        crop_data_a="",
+        crop_data_b="",
+        output_canvas="Follow A crop",
+    ):
+        values = dict(
+            enabled=enabled,
+            image_a=image_a,
+            image_b=image_b,
+            use_reference_b=use_reference_b,
+            prompt=prompt,
+            resolution_mode=resolution_mode,
+            aspect_ratio=aspect_ratio,
+            megapixels=megapixels,
+            width=width,
+            height=height,
+            multiple=multiple,
+            grounding_px=grounding_px,
+            lora_name=lora_name,
+            lora_strength=lora_strength,
+            crop_a_x=crop_a_x,
+            crop_a_y=crop_a_y,
+            crop_b_x=crop_b_x,
+            crop_b_y=crop_b_y,
+            model=model,
+            text_seed=text_seed,
+            inpaint_enabled=inpaint_enabled,
+            mask_data=mask_data,
+            mask_feather=mask_feather,
+            grounding_schedule=grounding_schedule,
+            grounding_start_px=grounding_start_px,
+            grounding_end_px=grounding_end_px,
+        )
+        mask_options = dict(
+            mask_b_mode=mask_b_mode,
+            mask_b_model=mask_b_model,
+            mask_b_data=mask_b_data,
+            mask_b_grow=mask_b_grow,
+            mask_b_feather=mask_b_feather,
+            mask_b_background=mask_b_background,
+            mask_b=mask_b,
+            mask_b_prompt=mask_b_prompt,
+            mask_b_threshold=mask_b_threshold,
+        )
         if geometry_mode == LEGACY:
-            return super().prepare(*args, **kwargs)
+            return super().prepare(**values, **mask_options)
         if geometry_mode != INDEPENDENT:
             raise ValueError("Unknown reference geometry mode.")
-        unknown = set(kwargs) - _BASE_ARGUMENTS - _MASK_ARGUMENTS
-        if unknown:
-            raise TypeError("Unknown Edit Studio settings: " + ", ".join(sorted(unknown)))
-        bound = inspect.signature(studio.DonutEditStudio.prepare).bind(
-            self, *args, **{k: v for k, v in kwargs.items() if k in _BASE_ARGUMENTS})
-        bound.apply_defaults()
-        values = {k: v for k, v in bound.arguments.items() if k != "self"}
         # No image, mask, model or crop parsing while editing is off.
         if not values["enabled"]:
-            return super().prepare(*args, **kwargs)
+            return super().prepare(**values, **mask_options)
         a = studio._open_reference(values["image_a"])
         need_b = values["image_b"] and (values["use_reference_b"] or values["aspect_ratio"] == "Auto · Reference B")
         b = studio._open_reference(values["image_b"]) if need_b else None
@@ -106,7 +176,7 @@ class DonutCropEditStudio(_Base):
         if values["use_reference_b"]:
             if b is None:
                 raise ValueError("Reference B is required when Use B is enabled.")
-            b, record, fill = isolated_b(values["image_b"], b, kwargs)
+            b, record, fill = isolated_b(values["image_b"], b, mask_options)
             result[1], _ = crop_fit_image(b, box_b, size, background=fill)
         if values["inpaint_enabled"]:
             outpaint = prepare_outpaint(a, values["mask_data"], values["image_a"], size, values["mask_feather"])

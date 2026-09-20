@@ -17,27 +17,21 @@ class BaseSampler:
                 "optional": {"grounding_px": ("INT", {"default": 768}),
                              "sda_enabled": ("BOOLEAN", {"default": False})}}
 
-    def sample(self, model, sampler_name="euler", steps=5, positive=None, negative=None,
-               edit_mode=False, grounding_px=768, mode="simple", start_at_step=0,
-               end_at_step=10000, clip=None, source_image=None, source_image_b=None,
-               edit_prompt="", edit_negative_prompt="", edit_inpaint=None,
-               turbo_mode=False, sda_enabled=False, **nag_options):
+    def sample(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, denoise, mode='simple', cfg_curve='linear', add_noise='enable', start_at_step=0, end_at_step=10000, return_with_leftover_noise='disable', randomize_seed_per_model='enable', switch_at_step_1=10, switch_at_step_2=15, model_2=None, model_3=None, edit_mode=False, source_image=None, vae=None, clip=None, edit_prompt='', edit_negative_prompt='', grounding_px=768, edit_model=None, turbo_mode=False, source_image_b=None, edit_inpaint=None, sda_enabled=False, sda_strength=1.0, **nag_options):
         self.received = locals().copy()
         if getattr(self, "fail", False):
             raise RuntimeError("interrupted")
         if getattr(self, "dispatch", False):
             if mode == "advanced":
-                return self.run_advanced(model, steps, positive, negative,
-                                         start_at_step, end_at_step)
-            return self.run_simple(model, steps, positive, negative)
+                return self.run_advanced(model, add_noise, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, start_at_step, end_at_step, return_with_leftover_noise, cfg_curve, denoise)
+            return self.run_simple(model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, denoise)
         return model, "base result"
 
-    def run_simple(self, model, steps, positive, negative, denoise=1.0):
+    def run_simple(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, denoise):
         self.run_received = locals().copy()
         return model, "simple result"
 
-    def run_advanced(self, model, steps, positive, negative,
-                     start_at_step=0, end_at_step=10000, denoise=1.0):
+    def run_advanced(self, model, add_noise, noise_seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, start_at_step, end_at_step, return_with_leftover_noise, cfg_curve='linear', denoise=1.0):
         self.run_received = locals().copy()
         return model, "advanced result"
 
@@ -50,6 +44,14 @@ spec = importlib.util.spec_from_file_location(
 grounding = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {"donut_krea2_sda": base_module, spec.name: grounding}):
     spec.loader.exec_module(grounding)
+
+
+def sample(node, model, **options):
+    # Supply the real sampler's required inputs even when testing only scheduling.
+    defaults = dict(seed=0, steps=5, cfg_start=1., cfg_halfway=1., cfg_end=1.,
+        halfway_step=2, sampler_name='euler', scheduler='simple', positive=None,
+        negative=None, latent_image=None, denoise=1.)
+    return node.sample(model, **{**defaults, **options})
 
 
 def request(**changes):
@@ -117,19 +119,19 @@ class NodeTests(unittest.TestCase):
 
     def test_constant_preserves_original_arguments(self):
         node, model = grounding.DonutSampler(), object()
-        self.assertEqual(node.sample(model, grounding_px=777, grounding_start_px="ignored"),
+        self.assertEqual(sample(node, model, grounding_px=777, grounding_start_px="ignored"),
                          (model, "base result"))
         self.assertEqual(node.received["grounding_px"], 777)
         self.assertEqual(node.received["nag_options"], {})
 
     def test_non_edit_ignores_dynamic_controls(self):
         node = grounding.DonutSampler()
-        node.sample("model", grounding_schedule="invalid", grounding_start_px="ignored")
+        sample(node, "model", grounding_schedule="invalid", grounding_start_px="ignored")
         self.assertEqual(node.received["grounding_px"], 768)
 
     def test_equal_endpoints_use_static_path_even_with_nag(self):
         node = grounding.DonutSampler()
-        node.sample("model", edit_mode=True, grounding_schedule="linear",
+        sample(node, "model", edit_mode=True, grounding_schedule="linear",
                     grounding_start_px=640, grounding_end_px=640, nag_enabled=True)
         self.assertEqual(node.received["grounding_px"], 640)
         self.assertIsNone(grounding._REQUEST.get())
@@ -137,22 +139,22 @@ class NodeTests(unittest.TestCase):
     def test_native_zero_is_not_treated_as_disabled_grounding(self):
         for start, end in ((0, 1024), (512, 0)):
             with self.subTest(start=start, end=end), self.assertRaisesRegex(ValueError, "native/unlimited"):
-                grounding.DonutSampler().sample("model", edit_mode=True, grounding_schedule="linear",
+                sample(grounding.DonutSampler(), "model", edit_mode=True, grounding_schedule="linear",
                                                 grounding_start_px=start, grounding_end_px=end)
         node = grounding.DonutSampler()
-        node.sample("model", edit_mode=True, grounding_schedule="linear",
+        sample(node, "model", edit_mode=True, grounding_schedule="linear",
                     grounding_start_px=0, grounding_end_px=0)
         self.assertEqual(node.received["grounding_px"], 0)
 
     def test_multimodel_rejected(self):
         with self.assertRaisesRegex(ValueError, "multi_model"):
-            grounding.DonutSampler().sample("model", edit_mode=True,
+            sample(grounding.DonutSampler(), "model", edit_mode=True,
                                             grounding_schedule="linear", mode="multi_model")
 
     def test_nag_enabled_and_zero_strength_are_forwarded(self):
         for phi, alpha in ((0., .25), (4., 0.), (4., .25)):
             node = grounding.DonutSampler()
-            node.sample("model", edit_mode=True, grounding_schedule="linear",
+            sample(node, "model", edit_mode=True, grounding_schedule="linear",
                         nag_enabled=True, nag_phi=phi, nag_alpha=alpha)
             self.assertEqual(node.received["nag_options"],
                              dict(nag_enabled=True, nag_phi=phi, nag_alpha=alpha))
@@ -160,7 +162,7 @@ class NodeTests(unittest.TestCase):
 
     def test_multievaluation_sampler_rejected(self):
         with self.assertRaisesRegex(ValueError, "Euler"):
-            grounding.DonutSampler().sample("model", edit_mode=True,
+            sample(grounding.DonutSampler(), "model", edit_mode=True,
                                             grounding_schedule="linear", sampler_name="heun")
 
     def test_request_cleanup_on_exception(self):
@@ -170,7 +172,7 @@ class NodeTests(unittest.TestCase):
         token = grounding._REQUEST.set(sentinel)
         try:
             with self.assertRaisesRegex(RuntimeError, "interrupted"):
-                node.sample("model", edit_mode=True, grounding_schedule="linear")
+                sample(node, "model", edit_mode=True, grounding_schedule="linear")
             self.assertIs(grounding._REQUEST.get(), sentinel)
         finally:
             grounding._REQUEST.reset(token)
@@ -184,7 +186,7 @@ class NodeTests(unittest.TestCase):
             self.assertEqual(req.original_positive, "original-positive")
             return model, positive, negative
         with patch.object(grounding, "_prepare_conditions", side_effect=prepare) as mocked:
-            node.sample("model", positive="original-positive", edit_mode=True,
+            sample(node, "model", positive="original-positive", edit_mode=True,
                         grounding_schedule="linear", source_image="unused",
                         source_image_b="subject", edit_inpaint={"image": "masked-base"})
         self.assertEqual(mocked.call_count, 1)
@@ -197,7 +199,7 @@ class NodeTests(unittest.TestCase):
             self.assertEqual(values, (512, 832, 1088))
             return model, positive, negative
         with patch.object(grounding, "_prepare_conditions", side_effect=prepare):
-            _, info = node.sample("model", steps=20, mode="advanced", end_at_step=3,
+            _, info = sample(node, "model", steps=20, mode="advanced", end_at_step=3,
                                   edit_mode=True, grounding_schedule="linear")
         self.assertIn("(3 steps)", info)
         self.assertEqual(node.run_received["steps"], 20)
@@ -206,7 +208,7 @@ class NodeTests(unittest.TestCase):
         node = grounding.DonutSampler()
         node.dispatch = True
         with patch.object(grounding, "_prepare_conditions") as prepare:
-            node.sample("model", mode="advanced", end_at_step=0,
+            sample(node, "model", mode="advanced", end_at_step=0,
                         edit_mode=True, grounding_schedule="linear")
         prepare.assert_not_called()
 

@@ -7,7 +7,6 @@ receive the same neutral-composited B through the existing reference_b output.
 """
 from copy import deepcopy
 import hashlib
-import inspect
 import io
 import json
 import os
@@ -293,17 +292,78 @@ class DonutSubjectMaskStudio(_Base):
                 return original, "missing mask"
         return original
 
-    def prepare(self, *args, mask_b_mode="Off", mask_b_model=MODEL_NAME, mask_b_data="",
-                mask_b_grow=0, mask_b_feather=0, mask_b_background="Neutral gray", mask_b=None,
-                mask_b_prompt="", mask_b_threshold=0.5, **kwargs):
-        result = super().prepare(*args, **kwargs)
+    def prepare(
+        self,
+        enabled,
+        image_a,
+        image_b,
+        use_reference_b,
+        prompt,
+        resolution_mode,
+        aspect_ratio,
+        megapixels,
+        width,
+        height,
+        multiple,
+        grounding_px,
+        lora_name,
+        lora_strength,
+        crop_a_x=0.5,
+        crop_a_y=0.5,
+        crop_b_x=0.5,
+        crop_b_y=0.5,
+        model=None,
+        text_seed=0,
+        inpaint_enabled=False,
+        mask_data='',
+        mask_feather=8,
+        grounding_schedule='constant',
+        grounding_start_px=512,
+        grounding_end_px=1088,
+        *,
+        mask_b_mode="Off",
+        mask_b_model=MODEL_NAME,
+        mask_b_data="",
+        mask_b_grow=0,
+        mask_b_feather=0,
+        mask_b_background="Neutral gray",
+        mask_b=None,
+        mask_b_prompt="",
+        mask_b_threshold=0.5,
+    ):
+        values = dict(
+            enabled=enabled,
+            image_a=image_a,
+            image_b=image_b,
+            use_reference_b=use_reference_b,
+            prompt=prompt,
+            resolution_mode=resolution_mode,
+            aspect_ratio=aspect_ratio,
+            megapixels=megapixels,
+            width=width,
+            height=height,
+            multiple=multiple,
+            grounding_px=grounding_px,
+            lora_name=lora_name,
+            lora_strength=lora_strength,
+            crop_a_x=crop_a_x,
+            crop_a_y=crop_a_y,
+            crop_b_x=crop_b_x,
+            crop_b_y=crop_b_y,
+            model=model,
+            text_seed=text_seed,
+            inpaint_enabled=inpaint_enabled,
+            mask_data=mask_data,
+            mask_feather=mask_feather,
+            grounding_schedule=grounding_schedule,
+            grounding_start_px=grounding_start_px,
+            grounding_end_px=grounding_end_px,
+        )
+        result = super().prepare(**values)
         if result[1] is None or mask_b_mode == "Off":
             return result
         if mask_b_mode not in MODES:
             raise ValueError("Unknown Reference B mask mode.")
-        bound = inspect.signature(_Base.prepare).bind(self, *args, **kwargs)
-        bound.apply_defaults()
-        values = bound.arguments
         name = values["image_b"]
         source = _source(name)
         if mask_b_mode == "Auto subject":
