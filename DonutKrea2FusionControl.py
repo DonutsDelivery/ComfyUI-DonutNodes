@@ -587,14 +587,6 @@ class DonutKrea2FusionControl:
                     "default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05,
                     "tooltip": "Strength used by the selected fusion operation.",
                 }),
-                "nag_text_energy_compensation": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": "EXPERIMENT: blend NAG's two text streams toward shared RMS, weighted by NAG alpha, before txtfusion. Off leaves both streams untouched.",
-                }),
-                "nag_batch_txtfusion": ("BOOLEAN", {
-                    "default": False,
-                    "tooltip": "EXPERIMENT: run NAG's two text streams through one txtfusion call when their token lengths match. Off keeps the upstream two-call path.",
-                }),
             },
             "optional": {
                 "conditioning_in_2": ("CONDITIONING",),

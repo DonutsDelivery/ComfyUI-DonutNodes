@@ -260,12 +260,24 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             "tooltip": "Apply Fusion taps to NAG's negative so both streams match. "
                        "Off keeps a raw NAG negative (Balanced + raw NAG).",
         })
+        # Append only: these experiment toggles must sit after every legacy
+        # widget so old saved graphs and stale browser sessions keep their
+        # positional widget values aligned.
+        optional["nag_text_energy_compensation"] = ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: blend NAG's two text streams toward shared RMS, weighted by NAG alpha, before txtfusion. Off leaves both streams untouched.",
+        })
+        optional["nag_batch_txtfusion"] = ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: run NAG's two text streams through one txtfusion call when their token lengths match. Off keeps the upstream two-call path.",
+        })
         return {**schema, "required": required, "optional": optional}
 
     def apply(
         self, *args, ui_mode=UI_MODE_ADVANCED,
         uncensorfix_controls=UNCENSORFIX_LORA_ONLY,
-        execution_mode="Comfy patches", uncensorfix_strength=None, **kwargs,
+        execution_mode="Comfy patches", uncensorfix_strength=None,
+        nag_text_energy_compensation=False, nag_batch_txtfusion=False, **kwargs,
     ):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
@@ -334,6 +346,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             else:
                 delegated = dict(kwargs)
                 delegated["compatibility_preset"] = base.PRESET_MANUAL
+                delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
+                delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
                 result = list(super().apply(*args, **delegated))
             patched_model, loaded_count, source_details = _apply_uncensorfix(
                 result[0], strength, execution_mode=execution_mode,
@@ -350,6 +364,8 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         legacy_preset = SIMPLE_PRESET_TO_LEGACY.get(preset, preset)
         delegated = dict(kwargs)
         delegated["compatibility_preset"] = legacy_preset
+        delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
+        delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
         result = list(super().apply(*args, **delegated))
         if preset in SIMPLE_PRESET_TO_LEGACY:
             result[-1] = _rewrite_preset_diagnostics(result[-1], legacy_preset, preset)
