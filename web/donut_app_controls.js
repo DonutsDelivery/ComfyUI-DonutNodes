@@ -192,8 +192,12 @@ function install(node, appOnly = false) {
         if (typeof values === "function") values = values();
         const composition = name === "uncensorfix_controls";
         if (composition) values = ["Fusion only", "Fusion + UncensorFix weights"];
-        const boolean = typeof widget.value === "boolean";
-        const numeric = typeof widget.value === "number";
+        // Booleans must be detected from the widget type, not the value type:
+        // a workflow saved while a binding was broken can store 1/0 numbers
+        // for BOOLEAN widgets, which would otherwise render a number input
+        // and keep committing numbers instead of true/false.
+        const boolean = widget.type === "BOOLEAN" || widget.type === "toggle" || typeof widget.value === "boolean";
+        const numeric = !boolean && typeof widget.value === "number";
         const multiline = widget.options?.multiline || (typeof widget.value === "string" && !values && /text|prompt|instruction/i.test(name));
         const input = element(Array.isArray(values) ? "select" : multiline ? "textarea" : "input");
         if (Array.isArray(values)) for (const value of values) {
