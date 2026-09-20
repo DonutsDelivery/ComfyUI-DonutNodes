@@ -12,7 +12,7 @@ except ImportError:
 def nag_input_types():
     return {
         "nag_enabled": ("BOOLEAN", {"default": False, "tooltip": "Apply Krea2 NAG inside sampling (requires krea2-nag). Uses CFG 1; Turbo negative conditioning stays zeroed."}),
-        "nag_negative": ("CONDITIONING", {"tooltip": "Unzeroed negative prompt for NAG. Defaults to edit_negative_prompt in edit mode, otherwise negative."}),
+        "nag_negative": ("CONDITIONING", {"tooltip": "Unzeroed negative prompt for NAG. Used as wired; Fusion Rebalance/taps are not reapplied. Defaults to edit_negative_prompt in edit mode, otherwise negative."}),
         "nag_phi": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 20.0, "step": 0.1}),
         "nag_tau": ("FLOAT", {"default": 2.5, "min": 0.01, "max": 20.0, "step": 0.05}),
         "nag_alpha": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01}),
@@ -54,8 +54,13 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
                       ref_boost_mask=nag_ref_boost_mask, fit_mode=nag_fit_mode,
                       vae=vae, source_image=source_image, source_image_b=source_image_b,
                       target_latent=target_latent)
+    # An explicit nag_negative matches the standalone NAG node: use the wire.
+    # Fusion taps apply only when falling back to the sampler negative.
+    nag_cond = negative if nag_negative is None else nag_negative
+    if nag_negative is None:
+        nag_cond = prepare_nag_conditioning(model, nag_cond)
     arguments = dict(
-        model=model, nag_negative=prepare_nag_conditioning(model, negative if nag_negative is None else nag_negative),
+        model=model, nag_negative=nag_cond,
         phi=nag_phi, tau=nag_tau, alpha=nag_alpha,
         sigma_start=nag_sigma_start, sigma_end=nag_sigma_end, **kwargs,
     )

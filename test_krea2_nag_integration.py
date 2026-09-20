@@ -1,6 +1,6 @@
 import copy
 import unittest
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import torch
 import comfy.patcher_extension
@@ -79,6 +79,23 @@ class NAGIntegrationTests(unittest.TestCase):
         self.assertEqual((call['sigma_start'], call['sigma_end']), (10, .1))
         self.assertEqual((call['ref_boost'], call['ref_boost_a']), (1.5, .8))
         self.assertEqual(call['fit_mode'], 'crop (legacy)')
+
+    def test_explicit_nag_negative_is_not_fusion_tapped(self):
+        model = Model()
+        explicit = [[torch.full((1, 2, 4), 3.), {}]]
+        tapped = [[torch.full((1, 2, 4), 9.), {}]]
+        with patch.object(nag, 'prepare_nag_conditioning', return_value=tapped) as prepare:
+            nag.apply_krea2_nag(model, self.negative, nag_enabled=True, nag_negative=explicit)
+        prepare.assert_not_called()
+        self.assertIs(CaptureNAG.calls[0]['nag_negative'], explicit)
+
+    def test_fallback_nag_negative_still_receives_fusion_taps(self):
+        model = Model()
+        tapped = [[torch.full((1, 2, 4), 9.), {}]]
+        with patch.object(nag, 'prepare_nag_conditioning', return_value=tapped) as prepare:
+            nag.apply_krea2_nag(model, self.negative, nag_enabled=True)
+        prepare.assert_called_once_with(ANY, self.negative)
+        self.assertIs(CaptureNAG.calls[0]['nag_negative'], tapped)
 
     def test_regular_nag_keeps_unzeroed_context_while_turbo_sampler_gets_zeros(self):
         sampler = samplers.DonutSampler()
