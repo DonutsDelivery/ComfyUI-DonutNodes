@@ -198,6 +198,27 @@ export function organizeV4Panels(root) {
         if (models.length === 1) moveGroups(models[0], generate, group => /AuraFlow/.test(group.donut_source_title || group.title));
         const guidance = family.filter(panel => panelRole(panel) === 'guidance');
         const prompts = family.filter(panel => panelRole(panel) === 'prompts');
+        if (models.length === 1 && guidance.length === 1) {
+            const modelGroups = models[0].properties.donut_app_controls.groups;
+            const fusionAnchor = modelGroups
+                .flatMap(group => group.controls || [])
+                .find(control => control.widget === 'compatibility_preset');
+            const guidanceGroups = guidance[0].properties.donut_app_controls.groups;
+            const experimentWidgets = [
+                ['nag_text_energy_compensation', 'Text-energy compensation'],
+                ['nag_batch_txtfusion', 'Batch equal-length text fusion'],
+            ];
+            const existing = new Set(guidanceGroups.flatMap(group => group.controls || []).map(control => control.widget));
+            if (fusionAnchor && experimentWidgets.some(([widget]) => !existing.has(widget))) {
+                guidanceGroups.push({
+                    title:'Advanced · NAG experiments', advanced:true, donut_category_fixed:false,
+                    description:'Experimental text-fusion compatibility controls. Both default Off.',
+                    controls:experimentWidgets
+                        .filter(([widget]) => !existing.has(widget))
+                        .map(([widget,title]) => ({path:[...fusionAnchor.path],widget,title})),
+                });
+            }
+        }
         if (guidance.length === 1 && prompts.length === 1) {
             for (const group of guidance[0].properties.donut_app_controls.groups) {
                 const controls = (group.controls || []).filter(control => ['edit_negative','separator'].includes(control.widget));
