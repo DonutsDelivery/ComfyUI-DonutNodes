@@ -212,6 +212,20 @@ export function organizeV4Panels(root) {
                 ['nag_text_energy_compensation', 'Text-energy compensation'],
                 ['nag_batch_txtfusion', 'Batch equal-length text fusion'],
             ];
+            const experimentTitles = new Map(experimentWidgets);
+            // Workflows saved while an earlier binding was active carry the
+            // injected controls with stale paths; repoint them to the current
+            // anchor instead of skipping, so the workflow heals on load.
+            for (const group of guidanceGroups) {
+                for (const control of group.controls || []) {
+                    const title = experimentTitles.get(control.widget);
+                    if (title === undefined) continue;
+                    if (fusionAnchor && JSON.stringify(control.path) !== JSON.stringify(fusionAnchor.path)) {
+                        control.path = [...fusionAnchor.path];
+                        control.title = title;
+                    }
+                }
+            }
             const existing = new Set(guidanceGroups.flatMap(group => group.controls || []).map(control => control.widget));
             if (fusionAnchor && experimentWidgets.some(([widget]) => !existing.has(widget))) {
                 guidanceGroups.push({

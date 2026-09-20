@@ -105,6 +105,24 @@ test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control'
         same(group.controls.find(control=>control.widget===widget).path,[800,9]);
     }
 });
+test('stale injected NAG controls heal to the current anchor path',()=>{
+    const graph=fixture(); organizeV4Panels(graph);
+    // Simulate a workflow saved while the controls were anchored to the
+    // promoted outer compatibility_preset path ([800]).
+    for(const node of graph.nodes){
+        for(const group of groupsSafe(node)){
+            for(const control of group.controls||[]){
+                if(['nag_text_energy_compensation','nag_batch_txtfusion'].includes(control.widget)) control.path=[800];
+            }
+        }
+    }
+    organizeV4Panels(graph);
+    const guidance=groups(graph.nodes[4]);
+    for(const widget of ['nag_text_energy_compensation','nag_batch_txtfusion']){
+        const group=guidance.find(group=>group.controls?.some(control=>control.widget===widget));
+        same(group.controls.find(control=>control.widget===widget).path,[800,9]);
+    }
+});
 test('AuraFlow moves from Models to the sampling panel without duplication',()=>{
     const graph=fixture(); organizeV4Panels(graph);
     assert.ok(!groups(graph.nodes[0]).some(group=>/AuraFlow/.test(group.title)));
