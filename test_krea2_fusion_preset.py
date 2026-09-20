@@ -237,6 +237,38 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
                 self.assertIs(result[0], original)
                 self.assertEqual(self.module.base.calls[-1]["compatibility_preset"], legacy)
 
+    def test_uncensorfix_weights_mode_forwards_nag_experiment_flags(self):
+        # Regression: explicit wrapper parameters were previously dropped in
+        # the Fusion-only / Fusion + UncensorFix weights delegation branch, so
+        # toggling the experiment in the UI silently ran it off.
+        cond = object()
+        result = self.module.DonutKrea2FusionControl().apply(
+            model=FakeModel(self.factors), conditioning_in_1=cond,
+            compatibility_preset="Rebalance",
+            uncensorfix_controls="Fusion + UncensorFix weights",
+            nag_text_energy_compensation=True, nag_batch_txtfusion=True)
+        sent = self.module.base.calls[-1]
+        self.assertTrue(sent["nag_text_energy_compensation"])
+        self.assertTrue(sent["nag_batch_txtfusion"])
+        self.assertIn("uncensorfix_targets=33", result[-1])
+
+    def test_default_apply_sends_experiment_flags_as_false(self):
+        self.module.DonutKrea2FusionControl().apply(
+            model=FakeModel(self.factors), conditioning_in_1=object(),
+            compatibility_preset="Rebalance",
+            uncensorfix_controls="Fusion + UncensorFix weights")
+        sent = self.module.base.calls[-1]
+        self.assertIs(sent["nag_text_energy_compensation"], False)
+        self.assertIs(sent["nag_batch_txtfusion"], False)
+
+    def test_lora_only_mode_reports_inactive_experiment_flags(self):
+        result = self.module.DonutKrea2FusionControl().apply(
+            model=FakeModel(self.factors), conditioning_in_1=object(),
+            compatibility_preset="UncensorFix",
+            uncensorfix_controls="LoRA only",
+            nag_text_energy_compensation=True)
+        self.assertIn("nag_experiment_flags_inactive=no fusion budget in LoRA-only mode", result[-1])
+
     def test_missing_model_target_rejected_before_clone(self):
         model = FakeModel(self.factors)
         model.state.pop(next(iter(model.state)))
