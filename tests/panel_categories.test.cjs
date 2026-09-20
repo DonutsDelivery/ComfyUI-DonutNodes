@@ -102,7 +102,7 @@ test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control'
     for(const widget of ['nag_text_energy_compensation','nag_batch_txtfusion']) {
         const group=guidance.find(group=>group.controls?.some(control=>control.widget===widget));
         assert.ok(group); assert.equal(group.title,'Negative attention guidance · NAG'); assert.equal(group.advanced,true);
-        same(group.controls.find(control=>control.widget===widget).path,[800]);
+        same(group.controls.find(control=>control.widget===widget).path,[800,9]);
     }
 });
 test('AuraFlow moves from Models to the sampling panel without duplication',()=>{
