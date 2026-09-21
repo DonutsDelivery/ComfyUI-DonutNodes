@@ -130,7 +130,7 @@ function install(node, appOnly = false) {
                     mirror.callback?.(value, app.canvas, destination);
                 }
                 destination.graph.afterChange();
-                destination.setDirtyCanvas(true, true);
+                destination.setDirtyCanvas(true, false);
             }
             refreshControls();
             return;
