@@ -1,15 +1,15 @@
 {
   "id": "af40cf96-e217-4ea4-ac49-1fe5b69d531a",
   "revision": 9,
-  "last_node_id": 1174,
-  "last_link_id": 1115407,
+  "last_node_id": 1177,
+  "last_link_id": 1115412,
   "nodes": [
     {
       "id": 912,
       "type": "PreviewImage",
       "pos": [
-        3692,
-        619
+        0,
+        3944
       ],
       "size": [
         225,
@@ -18,7 +18,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 32,
+      "order": 22,
       "mode": 0,
       "inputs": [
         {
@@ -52,8 +52,8 @@
       "id": 913,
       "type": "PreviewImage",
       "pos": [
-        3692,
-        729
+        0,
+        4054
       ],
       "size": [
         225,
@@ -62,7 +62,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 30,
+      "order": 20,
       "mode": 0,
       "inputs": [
         {
@@ -96,8 +96,8 @@
       "id": 914,
       "type": "PreviewImage",
       "pos": [
-        3692,
-        839
+        0,
+        4164
       ],
       "size": [
         225,
@@ -106,7 +106,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 29,
+      "order": 19,
       "mode": 0,
       "inputs": [
         {
@@ -142,8 +142,8 @@
       "id": 64,
       "type": "DonutImageSave",
       "pos": [
-        4762,
-        2032
+        0,
+        4274
       ],
       "size": [
         225,
@@ -152,7 +152,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 33,
+      "order": 23,
       "mode": 0,
       "inputs": [
         {
@@ -177,6 +177,7 @@
         },
         {
           "name": "files",
+          "shape": 6,
           "type": "STRING",
           "links": []
         }
@@ -229,8 +230,8 @@
       "id": 759,
       "type": "ImageScaleBy",
       "pos": [
-        4762,
-        2142
+        0,
+        4384
       ],
       "size": [
         225,
@@ -239,7 +240,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 31,
+      "order": 21,
       "mode": 0,
       "inputs": [
         {
@@ -280,8 +281,8 @@
       "id": 63,
       "type": "SaveImage",
       "pos": [
-        4762,
-        2252
+        0,
+        4494
       ],
       "size": [
         225,
@@ -290,7 +291,7 @@
       "flags": {
         "collapsed": true
       },
-      "order": 34,
+      "order": 24,
       "mode": 0,
       "inputs": [
         {
@@ -326,27 +327,34 @@
       "id": 881,
       "type": "DonutEditStudio",
       "pos": [
-        1812,
-        376
+        3252,
+        456
       ],
       "size": [
         650,
-        1228
+        2216
       ],
       "flags": {},
-      "order": 20,
+      "order": 15,
       "mode": 0,
       "inputs": [
         {
           "name": "model",
-          "type": "MODEL",
           "shape": 7,
+          "type": "MODEL",
           "link": 1115334
         },
         {
           "name": "text_seed",
+          "shape": 7,
           "type": "INT",
           "link": 1115396
+        },
+        {
+          "name": "mask_b",
+          "shape": 7,
+          "type": "MASK",
+          "link": null
         }
       ],
       "outputs": [
@@ -411,19 +419,35 @@
           "links": [
             1115398
           ]
+        },
+        {
+          "name": "grounding_schedule",
+          "type": "COMBO",
+          "links": null
+        },
+        {
+          "name": "grounding_start_px",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "grounding_end_px",
+          "type": "INT",
+          "links": null
         }
       ],
       "title": "09 · Image setup & editing",
       "properties": {
         "cnr_id": "donutnodes",
+        "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
         "Node name for S&R": "DonutEditStudio",
+        "panel_min_width": 650,
+        "panel_width": 650,
         "panel_color": "#86dcba",
         "donut_seed_path": [
           1138,
           1137
         ],
-        "panel_min_width": 650,
-        "panel_width": 650,
         "donut_shared_prompt": true,
         "donut_widget_order": [
           "enabled",
@@ -460,6 +484,16 @@
           "crop_data_a",
           "crop_data_b",
           "output_canvas"
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 1958,
+        "panel_layout_size": [
+          650,
+          2274
         ]
       },
       "widgets_values": [
@@ -467,7 +501,7 @@
         "",
         "",
         false,
-        "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. \nThe character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n",
+        "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. \nThe character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n",
         "Preset",
         "4:3 Standard",
         1,
@@ -496,23 +530,16 @@
         "Independent crops",
         "",
         "",
-        "Follow A crop"
+        "Follow A crop",
+        "",
+        0.5
       ],
       "widgets_values_named": {
-        "grounding_schedule": "constant",
-        "grounding_start_px": 512,
-        "grounding_end_px": 1088,
-        "mask_b_mode": "Off",
-        "mask_b_model": "birefnet.safetensors",
-        "mask_b_data": "",
-        "mask_b_grow": 0,
-        "mask_b_feather": 0,
-        "mask_b_background": "Neutral gray",
         "enabled": false,
         "image_a": "",
         "image_b": "",
         "use_reference_b": false,
-        "prompt": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. \nThe character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n",
+        "prompt": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. \nThe character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n",
         "resolution_mode": "Preset",
         "aspect_ratio": "4:3 Standard",
         "megapixels": 1,
@@ -529,10 +556,21 @@
         "inpaint_enabled": false,
         "mask_data": "",
         "mask_feather": 8,
+        "grounding_schedule": "constant",
+        "grounding_start_px": 512,
+        "grounding_end_px": 1088,
+        "mask_b_mode": "Off",
+        "mask_b_model": "birefnet.safetensors",
+        "mask_b_data": "",
+        "mask_b_grow": 0,
+        "mask_b_feather": 0,
+        "mask_b_background": "Neutral gray",
         "geometry_mode": "Independent crops",
         "crop_data_a": "",
         "crop_data_b": "",
-        "output_canvas": "Follow A crop"
+        "output_canvas": "Follow A crop",
+        "mask_b_prompt": "",
+        "mask_b_threshold": 0.5
       },
       "color": "#223e33",
       "bgcolor": "#1b222b"
@@ -541,17 +579,17 @@
       "id": 1014,
       "type": "bb3f06a1-a0c6-496d-b024-ca94ecf046f3",
       "pos": [
-        3202,
-        2891
+        0,
+        3724
       ],
       "size": [
-        276.359375,
+        276.3833312988281,
         22
       ],
       "flags": {
         "collapsed": true
       },
-      "order": 28,
+      "order": 18,
       "mode": 0,
       "inputs": [
         {
@@ -589,12 +627,12 @@
         },
         {
           "name": "edit_mode",
+          "shape": 7,
           "type": "BOOLEAN",
           "widget": {
             "name": "edit_mode"
           },
-          "link": 1079887,
-          "shape": 7
+          "link": 1079887
         },
         {
           "name": "bbox_detector",
@@ -609,12 +647,12 @@
         },
         {
           "name": "grounding_px",
+          "shape": 7,
           "type": "INT",
           "widget": {
             "name": "grounding_px"
           },
-          "link": 1073615,
-          "shape": 7
+          "link": 1073615
         },
         {
           "name": "model_1",
@@ -663,38 +701,6 @@
           "link": 1115349
         },
         {
-          "name": "turbo_mode",
-          "type": "BOOLEAN",
-          "link": null,
-          "widget": {
-            "name": "turbo_mode"
-          }
-        },
-        {
-          "name": "steps",
-          "type": "INT",
-          "link": null,
-          "widget": {
-            "name": "steps"
-          }
-        },
-        {
-          "name": "sampler_name",
-          "type": "COMBO",
-          "link": null,
-          "widget": {
-            "name": "sampler_name"
-          }
-        },
-        {
-          "name": "scheduler",
-          "type": "COMBO",
-          "link": null,
-          "widget": {
-            "name": "scheduler"
-          }
-        },
-        {
           "label": "CFG",
           "name": "cfg_start",
           "type": "FLOAT",
@@ -713,22 +719,6 @@
           "link": null
         },
         {
-          "name": "tiled_diffusion",
-          "type": "BOOLEAN",
-          "link": null,
-          "widget": {
-            "name": "tiled_diffusion"
-          }
-        },
-        {
-          "name": "rescale_factor",
-          "type": "FLOAT",
-          "link": null,
-          "widget": {
-            "name": "rescale_factor"
-          }
-        },
-        {
           "label": "denoise_face",
           "name": "denoise_1",
           "type": "FLOAT",
@@ -736,14 +726,6 @@
             "name": "denoise_1"
           },
           "link": null
-        },
-        {
-          "name": "max_faces",
-          "type": "INT",
-          "link": null,
-          "widget": {
-            "name": "max_faces"
-          }
         },
         {
           "label": "denoise_upscale_2",
@@ -757,6 +739,7 @@
         {
           "label": "NAG-strength",
           "name": "alpha",
+          "shape": 7,
           "type": "FLOAT",
           "widget": {
             "name": "alpha"
@@ -838,41 +821,44 @@
           "link": null
         },
         {
+          "label": "Reference B · subject",
           "name": "edit_source_image_b",
-          "type": "IMAGE",
           "shape": 7,
-          "link": 1115358,
-          "label": "Reference B · subject"
+          "type": "IMAGE",
+          "link": 1115358
         },
         {
+          "label": "Edit instruction",
           "name": "edit_instruction",
           "type": "STRING",
-          "shape": 7,
           "link": null,
-          "label": "Edit instruction"
+          "shape": 7
         },
         {
-          "name": "variance_enabled",
-          "type": "BOOLEAN",
           "label": "Seed variance",
+          "name": "variance_enabled",
+          "shape": 7,
+          "type": "BOOLEAN",
           "widget": {
             "name": "variance_enabled"
           },
           "link": null
         },
         {
-          "name": "variance_randomize_percent",
-          "type": "FLOAT",
           "label": "Variance percent",
+          "name": "variance_randomize_percent",
+          "shape": 7,
+          "type": "FLOAT",
           "widget": {
             "name": "variance_randomize_percent"
           },
           "link": null
         },
         {
-          "name": "variance_auto_strength_factor",
-          "type": "FLOAT",
           "label": "Variance strength",
+          "name": "variance_auto_strength_factor",
+          "shape": 7,
+          "type": "FLOAT",
           "widget": {
             "name": "variance_auto_strength_factor"
           },
@@ -880,27 +866,28 @@
         },
         {
           "name": "native_reference_a",
+          "shape": 7,
           "type": "IMAGE",
-          "link": 1115391,
-          "shape": 7
+          "link": 1115391
         },
         {
           "name": "native_reference_b",
+          "shape": 7,
           "type": "IMAGE",
-          "link": 1115393,
-          "shape": 7
+          "link": 1115393
         },
         {
           "name": "native_reference_enabled",
-          "type": "BOOLEAN",
-          "link": 1115395,
           "shape": 7,
+          "type": "BOOLEAN",
           "widget": {
             "name": "native_reference_enabled"
-          }
+          },
+          "link": 1115395
         },
         {
           "name": "edit_inpaint",
+          "shape": 7,
           "type": "DONUT_INPAINT",
           "link": 1115398
         }
@@ -929,6 +916,7 @@
           ]
         }
       ],
+      "title": "Generation engine · open to inspect wiring",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.31.0",
@@ -1017,9 +1005,9 @@
         0.36000000000000015,
         5,
         0.36000000000000004,
-        0.25000000000000006,
-        0,
-        "Off",
+        0.25,
+        1,
+        "Rebalance",
         180238363061692,
         180238363061693,
         180238363061694,
@@ -1048,9 +1036,9 @@
         "denoise_1": 0.36000000000000015,
         "max_faces": 5,
         "denoise_2": 0.36000000000000004,
-        "alpha": 0.25000000000000006,
-        "tap_strength": 0,
-        "compatibility_preset": "Off",
+        "alpha": 0.25,
+        "tap_strength": 1,
+        "compatibility_preset": "Rebalance",
         "seed_upscale_1": 180238363061692,
         "seed_upscale_2": 180238363061693,
         "seed_face": 180238363061694,
@@ -1061,15 +1049,14 @@
         "variance_randomize_percent": 50,
         "variance_auto_strength_factor": 1,
         "native_reference_enabled": false
-      },
-      "title": "Generation engine · open to inspect wiring"
+      }
     },
     {
       "id": 1138,
       "type": "5186050a-13ae-4d2e-bfd6-359e1311b90e",
       "pos": [
-        3202,
-        3001
+        0,
+        3834
       ],
       "size": [
         225,
@@ -1191,27 +1178,32 @@
           ]
         }
       ],
-      "properties": {
-        "previewExposures": [],
-        "donut_widget_order": []
-      },
-      "widgets_values": [],
       "title": "Sources · open to inspect wiring",
-      "widgets_values_named": {}
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.1",
+        "previewExposures": [],
+        "donut_widget_order": [],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
+      }
     },
     {
       "id": 1140,
       "type": "DonutWorkflowPanel",
       "pos": [
-        2532,
-        376
+        3972,
+        456
       ],
       "size": [
         600,
-        1675
+        2144
       ],
       "flags": {},
-      "order": 30,
+      "order": 1,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -1455,14 +1447,23 @@
             1137
           ]
         },
-        "panel_color": "#bea8ff",
         "panel_height": 1530,
-        "panel_min_width": 600,
         "panel_width": 600,
+        "panel_color": "#bea8ff",
+        "panel_min_width": 600,
         "donut_panel_role": "prompts",
-        "donut_columns": "sections"
+        "donut_columns": "sections",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 2106,
+        "panel_layout_size": [
+          600,
+          2183
+        ]
       },
-      "widgets_values": [],
       "color": "#35294b",
       "bgcolor": "#1b222b"
     },
@@ -1470,15 +1471,15 @@
       "id": 1141,
       "type": "DonutWorkflowPanel",
       "pos": [
-        3202,
-        376
+        4642,
+        456
       ],
       "size": [
-        380,
-        760
+        640,
+        751
       ],
       "flags": {},
-      "order": 31,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -1532,6 +1533,58 @@
               "donut_source_title": "Guidance",
               "donut_category_rank": 10,
               "donut_category_fixed": true
+            },
+            {
+              "title": "Negative attention guidance · NAG",
+              "advanced": true,
+              "donut_category_fixed": true,
+              "description": "Experimental text-fusion compatibility controls. Both default Off.",
+              "controls": [
+                {
+                  "path": [
+                    1014,
+                    1118
+                  ],
+                  "widget": "nag_text_energy_compensation",
+                  "title": "Text-energy compensation"
+                },
+                {
+                  "path": [
+                    1014,
+                    1118
+                  ],
+                  "widget": "nag_batch_txtfusion",
+                  "title": "Batch equal-length text fusion"
+                }
+              ],
+              "donut_source_title": "Advanced · NAG experiments",
+              "donut_category_rank": 10
+            },
+            {
+              "donut_txtfusion_internal_guard": true,
+              "title": "Experimental · checkpoint txtfusion guard",
+              "advanced": true,
+              "donut_category_fixed": true,
+              "donut_category_rank": 12,
+              "description": "Legacy sampler-local switch, now NAG-independent. The reference file field is unused. For base, upscale and detailer together, use Models > Txtfusion RMS guard. Existing values are preserved.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "993"
+                  ],
+                  "widget": "txtfusion_internal_guard",
+                  "title": "Legacy sampler-local txtfusion RMS guard"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "993"
+                  ],
+                  "widget": "txtfusion_reference_checkpoint",
+                  "title": "Deprecated reference file (unused)"
+                }
+              ]
             },
             {
               "title": "Seed variance",
@@ -1644,14 +1697,23 @@
             1137
           ]
         },
-        "panel_color": "#f2cb76",
         "panel_height": 550,
-        "panel_min_width": 640,
         "panel_width": 640,
+        "panel_color": "#f2cb76",
+        "panel_min_width": 640,
         "donut_columns": "sections",
-        "donut_panel_role": "guidance"
+        "donut_panel_role": "guidance",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 713,
+        "panel_layout_size": [
+          640,
+          790
+        ]
       },
-      "widgets_values": [],
       "color": "#44391f",
       "bgcolor": "#1b222b"
     },
@@ -1659,15 +1721,15 @@
       "id": 1142,
       "type": "DonutWorkflowPanel",
       "pos": [
-        3202,
-        1245
+        0,
+        2320
       ],
       "size": [
-        420,
-        1537
+        640,
+        1295
       ],
       "flags": {},
-      "order": 32,
+      "order": 3,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -1765,6 +1827,27 @@
                   ],
                   "widget": "turbo_mode",
                   "title": "Turbo mode"
+                },
+                {
+                  "path": [
+                    1014,
+                    "993"
+                  ],
+                  "widget": "sda_enabled",
+                  "title": "SDA diversity"
+                },
+                {
+                  "path": [
+                    1014,
+                    "993"
+                  ],
+                  "widget": "sda_strength",
+                  "title": "SDA strength",
+                  "weights": {
+                    "min": 0,
+                    "max": 2,
+                    "step": 0.05
+                  }
                 },
                 {
                   "path": [
@@ -2085,14 +2168,23 @@
             1137
           ]
         },
-        "panel_color": "#88b8f3",
         "panel_height": 1010,
-        "panel_min_width": 640,
         "panel_width": 640,
+        "panel_color": "#88b8f3",
+        "panel_min_width": 640,
         "donut_columns": "sections",
-        "donut_panel_role": "generate"
+        "donut_panel_role": "generate",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 1257,
+        "panel_layout_size": [
+          640,
+          1334
+        ]
       },
-      "widgets_values": [],
       "color": "#26374b",
       "bgcolor": "#1b222b"
     },
@@ -2100,15 +2192,15 @@
       "id": 1143,
       "type": "DonutWorkflowPanel",
       "pos": [
-        530,
-        376
+        710,
+        456
       ],
       "size": [
         1212,
-        1517
+        1728
       ],
       "flags": {},
-      "order": 33,
+      "order": 4,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -2257,14 +2349,23 @@
             1137
           ]
         },
-        "panel_color": "#ed98c2",
         "panel_height": 1110,
-        "panel_min_width": 1150,
         "panel_width": 1150,
+        "panel_color": "#ed98c2",
+        "panel_min_width": 1150,
         "donut_panel_role": "loras",
-        "donut_columns": "sections"
+        "donut_columns": "sections",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 1690,
+        "panel_layout_size": [
+          1212,
+          1767
+        ]
       },
-      "widgets_values": [],
       "color": "#432738",
       "bgcolor": "#1b222b"
     },
@@ -2273,14 +2374,14 @@
       "type": "DonutWorkflowPanel",
       "pos": [
         0,
-        376
+        456
       ],
       "size": [
-        460,
-        2107
+        640,
+        1755
       ],
       "flags": {},
-      "order": 34,
+      "order": 5,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -2523,6 +2624,24 @@
               "donut_source_title": "Advanced · Fusion controls",
               "donut_category_rank": 70.5,
               "donut_category_fixed": true
+            },
+            {
+              "donut_txtfusion_model_rms_guard": true,
+              "title": "Txtfusion RMS guard",
+              "advanced": false,
+              "donut_category_fixed": true,
+              "donut_category_rank": 70.75,
+              "description": "Experimental. All connected model stages, with NAG on or off. Rebalance stays unchanged. Extra reference memory and computation; image benefit unverified.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "1118"
+                  ],
+                  "widget": "txtfusion_rms_guard",
+                  "title": "Normalize txtfusion changes · all stages"
+                }
+              ]
             },
             {
               "title": "Fusion · image taps",
@@ -3297,14 +3416,23 @@
             1137
           ]
         },
-        "panel_color": "#e9a16d",
         "panel_height": 1110,
-        "panel_min_width": 640,
         "panel_width": 640,
+        "panel_color": "#e9a16d",
+        "panel_min_width": 640,
         "donut_columns": "sections",
-        "donut_panel_role": "models"
+        "donut_panel_role": "models",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 1717,
+        "panel_layout_size": [
+          640,
+          1794
+        ]
       },
-      "widgets_values": [],
       "color": "#473122",
       "bgcolor": "#1b222b"
     },
@@ -3312,15 +3440,15 @@
       "id": 1145,
       "type": "DonutWorkflowPanel",
       "pos": [
-        4762,
-        376
+        2542,
+        1870
       ],
       "size": [
-        420,
-        1547
+        640,
+        788
       ],
       "flags": {},
-      "order": 35,
+      "order": 6,
       "mode": 0,
       "inputs": [],
       "outputs": [],
@@ -3496,37 +3624,43 @@
             1137
           ]
         },
-        "panel_color": "#bfd992",
         "panel_height": 1010,
-        "panel_min_width": 640,
         "panel_width": 640,
+        "panel_color": "#bfd992",
+        "panel_min_width": 640,
         "donut_columns": "sections",
-        "donut_panel_role": "save"
+        "donut_panel_role": "save",
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 750,
+        "panel_layout_size": [
+          640,
+          827
+        ]
       },
-      "widgets_values": [],
       "color": "#344029",
       "bgcolor": "#1b222b"
     },
     {
       "id": 1146,
       "type": "DonutWorkflowPanel",
-      "flags": {},
-      "order": 40,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "widgets_values": [],
-      "title": "Wildcard library",
       "pos": [
-        2532,
-        2160
+        3972,
+        2709
       ],
       "size": [
         600,
         812
       ],
-      "color": "#35294b",
-      "bgcolor": "#1b222b",
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Wildcard library",
       "properties": {
         "donut_app_controls": {
           "groups": [
@@ -3542,36 +3676,47 @@
             1137
           ]
         },
-        "panel_color": "#bea8ff",
         "panel_height": 710,
+        "panel_width": 600,
+        "panel_color": "#bea8ff",
         "panel_min_width": 600,
-        "panel_width": 600
-      }
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 774,
+        "panel_layout_size": [
+          600,
+          851
+        ]
+      },
+      "color": "#35294b",
+      "bgcolor": "#1b222b"
     },
     {
       "id": 1150,
       "type": "DonutReferenceStudio",
-      "title": "Optional · Reference guidance",
       "pos": [
-        1812,
-        1732
+        3252,
+        2800
       ],
       "size": [
         650,
-        567
+        784
       ],
       "flags": {},
-      "order": 40,
+      "order": 17,
       "mode": 0,
       "inputs": [
         {
           "name": "edit_active",
+          "shape": 7,
           "type": "BOOLEAN",
           "widget": {
             "name": "edit_active"
           },
-          "link": 1115389,
-          "shape": 7
+          "link": 1115389
         }
       ],
       "outputs": [
@@ -3597,10 +3742,14 @@
           ]
         }
       ],
+      "title": "Optional · Reference guidance",
       "properties": {
+        "cnr_id": "donutnodes",
+        "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
+        "Node name for S&R": "DonutReferenceStudio",
+        "panel_width": 650,
         "panel_color": "#73d7e0",
         "panel_min_width": 650,
-        "panel_width": 650,
         "donut_widget_order": [
           "enabled",
           "image_a",
@@ -3610,6 +3759,18 @@
           "geometry_mode",
           "crop_data_a",
           "crop_data_b"
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {
+            "edit_active": true
+          },
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 706,
+        "panel_layout_size": [
+          650,
+          838
         ]
       },
       "widgets_values": [
@@ -3622,8 +3783,6 @@
         "",
         ""
       ],
-      "color": "#203c40",
-      "bgcolor": "#1b222b",
       "widgets_values_named": {
         "enabled": false,
         "image_a": "",
@@ -3633,7 +3792,9 @@
         "geometry_mode": "Independent crops",
         "crop_data_a": "",
         "crop_data_b": ""
-      }
+      },
+      "color": "#203c40",
+      "bgcolor": "#1b222b"
     },
     {
       "id": 1151,
@@ -3644,16 +3805,26 @@
       ],
       "size": [
         460,
-        267
+        347
       ],
       "flags": {},
-      "order": 41,
+      "order": 8,
       "mode": 0,
       "inputs": [],
       "outputs": [],
       "properties": {
         "panel_min_width": 460,
-        "panel_width": 460
+        "panel_width": 460,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 309,
+        "panel_layout_size": [
+          460,
+          386
+        ]
       },
       "color": "#234437",
       "bgcolor": "#192923"
@@ -3662,38 +3833,88 @@
       "id": 1152,
       "type": "DonutLatestPreview",
       "pos": [
-        3692,
-        376
+        4642,
+        1316
       ],
       "size": [
         1000,
-        135
+        1331
       ],
       "flags": {},
-      "order": 18,
+      "order": 9,
       "mode": 0,
       "inputs": [],
       "outputs": [],
+      "title": "12 · Latest result",
       "properties": {
         "panel_min_width": 1000,
         "sources": {
           "912": "Base generation",
           "913": "First upscale",
           "914": "SeedVR2 / final image",
-          "1014:1171": "Second upscale",
-          "1014:1173": "Face Detailer"
+          "1014:1175": "Second upscale",
+          "1014:1177": "Face Detailer"
         },
         "panel_width": 1000,
         "source_order": [
           "912",
           "913",
-          "1014:1171",
-          "1014:1173",
+          "1014:1175",
+          "1014:1177",
           "914"
-        ]
+        ],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 1293,
+        "panel_layout_size": [
+          1000,
+          1369
+        ],
+        "last_image": {
+          "filename": "ComfyUI_temp_lqnpq_00001_.png",
+          "subfolder": "",
+          "type": "temp"
+        },
+        "last_stage": "Second upscale",
+        "last_prompt": "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous.She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle.",
+        "stage_prompts": {
+          "912": "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous.She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle.",
+          "913": "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous.She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle.",
+          "914": null,
+          "1014:1175": "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous.She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle.",
+          "1014:1177": null
+        },
+        "stage_images": {
+          "912": {
+            "filename": "ComfyUI_temp_kcdlv_00001_.png",
+            "subfolder": "",
+            "type": "temp"
+          },
+          "913": {
+            "filename": "ComfyUI_temp_tphvp_00001_.png",
+            "subfolder": "",
+            "type": "temp"
+          },
+          "914": {
+            "filename": "ComfyUI_temp_dkkgj_00001_.png",
+            "subfolder": "",
+            "type": "temp"
+          },
+          "1014:1175": {
+            "filename": "ComfyUI_temp_lqnpq_00001_.png",
+            "subfolder": "",
+            "type": "temp"
+          },
+          "1014:1177": {
+            "filename": "ComfyUI_temp_irvyg_00001_.png",
+            "subfolder": "",
+            "type": "temp"
+          }
+        }
       },
-      "widgets_values": [],
-      "title": "12 · Latest result",
       "color": "#243e36",
       "bgcolor": "#15271f"
     },
@@ -3701,17 +3922,17 @@
       "id": 1153,
       "type": "StringConcatenate",
       "pos": [
-        4762,
-        2140
+        4744.148511962049,
+        2105.073175577923
       ],
       "size": [
-        320,
-        210
+        233.46665954589844,
+        0
       ],
       "flags": {
         "collapsed": true
       },
-      "order": 33,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
@@ -3732,10 +3953,18 @@
           ]
         }
       ],
+      "title": "Final output folder + seed filename",
       "properties": {
         "cnr_id": "comfy-core",
         "ver": "0.34.0",
-        "Node name for S&R": "StringConcatenate"
+        "Node name for S&R": "StringConcatenate",
+        "ue_properties": {
+          "widget_ue_connectable": {
+            "string_b": true
+          },
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        }
       },
       "widgets_values": [
         "Final",
@@ -3746,8 +3975,7 @@
         "string_a": "Final",
         "string_b": "",
         "delimiter": "/"
-      },
-      "title": "Final output folder + seed filename"
+      }
     },
     {
       "id": 1157,
@@ -3757,45 +3985,48 @@
         2290
       ],
       "size": [
-        260,
-        60
+        225,
+        22
       ],
       "flags": {
         "collapsed": true
       },
-      "order": 40,
+      "order": 10,
       "mode": 0,
       "inputs": [],
       "outputs": [],
-      "properties": {},
-      "widgets_values": [],
-      "title": "Required node packs",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.35.1",
+        "donut_widget_order": [],
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "previewExposures": []
+      },
       "color": "#333333",
       "bgcolor": "#222222"
     },
     {
       "id": 1171,
       "type": "DonutWorkflowPanel",
-      "title": "04 · First upscale",
       "pos": [
-        3202,
-        1245
+        1992,
+        456
       ],
       "size": [
         480,
-        400
+        630
       ],
       "flags": {},
-      "order": 21,
+      "order": 11,
       "mode": 0,
       "inputs": [],
       "outputs": [],
+      "title": "04 · First upscale",
       "properties": {
-        "donut_panel_role": "hires",
-        "donut_finish_stage": "first",
-        "donut_columns": "sections",
-        "panel_width": 480,
-        "panel_min_width": 480,
         "donut_app_controls": {
           "groups": [
             {
@@ -3889,83 +4120,118 @@
                   ],
                   "widget": "nag_enabled",
                   "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Manual phi (auto off)"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_auto_phi",
-                  "title": "Auto phi from alpha"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_phi_scale",
-                  "title": "NAG guidance scale"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    989
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
                 }
               ],
               "color": "#88b8f3",
               "donut_source_title": "Advanced · First upscale",
               "donut_category_rank": 32,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · first upscale · alternative engine",
+              "advanced": true,
+              "description": "Donut preserves the existing upscale + diffusion recipe. SeedVR2 shares the stage seed, scale and resize filter, but uses its own model, VAE and sampling settings.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "upscale_engine",
+                  "title": "Upscale engine",
+                  "fallback_type": "DonutTiledUpscale"
+                }
+              ],
+              "donut_seedvr2": true,
+              "donut_source_title": "Donut hires · first upscale · advanced · engine",
+              "donut_category_rank": 33,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · first upscale · SeedVR2 replacement settings",
+              "advanced": true,
+              "donut_seedvr2": true,
+              "visible_when": {
+                "path": [
+                  "1014",
+                  "989"
+                ],
+                "widget": "upscale_engine",
+                "value": "SeedVR2"
+              },
+              "description": "Native ComfyUI SeedVR2. Full-canvas diffusion; VAE tiling does not tile the diffusion model. No Krea LoRAs, NAG or reference conditioning are applied here.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_model_name",
+                  "title": "SeedVR2 diffusion model",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_vae_name",
+                  "title": "SeedVR2 VAE",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_steps",
+                  "title": "SeedVR2 steps",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_denoise",
+                  "title": "SeedVR2 denoise",
+                  "fallback_type": "DonutTiledUpscale",
+                  "weights": {
+                    "min": 0.01,
+                    "max": 1,
+                    "step": 0.01
+                  }
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_color_correction",
+                  "title": "SeedVR2 color correction",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_vae_tile_size",
+                  "title": "SeedVR2 VAE tile size",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "989"
+                  ],
+                  "widget": "seedvr2_vae_overlap",
+                  "title": "SeedVR2 VAE overlap",
+                  "fallback_type": "DonutTiledUpscale"
+                }
+              ],
+              "donut_source_title": "Donut hires · first upscale · advanced · SeedVR2",
+              "donut_category_rank": 34,
               "donut_category_fixed": true
             }
           ],
@@ -3974,35 +4240,45 @@
             1137
           ],
           "title": "07 · First upscale"
-        }
+        },
+        "panel_height": 460,
+        "panel_width": 480,
+        "donut_panel_role": "hires",
+        "donut_finish_stage": "first",
+        "donut_columns": "sections",
+        "panel_min_width": 480,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 592,
+        "panel_layout_size": [
+          480,
+          669
+        ]
       },
       "color": "#83bbd9",
-      "bgcolor": "#1b242c",
-      "widgets_values": []
+      "bgcolor": "#1b242c"
     },
     {
       "id": 1172,
       "type": "DonutWorkflowPanel",
-      "title": "06 · Face detail",
       "pos": [
-        3202,
-        1245
+        2542,
+        456
       ],
       "size": [
         480,
-        400
+        600
       ],
       "flags": {},
-      "order": 22,
+      "order": 12,
       "mode": 0,
       "inputs": [],
       "outputs": [],
+      "title": "06 · Face detail",
       "properties": {
-        "donut_panel_role": "face",
-        "donut_finish_stage": "face",
-        "donut_columns": "sections",
-        "panel_width": 480,
-        "panel_min_width": 480,
         "donut_app_controls": {
           "groups": [
             {
@@ -4254,78 +4530,6 @@
                   ],
                   "widget": "nag_enabled",
                   "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Manual phi (auto off)"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_auto_phi",
-                  "title": "Auto phi from alpha"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_phi_scale",
-                  "title": "NAG guidance scale"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    984
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
                 }
               ],
               "color": "#88b8f3",
@@ -4339,35 +4543,45 @@
             1137
           ],
           "title": "08 · Face detail"
-        }
+        },
+        "panel_height": 460,
+        "panel_width": 480,
+        "donut_panel_role": "face",
+        "donut_finish_stage": "face",
+        "donut_columns": "sections",
+        "panel_min_width": 480,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 562,
+        "panel_layout_size": [
+          480,
+          639
+        ]
       },
       "color": "#e4a4bf",
-      "bgcolor": "#1b242c",
-      "widgets_values": []
+      "bgcolor": "#1b242c"
     },
     {
       "id": 1173,
       "type": "DonutWorkflowPanel",
-      "title": "05 · Second upscale",
       "pos": [
-        3202,
-        1245
+        1992,
+        1195
       ],
       "size": [
         480,
-        400
+        529
       ],
       "flags": {},
-      "order": 23,
+      "order": 13,
       "mode": 0,
       "inputs": [],
       "outputs": [],
+      "title": "05 · Second upscale",
       "properties": {
-        "donut_panel_role": "hires",
-        "donut_finish_stage": "second",
-        "donut_columns": "sections",
-        "panel_width": 480,
-        "panel_min_width": 480,
         "donut_app_controls": {
           "groups": [
             {
@@ -4447,83 +4661,118 @@
                   ],
                   "widget": "nag_enabled",
                   "title": "Nag enabled"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_phi",
-                  "title": "Manual phi (auto off)"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_auto_phi",
-                  "title": "Auto phi from alpha"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_phi_scale",
-                  "title": "NAG guidance scale"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_tau",
-                  "title": "Nag tau"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_sigma_start",
-                  "title": "Nag sigma start"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_sigma_end",
-                  "title": "Nag sigma end"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_ref_boost",
-                  "title": "Nag ref boost"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_ref_boost_a",
-                  "title": "Nag ref boost a"
-                },
-                {
-                  "path": [
-                    1014,
-                    983
-                  ],
-                  "widget": "nag_fit_mode",
-                  "title": "Nag fit mode"
                 }
               ],
               "color": "#88b8f3",
               "donut_source_title": "Advanced · Second upscale",
               "donut_category_rank": 52,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · second upscale · alternative engine",
+              "advanced": true,
+              "description": "Donut preserves the existing upscale + diffusion recipe. SeedVR2 shares the stage seed, scale and resize filter, but uses its own model, VAE and sampling settings.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "upscale_engine",
+                  "title": "Upscale engine",
+                  "fallback_type": "DonutTiledUpscale"
+                }
+              ],
+              "donut_seedvr2": true,
+              "donut_source_title": "Donut hires · second upscale · advanced · engine",
+              "donut_category_rank": 53,
+              "donut_category_fixed": true
+            },
+            {
+              "title": "Donut hires · second upscale · SeedVR2 replacement settings",
+              "advanced": true,
+              "donut_seedvr2": true,
+              "visible_when": {
+                "path": [
+                  "1014",
+                  "983"
+                ],
+                "widget": "upscale_engine",
+                "value": "SeedVR2"
+              },
+              "description": "Native ComfyUI SeedVR2. Full-canvas diffusion; VAE tiling does not tile the diffusion model. No Krea LoRAs, NAG or reference conditioning are applied here.",
+              "controls": [
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_model_name",
+                  "title": "SeedVR2 diffusion model",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_vae_name",
+                  "title": "SeedVR2 VAE",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_steps",
+                  "title": "SeedVR2 steps",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_denoise",
+                  "title": "SeedVR2 denoise",
+                  "fallback_type": "DonutTiledUpscale",
+                  "weights": {
+                    "min": 0.01,
+                    "max": 1,
+                    "step": 0.01
+                  }
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_color_correction",
+                  "title": "SeedVR2 color correction",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_vae_tile_size",
+                  "title": "SeedVR2 VAE tile size",
+                  "fallback_type": "DonutTiledUpscale"
+                },
+                {
+                  "path": [
+                    "1014",
+                    "983"
+                  ],
+                  "widget": "seedvr2_vae_overlap",
+                  "title": "SeedVR2 VAE overlap",
+                  "fallback_type": "DonutTiledUpscale"
+                }
+              ],
+              "donut_source_title": "Donut hires · second upscale · advanced · SeedVR2",
+              "donut_category_rank": 54,
               "donut_category_fixed": true
             }
           ],
@@ -4532,35 +4781,45 @@
             1137
           ],
           "title": "09 · Second upscale"
-        }
+        },
+        "panel_height": 460,
+        "panel_width": 480,
+        "donut_panel_role": "hires",
+        "donut_finish_stage": "second",
+        "donut_columns": "sections",
+        "panel_min_width": 480,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 491,
+        "panel_layout_size": [
+          480,
+          568
+        ]
       },
       "color": "#83bbd9",
-      "bgcolor": "#1b242c",
-      "widgets_values": []
+      "bgcolor": "#1b242c"
     },
     {
       "id": 1174,
       "type": "DonutWorkflowPanel",
-      "title": "07 · SeedVR2 upscale",
       "pos": [
-        3202,
-        1245
+        2542,
+        1165
       ],
       "size": [
         480,
-        400
+        596
       ],
       "flags": {},
-      "order": 24,
+      "order": 14,
       "mode": 0,
       "inputs": [],
       "outputs": [],
+      "title": "07 · SeedVR2 upscale",
       "properties": {
-        "donut_panel_role": "post",
-        "donut_finish_stage": "post",
-        "donut_columns": "sections",
-        "panel_width": 480,
-        "panel_min_width": 480,
         "donut_app_controls": {
           "groups": [
             {
@@ -4675,11 +4934,26 @@
             1137
           ],
           "title": "10 · SeedVR2 upscale"
-        }
+        },
+        "panel_height": 460,
+        "panel_width": 480,
+        "donut_panel_role": "post",
+        "donut_finish_stage": "post",
+        "donut_columns": "sections",
+        "panel_min_width": 480,
+        "ue_properties": {
+          "widget_ue_connectable": {},
+          "version": "7.8",
+          "input_ue_unconnectable": {}
+        },
+        "panel_content_height": 558,
+        "panel_layout_size": [
+          480,
+          635
+        ]
       },
       "color": "#90c9ae",
-      "bgcolor": "#1b242c",
-      "widgets_values": []
+      "bgcolor": "#1b242c"
     }
   ],
   "links": [
@@ -4856,7 +5130,7 @@
       1138,
       7,
       1014,
-      34,
+      27,
       "INT"
     ],
     [
@@ -4872,7 +5146,7 @@
       1138,
       9,
       1014,
-      31,
+      24,
       "INT"
     ],
     [
@@ -4880,7 +5154,7 @@
       1138,
       10,
       1014,
-      32,
+      25,
       "INT"
     ],
     [
@@ -4888,7 +5162,7 @@
       1138,
       11,
       1014,
-      33,
+      26,
       "INT"
     ],
     [
@@ -4920,7 +5194,7 @@
       881,
       1,
       1014,
-      37,
+      30,
       "IMAGE"
     ],
     [
@@ -4936,7 +5210,7 @@
       1150,
       0,
       1014,
-      42,
+      35,
       "IMAGE"
     ],
     [
@@ -4944,7 +5218,7 @@
       1150,
       1,
       1014,
-      43,
+      36,
       "IMAGE"
     ],
     [
@@ -4952,7 +5226,7 @@
       1150,
       2,
       1014,
-      44,
+      37,
       "BOOLEAN"
     ],
     [
@@ -4976,7 +5250,7 @@
       881,
       8,
       1014,
-      45,
+      38,
       "DONUT_INPAINT"
     ]
   ],
@@ -4988,7 +5262,7 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 1173,
+          "lastNodeId": 1177,
           "lastLinkId": 1115412,
           "lastRerouteId": 1
         },
@@ -5542,7 +5816,6 @@
             "id": "14e24933-1219-46fa-89bb-1dbbcacc42e8",
             "name": "edit_source_image_b",
             "type": "IMAGE",
-            "shape": 7,
             "linkIds": [
               1115354,
               1115355,
@@ -5550,6 +5823,7 @@
               1115357
             ],
             "label": "Reference B · subject",
+            "shape": 7,
             "pos": [
               2266.196796870656,
               1895.9767468095727
@@ -5559,9 +5833,9 @@
             "id": "5f732783-6465-4bc8-9b79-de6e501d1aa9",
             "name": "edit_instruction",
             "type": "STRING",
-            "shape": 7,
             "linkIds": [],
             "label": "Edit instruction",
+            "shape": 7,
             "pos": [
               2266.196796870656,
               1915.9767468095727
@@ -5574,7 +5848,11 @@
             "linkIds": [
               1115368
             ],
-            "label": "Seed variance"
+            "label": "Seed variance",
+            "pos": [
+              0,
+              0
+            ]
           },
           {
             "id": "334523c3-5c91-43cf-b5b6-f9e7924d06db",
@@ -5583,7 +5861,11 @@
             "linkIds": [
               1115369
             ],
-            "label": "Variance percent"
+            "label": "Variance percent",
+            "pos": [
+              0,
+              0
+            ]
           },
           {
             "id": "726d97a5-4b5a-4cb8-b977-0582de3e2e03",
@@ -5592,7 +5874,11 @@
             "linkIds": [
               1115370
             ],
-            "label": "Variance strength"
+            "label": "Variance strength",
+            "pos": [
+              0,
+              0
+            ]
           },
           {
             "id": "63ca5ab4-026d-430b-a39d-f9a6c7396893",
@@ -5767,7 +6053,7 @@
             ],
             "size": [
               324.5407370439402,
-              254
+              334
             ],
             "flags": {
               "collapsed": true
@@ -5854,6 +6140,34 @@
                 "shape": 7,
                 "type": "STRING",
                 "link": 1073518
+              },
+              {
+                "localized_name": "source_image_b",
+                "name": "source_image_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115354
+              },
+              {
+                "localized_name": "nag_negative",
+                "name": "nag_negative",
+                "shape": 7,
+                "type": "CONDITIONING",
+                "link": 1115360
+              },
+              {
+                "localized_name": "nag_ref_boost_mask",
+                "name": "nag_ref_boost_mask",
+                "shape": 7,
+                "type": "MASK",
+                "link": null
+              },
+              {
+                "localized_name": "edit_inpaint",
+                "name": "edit_inpaint",
+                "shape": 7,
+                "type": "DONUT_INPAINT",
+                "link": 1115399
               },
               {
                 "localized_name": "seed",
@@ -5949,37 +6263,14 @@
                 "link": 1073629
               },
               {
-                "name": "source_image_b",
-                "type": "IMAGE",
-                "shape": 7,
-                "link": 1115354
-              },
-              {
-                "name": "nag_negative",
-                "type": "CONDITIONING",
-                "shape": 7,
-                "link": 1115360
-              },
-              {
-                "name": "nag_ref_boost_mask",
-                "type": "MASK",
-                "shape": 7,
-                "link": null
-              },
-              {
+                "localized_name": "nag_alpha",
                 "name": "nag_alpha",
-                "type": "FLOAT",
                 "shape": 7,
-                "link": 1115361,
+                "type": "FLOAT",
                 "widget": {
                   "name": "nag_alpha"
-                }
-              },
-              {
-                "name": "edit_inpaint",
-                "type": "DONUT_INPAINT",
-                "link": 1115399,
-                "shape": 7
+                },
+                "link": 1115361
               }
             ],
             "outputs": [
@@ -6041,7 +6332,14 @@
               1,
               "fit",
               true,
-              1
+              1,
+              false,
+              1,
+              "constant",
+              512,
+              1088,
+              false,
+              "None"
             ],
             "widgets_values_named": {
               "seed": 421504707530269,
@@ -6076,7 +6374,14 @@
               "nag_ref_boost_a": 1,
               "nag_fit_mode": "fit",
               "nag_auto_phi": true,
-              "nag_phi_scale": 1
+              "nag_phi_scale": 1,
+              "sda_enabled": false,
+              "sda_strength": 1,
+              "grounding_schedule": "constant",
+              "grounding_start_px": 512,
+              "grounding_end_px": 1088,
+              "txtfusion_internal_guard": false,
+              "txtfusion_reference_checkpoint": "None"
             }
           },
           {
@@ -6195,6 +6500,27 @@
                 "link": 1073499
               },
               {
+                "localized_name": "face_reference_b",
+                "name": "face_reference_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115355
+              },
+              {
+                "localized_name": "nag_negative",
+                "name": "nag_negative",
+                "shape": 7,
+                "type": "CONDITIONING",
+                "link": 1115362
+              },
+              {
+                "localized_name": "nag_ref_boost_mask",
+                "name": "nag_ref_boost_mask",
+                "shape": 7,
+                "type": "MASK",
+                "link": null
+              },
+              {
                 "localized_name": "seed",
                 "name": "seed",
                 "type": "INT",
@@ -6279,31 +6605,14 @@
                 "link": 1073630
               },
               {
-                "name": "face_reference_b",
-                "type": "IMAGE",
-                "shape": 7,
-                "link": 1115355
-              },
-              {
-                "name": "nag_negative",
-                "type": "CONDITIONING",
-                "shape": 7,
-                "link": 1115362
-              },
-              {
-                "name": "nag_ref_boost_mask",
-                "type": "MASK",
-                "shape": 7,
-                "link": null
-              },
-              {
+                "localized_name": "nag_alpha",
                 "name": "nag_alpha",
-                "type": "FLOAT",
                 "shape": 7,
-                "link": 1115363,
+                "type": "FLOAT",
                 "widget": {
                   "name": "nag_alpha"
-                }
+                },
+                "link": 1115363
               }
             ],
             "outputs": [
@@ -6465,7 +6774,7 @@
             "flags": {
               "collapsed": true
             },
-            "order": 8,
+            "order": 7,
             "mode": 4,
             "inputs": [
               {
@@ -6643,11 +6952,32 @@
                 "link": 1073509
               },
               {
+                "localized_name": "edit_source_image_b",
+                "name": "edit_source_image_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115356
+              },
+              {
                 "localized_name": "color_reference",
                 "name": "color_reference",
                 "shape": 7,
                 "type": "IMAGE",
                 "link": 1112199
+              },
+              {
+                "localized_name": "nag_negative",
+                "name": "nag_negative",
+                "shape": 7,
+                "type": "CONDITIONING",
+                "link": 1115364
+              },
+              {
+                "localized_name": "nag_ref_boost_mask",
+                "name": "nag_ref_boost_mask",
+                "shape": 7,
+                "type": "MASK",
+                "link": null
               },
               {
                 "localized_name": "seed",
@@ -6753,6 +7083,16 @@
                 "link": 1073702
               },
               {
+                "localized_name": "nag_alpha",
+                "name": "nag_alpha",
+                "shape": 7,
+                "type": "FLOAT",
+                "widget": {
+                  "name": "nag_alpha"
+                },
+                "link": 1115365
+              },
+              {
                 "localized_name": "enabled",
                 "name": "enabled",
                 "shape": 7,
@@ -6761,33 +7101,6 @@
                   "name": "enabled"
                 },
                 "link": 1115327
-              },
-              {
-                "name": "edit_source_image_b",
-                "type": "IMAGE",
-                "shape": 7,
-                "link": 1115356
-              },
-              {
-                "name": "nag_negative",
-                "type": "CONDITIONING",
-                "shape": 7,
-                "link": 1115364
-              },
-              {
-                "name": "nag_ref_boost_mask",
-                "type": "MASK",
-                "shape": 7,
-                "link": null
-              },
-              {
-                "name": "nag_alpha",
-                "type": "FLOAT",
-                "shape": 7,
-                "link": 1115365,
-                "widget": {
-                  "name": "nag_alpha"
-                }
               }
             ],
             "outputs": [
@@ -6844,7 +7157,15 @@
               "fit",
               true,
               true,
-              1
+              1,
+              "Donut",
+              "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_ema_vae_fp16.safetensors",
+              1,
+              1,
+              "none",
+              1024,
+              128
             ],
             "widgets_values_named": {
               "seed": 973449549912214,
@@ -6872,9 +7193,17 @@
               "nag_ref_boost": 1,
               "nag_ref_boost_a": 1,
               "nag_fit_mode": "fit",
-              "enabled": true,
               "nag_auto_phi": true,
-              "nag_phi_scale": 1
+              "nag_phi_scale": true,
+              "enabled": 1,
+              "upscale_engine": "Donut",
+              "seedvr2_model_name": "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_vae_name": "seedvr2_ema_vae_fp16.safetensors",
+              "seedvr2_steps": 1,
+              "seedvr2_denoise": 1,
+              "seedvr2_color_correction": "none",
+              "seedvr2_vae_tile_size": 1024,
+              "seedvr2_vae_overlap": 128
             }
           },
           {
@@ -6919,6 +7248,20 @@
                 "link": 1115325
               },
               {
+                "localized_name": "native_reference_a",
+                "name": "native_reference_a",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115390
+              },
+              {
+                "localized_name": "native_reference_b",
+                "name": "native_reference_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115392
+              },
+              {
                 "localized_name": "text_seed",
                 "name": "text_seed",
                 "type": "INT",
@@ -6928,71 +7271,68 @@
                 "link": 1115326
               },
               {
+                "localized_name": "variance_enabled",
                 "name": "variance_enabled",
-                "type": "BOOLEAN",
                 "shape": 7,
+                "type": "BOOLEAN",
                 "widget": {
                   "name": "variance_enabled"
                 },
                 "link": 1115368
               },
               {
+                "localized_name": "variance_randomize_percent",
                 "name": "variance_randomize_percent",
-                "type": "FLOAT",
                 "shape": 7,
+                "type": "FLOAT",
                 "widget": {
                   "name": "variance_randomize_percent"
                 },
                 "link": 1115369
               },
               {
+                "localized_name": "variance_auto_strength_factor",
                 "name": "variance_auto_strength_factor",
-                "type": "FLOAT",
                 "shape": 7,
+                "type": "FLOAT",
                 "widget": {
                   "name": "variance_auto_strength_factor"
                 },
                 "link": 1115370
               },
               {
+                "localized_name": "variance_seed",
                 "name": "variance_seed",
-                "type": "INT",
                 "shape": 7,
+                "type": "INT",
                 "widget": {
                   "name": "variance_seed"
                 },
                 "link": 1115371
               },
               {
-                "name": "native_reference_a",
-                "type": "IMAGE",
-                "link": 1115390,
-                "shape": 7
-              },
-              {
-                "name": "native_reference_b",
-                "type": "IMAGE",
-                "link": 1115392,
-                "shape": 7
-              },
-              {
+                "localized_name": "native_reference_enabled",
                 "name": "native_reference_enabled",
-                "type": "BOOLEAN",
-                "link": 1115394,
                 "shape": 7,
+                "type": "BOOLEAN",
                 "widget": {
                   "name": "native_reference_enabled"
-                }
+                },
+                "link": 1115394
               },
               {
+                "localized_name": "prompt_sets_json",
                 "name": "prompt_sets_json",
+                "shape": 7,
                 "type": "STRING",
                 "widget": {
                   "name": "prompt_sets_json"
                 }
               },
               {
+                "localized_name": "prompt_set_index",
                 "name": "prompt_set_index",
+                "shape": 7,
                 "type": "INT",
                 "widget": {
                   "name": "prompt_set_index"
@@ -7210,11 +7550,32 @@
                 "link": 1073492
               },
               {
+                "localized_name": "edit_source_image_b",
+                "name": "edit_source_image_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 1115357
+              },
+              {
                 "localized_name": "color_reference",
                 "name": "color_reference",
                 "shape": 7,
                 "type": "IMAGE",
                 "link": 1112200
+              },
+              {
+                "localized_name": "nag_negative",
+                "name": "nag_negative",
+                "shape": 7,
+                "type": "CONDITIONING",
+                "link": 1115366
+              },
+              {
+                "localized_name": "nag_ref_boost_mask",
+                "name": "nag_ref_boost_mask",
+                "shape": 7,
+                "type": "MASK",
+                "link": null
               },
               {
                 "localized_name": "seed",
@@ -7320,6 +7681,16 @@
                 "link": 1077500
               },
               {
+                "localized_name": "nag_alpha",
+                "name": "nag_alpha",
+                "shape": 7,
+                "type": "FLOAT",
+                "widget": {
+                  "name": "nag_alpha"
+                },
+                "link": 1115367
+              },
+              {
                 "localized_name": "enabled",
                 "name": "enabled",
                 "shape": 7,
@@ -7328,33 +7699,6 @@
                   "name": "enabled"
                 },
                 "link": 1115328
-              },
-              {
-                "name": "edit_source_image_b",
-                "type": "IMAGE",
-                "shape": 7,
-                "link": 1115357
-              },
-              {
-                "name": "nag_negative",
-                "type": "CONDITIONING",
-                "shape": 7,
-                "link": 1115366
-              },
-              {
-                "name": "nag_ref_boost_mask",
-                "type": "MASK",
-                "shape": 7,
-                "link": null
-              },
-              {
-                "name": "nag_alpha",
-                "type": "FLOAT",
-                "shape": 7,
-                "link": 1115367,
-                "widget": {
-                  "name": "nag_alpha"
-                }
               }
             ],
             "outputs": [
@@ -7411,7 +7755,15 @@
               "fit",
               false,
               true,
-              1
+              1,
+              "Donut",
+              "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_ema_vae_fp16.safetensors",
+              1,
+              1,
+              "none",
+              1024,
+              128
             ],
             "widgets_values_named": {
               "seed": 973449549912214,
@@ -7439,9 +7791,17 @@
               "nag_ref_boost": 1,
               "nag_ref_boost_a": 1,
               "nag_fit_mode": "fit",
-              "enabled": false,
-              "nag_auto_phi": true,
-              "nag_phi_scale": 1
+              "nag_auto_phi": false,
+              "nag_phi_scale": true,
+              "enabled": 1,
+              "upscale_engine": "Donut",
+              "seedvr2_model_name": "seedvr2_3b_int8_convrot.safetensors",
+              "seedvr2_vae_name": "seedvr2_ema_vae_fp16.safetensors",
+              "seedvr2_steps": 1,
+              "seedvr2_denoise": 1,
+              "seedvr2_color_correction": "none",
+              "seedvr2_vae_tile_size": 1024,
+              "seedvr2_vae_overlap": 128
             }
           },
           {
@@ -7458,7 +7818,7 @@
             "flags": {
               "collapsed": true
             },
-            "order": 9,
+            "order": 8,
             "mode": 0,
             "inputs": [
               {
@@ -7573,44 +7933,54 @@
               }
             },
             "widgets_values": [
-              "Custom",
-              "Donut 12-tap gains",
+              "Rebalance",
+              "nova452 Rebalance operation",
               "classic",
               "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
               1,
               "scale_around_1",
-              "tensor_rms",
+              "none",
               "Donut projector-input gains",
               "off",
-              "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,1.0,1.0",
+              "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0",
               1,
               "scale_around_1",
               "none",
               "Standard Krea2 fusion",
               1,
               "Advanced",
-              "Fusion only",
-              "Experimental bypass"
+              "Fusion + UncensorFix weights",
+              "Experimental bypass",
+              1,
+              true,
+              false,
+              false,
+              false
             ],
             "widgets_values_named": {
-              "compatibility_preset": "Custom",
-              "tap_method": "Donut 12-tap gains",
+              "compatibility_preset": "Rebalance",
+              "tap_method": "nova452 Rebalance operation",
               "tap_profile": "classic",
               "per_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0",
               "tap_strength": 1,
               "tap_formula": "scale_around_1",
-              "tap_normalization": "tensor_rms",
+              "tap_normalization": "none",
               "projector_method": "Donut projector-input gains",
               "projector_profile": "off",
-              "projector_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.0,2.0,1.0,1.0",
+              "projector_layer_weights": "1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0",
               "projector_strength": 1,
               "projector_formula": "scale_around_1",
               "projector_normalization": "none",
               "fusion_method": "Standard Krea2 fusion",
               "fusion_strength": 1,
               "ui_mode": "Advanced",
-              "uncensorfix_controls": "Fusion only",
-              "execution_mode": "Experimental bypass"
+              "uncensorfix_controls": "Fusion + UncensorFix weights",
+              "execution_mode": "Experimental bypass",
+              "uncensorfix_strength": 1,
+              "nag_match_taps": true,
+              "nag_text_energy_compensation": false,
+              "nag_batch_txtfusion": false,
+              "txtfusion_rms_guard": false
             }
           },
           {
@@ -7625,24 +7995,26 @@
               90
             ],
             "flags": {},
-            "order": 4,
+            "order": 9,
             "mode": 0,
-            "title": "Keep surroundings from A",
             "inputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115400
               },
               {
+                "localized_name": "inpaint",
                 "name": "inpaint",
+                "shape": 7,
                 "type": "DONUT_INPAINT",
-                "link": 1115401,
-                "shape": 7
+                "link": 1115401
               }
             ],
             "outputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
@@ -7653,11 +8025,17 @@
                 ]
               }
             ],
+            "title": "Keep surroundings from A",
             "properties": {
               "cnr_id": "donutnodes",
-              "Node name for S&R": "DonutInpaintComposite"
-            },
-            "widgets_values": []
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
+              "Node name for S&R": "DonutInpaintComposite",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            }
           },
           {
             "id": 1161,
@@ -7671,24 +8049,26 @@
               90
             ],
             "flags": {},
-            "order": 3,
+            "order": 10,
             "mode": 0,
-            "title": "Keep surroundings from A",
             "inputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115402
               },
               {
+                "localized_name": "inpaint",
                 "name": "inpaint",
+                "shape": 7,
                 "type": "DONUT_INPAINT",
-                "link": 1115403,
-                "shape": 7
+                "link": 1115403
               }
             ],
             "outputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
@@ -7697,11 +8077,17 @@
                 ]
               }
             ],
+            "title": "Keep surroundings from A",
             "properties": {
               "cnr_id": "donutnodes",
-              "Node name for S&R": "DonutInpaintComposite"
-            },
-            "widgets_values": []
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
+              "Node name for S&R": "DonutInpaintComposite",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            }
           },
           {
             "id": 1162,
@@ -7715,24 +8101,26 @@
               90
             ],
             "flags": {},
-            "order": 1,
+            "order": 11,
             "mode": 0,
-            "title": "Keep surroundings from A",
             "inputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115404
               },
               {
+                "localized_name": "inpaint",
                 "name": "inpaint",
+                "shape": 7,
                 "type": "DONUT_INPAINT",
-                "link": 1115405,
-                "shape": 7
+                "link": 1115405
               }
             ],
             "outputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
@@ -7741,11 +8129,17 @@
                 ]
               }
             ],
+            "title": "Keep surroundings from A",
             "properties": {
               "cnr_id": "donutnodes",
-              "Node name for S&R": "DonutInpaintComposite"
-            },
-            "widgets_values": []
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
+              "Node name for S&R": "DonutInpaintComposite",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            }
           },
           {
             "id": 1163,
@@ -7759,24 +8153,26 @@
               90
             ],
             "flags": {},
-            "order": 2,
+            "order": 12,
             "mode": 0,
-            "title": "Keep surroundings from A",
             "inputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115408
               },
               {
+                "localized_name": "inpaint",
                 "name": "inpaint",
+                "shape": 7,
                 "type": "DONUT_INPAINT",
-                "link": 1115407,
-                "shape": 7
+                "link": 1115407
               }
             ],
             "outputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
@@ -7784,11 +8180,17 @@
                 ]
               }
             ],
+            "title": "Keep surroundings from A",
             "properties": {
               "cnr_id": "donutnodes",
-              "Node name for S&R": "DonutInpaintComposite"
-            },
-            "widgets_values": []
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
+              "Node name for S&R": "DonutInpaintComposite",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
+            }
           },
           {
             "id": 1170,
@@ -7802,7 +8204,7 @@
               420
             ],
             "flags": {},
-            "order": 19,
+            "order": 13,
             "mode": 0,
             "inputs": [
               {
@@ -7810,105 +8212,6 @@
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115406
-              },
-              {
-                "localized_name": "enabled",
-                "name": "enabled",
-                "type": "BOOLEAN",
-                "widget": {
-                  "name": "enabled"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seed",
-                "name": "seed",
-                "type": "INT",
-                "widget": {
-                  "name": "seed"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_model_name",
-                "name": "seedvr2_model_name",
-                "type": "COMBO",
-                "widget": {
-                  "name": "seedvr2_model_name"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_vae_name",
-                "name": "seedvr2_vae_name",
-                "type": "COMBO",
-                "widget": {
-                  "name": "seedvr2_vae_name"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_steps",
-                "name": "seedvr2_steps",
-                "type": "INT",
-                "widget": {
-                  "name": "seedvr2_steps"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_denoise",
-                "name": "seedvr2_denoise",
-                "type": "FLOAT",
-                "widget": {
-                  "name": "seedvr2_denoise"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_color_correction",
-                "name": "seedvr2_color_correction",
-                "type": "COMBO",
-                "widget": {
-                  "name": "seedvr2_color_correction"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_vae_tile_size",
-                "name": "seedvr2_vae_tile_size",
-                "type": "INT",
-                "widget": {
-                  "name": "seedvr2_vae_tile_size"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_vae_overlap",
-                "name": "seedvr2_vae_overlap",
-                "type": "INT",
-                "widget": {
-                  "name": "seedvr2_vae_overlap"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "seedvr2_upscale_factor",
-                "name": "seedvr2_upscale_factor",
-                "type": "FLOAT",
-                "widget": {
-                  "name": "seedvr2_upscale_factor"
-                },
-                "link": null
-              },
-              {
-                "localized_name": "resampling_method",
-                "name": "resampling_method",
-                "type": "COMBO",
-                "widget": {
-                  "name": "resampling_method"
-                },
-                "link": null
               }
             ],
             "outputs": [
@@ -7921,8 +8224,10 @@
                 ]
               }
             ],
+            "title": "SeedVR2 · post upscale",
             "properties": {
               "cnr_id": "donutnodes",
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
               "Node name for S&R": "DonutSeedVR2Upscale",
               "ue_properties": {
                 "widget_ue_connectable": {},
@@ -7945,23 +8250,22 @@
               128
             ],
             "widgets_values_named": {
-              "enabled": false,
-              "seed": 0,
               "seedvr2_upscale_factor": 2,
               "resampling_method": "lanczos",
+              "enabled": false,
+              "seed": 0,
+              "control_after_generate": "fixed",
               "seedvr2_model_name": "seedvr2_3b_int8_convrot.safetensors",
               "seedvr2_vae_name": "seedvr2_ema_vae_fp16.safetensors",
               "seedvr2_steps": 1,
               "seedvr2_denoise": 1,
               "seedvr2_color_correction": "none",
               "seedvr2_vae_tile_size": 1024,
-              "seedvr2_vae_overlap": 128,
-              "control_after_generate": "fixed"
-            },
-            "title": "SeedVR2 · post upscale"
+              "seedvr2_vae_overlap": 128
+            }
           },
           {
-            "id": 1171,
+            "id": 1175,
             "type": "PreviewImage",
             "pos": [
               1400,
@@ -7978,27 +8282,42 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "images",
                 "name": "images",
                 "type": "IMAGE",
                 "link": 1115409
               }
             ],
-            "outputs": [],
+            "outputs": [
+              {
+                "localized_name": "images",
+                "name": "images",
+                "type": "IMAGE",
+                "links": null
+              }
+            ],
             "title": "Result · second upscale",
             "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.35.1",
               "Node name for S&R": "PreviewImage",
-              "donut_preview_stage": "second"
+              "donut_preview_stage": "second",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             }
           },
           {
-            "id": 1172,
+            "id": 1176,
             "type": "DonutInpaintComposite",
             "pos": [
               1100,
               1100
             ],
             "size": [
-              220,
+              263.29999389648435,
               80
             ],
             "flags": {
@@ -8008,19 +8327,22 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "link": 1115410
               },
               {
+                "localized_name": "inpaint",
                 "name": "inpaint",
+                "shape": 7,
                 "type": "DONUT_INPAINT",
-                "link": 1115411,
-                "shape": 7
+                "link": 1115411
               }
             ],
             "outputs": [
               {
+                "localized_name": "image",
                 "name": "image",
                 "type": "IMAGE",
                 "links": [
@@ -8030,12 +8352,19 @@
             ],
             "title": "Face preview · keep surroundings",
             "properties": {
+              "cnr_id": "donutnodes",
+              "ver": "d9a9cd7417dd31932be0cc7595b386f329dc919f",
               "Node name for S&R": "DonutInpaintComposite",
-              "donut_preview_stage": "face_composite"
+              "donut_preview_stage": "face_composite",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             }
           },
           {
-            "id": 1173,
+            "id": 1177,
             "type": "PreviewImage",
             "pos": [
               1400,
@@ -8052,16 +8381,31 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "images",
                 "name": "images",
                 "type": "IMAGE",
                 "link": 1115412
               }
             ],
-            "outputs": [],
+            "outputs": [
+              {
+                "localized_name": "images",
+                "name": "images",
+                "type": "IMAGE",
+                "links": null
+              }
+            ],
             "title": "Result · Face Detailer",
             "properties": {
+              "cnr_id": "comfy-core",
+              "ver": "0.35.1",
               "Node name for S&R": "PreviewImage",
-              "donut_preview_stage": "face"
+              "donut_preview_stage": "face",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             }
           }
         ],
@@ -8369,7 +8713,7 @@
             "origin_id": -10,
             "origin_slot": 6,
             "target_id": 983,
-            "target_slot": 19,
+            "target_slot": 22,
             "type": "BOOLEAN"
           },
           {
@@ -8377,7 +8721,7 @@
             "origin_id": -10,
             "origin_slot": 6,
             "target_id": 984,
-            "target_slot": 21,
+            "target_slot": 24,
             "type": "BOOLEAN"
           },
           {
@@ -8385,7 +8729,7 @@
             "origin_id": -10,
             "origin_slot": 6,
             "target_id": 989,
-            "target_slot": 19,
+            "target_slot": 22,
             "type": "BOOLEAN"
           },
           {
@@ -8409,7 +8753,7 @@
             "origin_id": -10,
             "origin_slot": 9,
             "target_id": 984,
-            "target_slot": 22,
+            "target_slot": 25,
             "type": "INT"
           },
           {
@@ -8417,7 +8761,7 @@
             "origin_id": -10,
             "origin_slot": 9,
             "target_id": 989,
-            "target_slot": 20,
+            "target_slot": 23,
             "type": "INT"
           },
           {
@@ -8425,7 +8769,7 @@
             "origin_id": -10,
             "origin_slot": 9,
             "target_id": 993,
-            "target_slot": 20,
+            "target_slot": 24,
             "type": "INT"
           },
           {
@@ -8449,7 +8793,7 @@
             "origin_id": -10,
             "origin_slot": 11,
             "target_id": 993,
-            "target_slot": 12,
+            "target_slot": 16,
             "type": "INT"
           },
           {
@@ -8489,7 +8833,7 @@
             "origin_id": -10,
             "origin_slot": 17,
             "target_id": 989,
-            "target_slot": 21,
+            "target_slot": 24,
             "type": "BOOLEAN"
           },
           {
@@ -8497,7 +8841,7 @@
             "origin_id": -10,
             "origin_slot": 17,
             "target_id": 993,
-            "target_slot": 21,
+            "target_slot": 25,
             "type": "BOOLEAN"
           },
           {
@@ -8505,7 +8849,7 @@
             "origin_id": -10,
             "origin_slot": 17,
             "target_id": 984,
-            "target_slot": 23,
+            "target_slot": 26,
             "type": "BOOLEAN"
           },
           {
@@ -8513,7 +8857,7 @@
             "origin_id": -10,
             "origin_slot": 18,
             "target_id": 993,
-            "target_slot": 13,
+            "target_slot": 17,
             "type": "INT"
           },
           {
@@ -8521,7 +8865,7 @@
             "origin_id": -10,
             "origin_slot": 18,
             "target_id": 989,
-            "target_slot": 13,
+            "target_slot": 16,
             "type": "INT"
           },
           {
@@ -8529,7 +8873,7 @@
             "origin_id": -10,
             "origin_slot": 18,
             "target_id": 984,
-            "target_slot": 16,
+            "target_slot": 19,
             "type": "INT"
           },
           {
@@ -8537,7 +8881,7 @@
             "origin_id": -10,
             "origin_slot": 19,
             "target_id": 993,
-            "target_slot": 17,
+            "target_slot": 21,
             "type": "COMBO"
           },
           {
@@ -8545,7 +8889,7 @@
             "origin_id": -10,
             "origin_slot": 19,
             "target_id": 989,
-            "target_slot": 15,
+            "target_slot": 18,
             "type": "COMBO"
           },
           {
@@ -8553,7 +8897,7 @@
             "origin_id": -10,
             "origin_slot": 19,
             "target_id": 984,
-            "target_slot": 17,
+            "target_slot": 20,
             "type": "COMBO"
           },
           {
@@ -8561,7 +8905,7 @@
             "origin_id": -10,
             "origin_slot": 20,
             "target_id": 993,
-            "target_slot": 18,
+            "target_slot": 22,
             "type": "COMBO"
           },
           {
@@ -8569,7 +8913,7 @@
             "origin_id": -10,
             "origin_slot": 20,
             "target_id": 989,
-            "target_slot": 16,
+            "target_slot": 19,
             "type": "COMBO"
           },
           {
@@ -8577,7 +8921,7 @@
             "origin_id": -10,
             "origin_slot": 20,
             "target_id": 984,
-            "target_slot": 18,
+            "target_slot": 21,
             "type": "COMBO"
           },
           {
@@ -8585,7 +8929,7 @@
             "origin_id": -10,
             "origin_slot": 21,
             "target_id": 993,
-            "target_slot": 14,
+            "target_slot": 18,
             "type": "FLOAT"
           },
           {
@@ -8593,7 +8937,7 @@
             "origin_id": -10,
             "origin_slot": 21,
             "target_id": 993,
-            "target_slot": 15,
+            "target_slot": 19,
             "type": "FLOAT"
           },
           {
@@ -8601,7 +8945,7 @@
             "origin_id": -10,
             "origin_slot": 21,
             "target_id": 993,
-            "target_slot": 16,
+            "target_slot": 20,
             "type": "FLOAT"
           },
           {
@@ -8609,7 +8953,7 @@
             "origin_id": -10,
             "origin_slot": 23,
             "target_id": 989,
-            "target_slot": 22,
+            "target_slot": 25,
             "type": "BOOLEAN"
           },
           {
@@ -8617,7 +8961,7 @@
             "origin_id": -10,
             "origin_slot": 24,
             "target_id": 989,
-            "target_slot": 18,
+            "target_slot": 21,
             "type": "FLOAT"
           },
           {
@@ -8625,7 +8969,7 @@
             "origin_id": -10,
             "origin_slot": 25,
             "target_id": 984,
-            "target_slot": 19,
+            "target_slot": 22,
             "type": "FLOAT"
           },
           {
@@ -8633,7 +8977,7 @@
             "origin_id": -10,
             "origin_slot": 26,
             "target_id": 984,
-            "target_slot": 20,
+            "target_slot": 23,
             "type": "INT"
           },
           {
@@ -8641,7 +8985,7 @@
             "origin_id": -10,
             "origin_slot": 23,
             "target_id": 983,
-            "target_slot": 22,
+            "target_slot": 25,
             "type": "BOOLEAN"
           },
           {
@@ -8649,7 +8993,7 @@
             "origin_id": -10,
             "origin_slot": 17,
             "target_id": 983,
-            "target_slot": 21,
+            "target_slot": 24,
             "type": "BOOLEAN"
           },
           {
@@ -8657,7 +9001,7 @@
             "origin_id": -10,
             "origin_slot": 9,
             "target_id": 983,
-            "target_slot": 20,
+            "target_slot": 23,
             "type": "INT"
           },
           {
@@ -8665,7 +9009,7 @@
             "origin_id": -10,
             "origin_slot": 24,
             "target_id": 983,
-            "target_slot": 18,
+            "target_slot": 21,
             "type": "FLOAT"
           },
           {
@@ -8673,7 +9017,7 @@
             "origin_id": -10,
             "origin_slot": 18,
             "target_id": 983,
-            "target_slot": 13,
+            "target_slot": 16,
             "type": "INT"
           },
           {
@@ -8681,7 +9025,7 @@
             "origin_id": -10,
             "origin_slot": 21,
             "target_id": 989,
-            "target_slot": 14,
+            "target_slot": 17,
             "type": "FLOAT"
           },
           {
@@ -8689,7 +9033,7 @@
             "origin_id": -10,
             "origin_slot": 21,
             "target_id": 983,
-            "target_slot": 14,
+            "target_slot": 17,
             "type": "FLOAT"
           },
           {
@@ -8697,7 +9041,7 @@
             "origin_id": -10,
             "origin_slot": 19,
             "target_id": 983,
-            "target_slot": 15,
+            "target_slot": 18,
             "type": "COMBO"
           },
           {
@@ -8705,7 +9049,7 @@
             "origin_id": -10,
             "origin_slot": 20,
             "target_id": 983,
-            "target_slot": 16,
+            "target_slot": 19,
             "type": "COMBO"
           },
           {
@@ -8713,7 +9057,7 @@
             "origin_id": -10,
             "origin_slot": 27,
             "target_id": 983,
-            "target_slot": 17,
+            "target_slot": 20,
             "type": "FLOAT"
           },
           {
@@ -8721,7 +9065,7 @@
             "origin_id": -10,
             "origin_slot": 22,
             "target_id": 989,
-            "target_slot": 17,
+            "target_slot": 20,
             "type": "FLOAT"
           },
           {
@@ -8777,7 +9121,7 @@
             "origin_id": -10,
             "origin_slot": 6,
             "target_id": 993,
-            "target_slot": 19,
+            "target_slot": 23,
             "type": "BOOLEAN"
           },
           {
@@ -8793,7 +9137,7 @@
             "origin_id": 1160,
             "origin_slot": 0,
             "target_id": 989,
-            "target_slot": 11,
+            "target_slot": 12,
             "type": "IMAGE"
           },
           {
@@ -8801,7 +9145,7 @@
             "origin_id": 1160,
             "origin_slot": 0,
             "target_id": 983,
-            "target_slot": 11,
+            "target_slot": 12,
             "type": "IMAGE"
           },
           {
@@ -8889,7 +9233,7 @@
             "origin_id": -10,
             "origin_slot": 31,
             "target_id": 989,
-            "target_slot": 12,
+            "target_slot": 15,
             "type": "INT"
           },
           {
@@ -8897,7 +9241,7 @@
             "origin_id": -10,
             "origin_slot": 32,
             "target_id": 983,
-            "target_slot": 12,
+            "target_slot": 15,
             "type": "INT"
           },
           {
@@ -8905,7 +9249,7 @@
             "origin_id": -10,
             "origin_slot": 33,
             "target_id": 984,
-            "target_slot": 15,
+            "target_slot": 18,
             "type": "INT"
           },
           {
@@ -8945,7 +9289,7 @@
             "origin_id": -10,
             "origin_slot": 34,
             "target_id": 996,
-            "target_slot": 4,
+            "target_slot": 6,
             "type": "INT"
           },
           {
@@ -8953,7 +9297,7 @@
             "origin_id": -10,
             "origin_slot": 35,
             "target_id": 989,
-            "target_slot": 23,
+            "target_slot": 27,
             "type": "BOOLEAN"
           },
           {
@@ -8961,7 +9305,7 @@
             "origin_id": -10,
             "origin_slot": 36,
             "target_id": 983,
-            "target_slot": 23,
+            "target_slot": 27,
             "type": "BOOLEAN"
           },
           {
@@ -8969,7 +9313,7 @@
             "origin_id": -10,
             "origin_slot": 37,
             "target_id": 993,
-            "target_slot": 22,
+            "target_slot": 12,
             "type": "IMAGE"
           },
           {
@@ -8977,7 +9321,7 @@
             "origin_id": -10,
             "origin_slot": 37,
             "target_id": 984,
-            "target_slot": 24,
+            "target_slot": 15,
             "type": "IMAGE"
           },
           {
@@ -8985,7 +9329,7 @@
             "origin_id": -10,
             "origin_slot": 37,
             "target_id": 989,
-            "target_slot": 24,
+            "target_slot": 11,
             "type": "IMAGE"
           },
           {
@@ -8993,7 +9337,7 @@
             "origin_id": -10,
             "origin_slot": 37,
             "target_id": 983,
-            "target_slot": 24,
+            "target_slot": 11,
             "type": "IMAGE"
           },
           {
@@ -9001,7 +9345,7 @@
             "origin_id": 996,
             "origin_slot": 6,
             "target_id": 993,
-            "target_slot": 23,
+            "target_slot": 13,
             "type": "CONDITIONING"
           },
           {
@@ -9009,7 +9353,7 @@
             "origin_id": -10,
             "origin_slot": 28,
             "target_id": 993,
-            "target_slot": 25,
+            "target_slot": 26,
             "type": "FLOAT"
           },
           {
@@ -9017,7 +9361,7 @@
             "origin_id": 996,
             "origin_slot": 6,
             "target_id": 984,
-            "target_slot": 25,
+            "target_slot": 16,
             "type": "CONDITIONING"
           },
           {
@@ -9033,7 +9377,7 @@
             "origin_id": 996,
             "origin_slot": 6,
             "target_id": 989,
-            "target_slot": 25,
+            "target_slot": 13,
             "type": "CONDITIONING"
           },
           {
@@ -9041,7 +9385,7 @@
             "origin_id": -10,
             "origin_slot": 28,
             "target_id": 989,
-            "target_slot": 27,
+            "target_slot": 26,
             "type": "FLOAT"
           },
           {
@@ -9049,7 +9393,7 @@
             "origin_id": 996,
             "origin_slot": 6,
             "target_id": 983,
-            "target_slot": 25,
+            "target_slot": 13,
             "type": "CONDITIONING"
           },
           {
@@ -9057,7 +9401,7 @@
             "origin_id": -10,
             "origin_slot": 28,
             "target_id": 983,
-            "target_slot": 27,
+            "target_slot": 26,
             "type": "FLOAT"
           },
           {
@@ -9065,7 +9409,7 @@
             "origin_id": -10,
             "origin_slot": 39,
             "target_id": 996,
-            "target_slot": 5,
+            "target_slot": 7,
             "type": "BOOLEAN"
           },
           {
@@ -9073,7 +9417,7 @@
             "origin_id": -10,
             "origin_slot": 40,
             "target_id": 996,
-            "target_slot": 6,
+            "target_slot": 8,
             "type": "FLOAT"
           },
           {
@@ -9081,7 +9425,7 @@
             "origin_id": -10,
             "origin_slot": 41,
             "target_id": 996,
-            "target_slot": 7,
+            "target_slot": 9,
             "type": "FLOAT"
           },
           {
@@ -9089,7 +9433,7 @@
             "origin_id": -10,
             "origin_slot": 11,
             "target_id": 996,
-            "target_slot": 8,
+            "target_slot": 10,
             "type": "INT"
           },
           {
@@ -9097,7 +9441,7 @@
             "origin_id": -10,
             "origin_slot": 42,
             "target_id": 996,
-            "target_slot": 9,
+            "target_slot": 4,
             "type": "IMAGE"
           },
           {
@@ -9105,7 +9449,7 @@
             "origin_id": -10,
             "origin_slot": 43,
             "target_id": 996,
-            "target_slot": 10,
+            "target_slot": 5,
             "type": "IMAGE"
           },
           {
@@ -9121,7 +9465,7 @@
             "origin_id": -10,
             "origin_slot": 45,
             "target_id": 993,
-            "target_slot": 26,
+            "target_slot": 15,
             "type": "DONUT_INPAINT"
           },
           {
@@ -9200,7 +9544,7 @@
             "id": 1115409,
             "origin_id": 1162,
             "origin_slot": 0,
-            "target_id": 1171,
+            "target_id": 1175,
             "target_slot": 0,
             "type": "IMAGE"
           },
@@ -9208,7 +9552,7 @@
             "id": 1115410,
             "origin_id": 984,
             "origin_slot": 0,
-            "target_id": 1172,
+            "target_id": 1176,
             "target_slot": 0,
             "type": "IMAGE"
           },
@@ -9216,15 +9560,15 @@
             "id": 1115411,
             "origin_id": -10,
             "origin_slot": 45,
-            "target_id": 1172,
+            "target_id": 1176,
             "target_slot": 1,
             "type": "DONUT_INPAINT"
           },
           {
             "id": 1115412,
-            "origin_id": 1172,
+            "origin_id": 1176,
             "origin_slot": 0,
-            "target_id": 1173,
+            "target_id": 1177,
             "target_slot": 0,
             "type": "IMAGE"
           }
@@ -9239,8 +9583,8 @@
         "version": 1,
         "state": {
           "lastGroupId": 2,
-          "lastNodeId": 1137,
-          "lastLinkId": 1115373,
+          "lastNodeId": 1177,
+          "lastLinkId": 1115412,
           "lastRerouteId": 1
         },
         "revision": 1,
@@ -9692,9 +10036,9 @@
               {
                 "localized_name": "model2",
                 "name": "model2",
+                "shape": 7,
                 "type": "MODEL",
-                "link": 1115231,
-                "shape": 7
+                "link": 1115231
               }
             ],
             "outputs": [
@@ -9761,7 +10105,7 @@
               "Grouped",
               1,
               0,
-              "Single model"
+              "Merge two models"
             ],
             "widgets_values_named": {
               "first.": 1,
@@ -9806,7 +10150,7 @@
               "ratio_mode": "Grouped",
               "body_ratio": 1,
               "fusion_ratio": 0,
-              "model_mode": "Single model"
+              "model_mode": "Merge two models"
             }
           },
           {
@@ -9929,6 +10273,7 @@
                 "link": 1115352
               },
               {
+                "localized_name": "sampler_seed",
                 "name": "sampler_seed",
                 "type": "INT",
                 "widget": {
@@ -9937,6 +10282,7 @@
                 "link": 1115372
               },
               {
+                "localized_name": "filename_seed",
                 "name": "filename_seed",
                 "type": "INT",
                 "widget": {
@@ -10348,10 +10694,10 @@
         "id": "5186050a-13ae-4d2e-bfd6-359e1311b90e",
         "version": 1,
         "state": {
-          "lastGroupId": 0,
-          "lastNodeId": 1137,
-          "lastLinkId": 1115388,
-          "lastRerouteId": 0
+          "lastGroupId": 2,
+          "lastNodeId": 1177,
+          "lastLinkId": 1115412,
+          "lastRerouteId": 1
         },
         "revision": 0,
         "config": {},
@@ -10576,6 +10922,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "MODEL",
                 "name": "MODEL",
                 "type": "MODEL",
                 "links": [
@@ -10620,6 +10967,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "CLIP",
                 "name": "CLIP",
                 "type": "CLIP",
                 "links": [
@@ -10667,6 +11015,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "VAE",
                 "name": "VAE",
                 "type": "VAE",
                 "links": [
@@ -10709,6 +11058,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "UPSCALE_MODEL",
                 "name": "UPSCALE_MODEL",
                 "type": "UPSCALE_MODEL",
                 "links": [
@@ -10752,6 +11102,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "BBOX_DETECTOR",
                 "name": "BBOX_DETECTOR",
                 "type": "BBOX_DETECTOR",
                 "slot_index": 0,
@@ -10760,6 +11111,7 @@
                 ]
               },
               {
+                "localized_name": "SEGM_DETECTOR",
                 "name": "SEGM_DETECTOR",
                 "type": "SEGM_DETECTOR",
                 "slot_index": 1,
@@ -10803,6 +11155,7 @@
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "SAM_MODEL",
                 "name": "SAM_MODEL",
                 "type": "SAM_MODEL",
                 "slot_index": 0,
@@ -10844,7 +11197,7 @@
             "flags": {
               "collapsed": false
             },
-            "order": 8,
+            "order": 6,
             "mode": 0,
             "inputs": [],
             "outputs": [],
@@ -10877,11 +11230,12 @@
               82
             ],
             "flags": {},
-            "order": 9,
+            "order": 7,
             "mode": 0,
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "MODEL",
                 "name": "MODEL",
                 "type": "MODEL",
                 "links": [
@@ -10901,11 +11255,11 @@
               }
             },
             "widgets_values": [
-              "krea2_turbo_bf16.safetensors",
+              "finepornV4INT8NVFP4BF16_v4.safetensors",
               "default"
             ],
             "widgets_values_named": {
-              "unet_name": "krea2_turbo_bf16.safetensors",
+              "unet_name": "finepornV4INT8NVFP4BF16_v4.safetensors",
               "weight_dtype": "default"
             }
           },
@@ -10921,11 +11275,12 @@
               115.7815751627652
             ],
             "flags": {},
-            "order": 17,
+            "order": 8,
             "mode": 0,
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "STRING",
                 "name": "STRING",
                 "type": "STRING",
                 "links": [
@@ -10964,11 +11319,12 @@
               286.69016933479725
             ],
             "flags": {},
-            "order": 18,
+            "order": 9,
             "mode": 0,
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "STRING",
                 "name": "STRING",
                 "type": "STRING",
                 "links": [
@@ -10988,10 +11344,10 @@
               }
             },
             "widgets_values": [
-              "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. "
+              "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous."
             ],
             "widgets_values_named": {
-              "Text": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. "
+              "Text": "High-quality photorealistic candid photo of a 24-year-old woman with enormous round glasses, wildly curly ginger hair escaping from under a tiny yellow bucket hat, and an intensely suspicious expression, as if she has just realized someone stole her sandwich. She has one eyebrow raised and is trying very badly to look inconspicuous."
             },
             "color": "#232",
             "bgcolor": "#353"
@@ -11008,11 +11364,12 @@
               417.64486452690767
             ],
             "flags": {},
-            "order": 19,
+            "order": 10,
             "mode": 0,
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "STRING",
                 "name": "STRING",
                 "type": "STRING",
                 "links": [
@@ -11032,10 +11389,10 @@
               }
             },
             "widgets_values": [
-              "The character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n"
+              "She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle."
             ],
             "widgets_values_named": {
-              "Text": "The character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n"
+              "Text": "She is wearing a ridiculously bright purple tracksuit covered in tiny banana prints, mismatched rainbow socks, and oversized hiking boots. She carries a miniature pink umbrella in one hand and a baguette like a sword in the other.\n\nWide-angle photograph of an extremely crowded medieval village festival where absolute chaos is unfolding. Hundreds of people fill the scene: knights arguing with tourists, a marching band going the wrong direction, someone chasing three escaped geese, a confused magician performing beside a vegetable stall, children carrying enormous balloons, and an elderly man calmly drinking tea while everything goes wrong around him.\n\nHide the woman deep inside the crowd so she is genuinely difficult to spot at first glance, but clearly recognizable once found. Make the image packed with funny little background details and visual distractions, like a photorealistic “Where’s Waldo?” puzzle."
             },
             "color": "#323",
             "bgcolor": "#535"
@@ -11052,11 +11409,12 @@
               82
             ],
             "flags": {},
-            "order": 21,
+            "order": 11,
             "mode": 0,
             "inputs": [],
             "outputs": [
               {
+                "localized_name": "seed",
                 "name": "seed",
                 "type": "INT",
                 "links": [
@@ -11076,12 +11434,12 @@
               }
             },
             "widgets_values": [
-              453968006882751,
-              "fixed"
+              427849772221714,
+              "randomize"
             ],
             "widgets_values_named": {
-              "seed": 453968006882751,
-              "fixed": "fixed"
+              "seed": 427849772221714,
+              "fixed": "randomize"
             }
           },
           {
@@ -11098,10 +11456,11 @@
             "flags": {
               "collapsed": true
             },
-            "order": 23,
+            "order": 12,
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "text",
                 "name": "text",
                 "type": "STRING",
                 "widget": {
@@ -11110,6 +11469,7 @@
                 "link": 1115336
               },
               {
+                "localized_name": "text_1",
                 "name": "text_1",
                 "type": "STRING",
                 "widget": {
@@ -11118,6 +11478,7 @@
                 "link": 1115337
               },
               {
+                "localized_name": "text_2",
                 "name": "text_2",
                 "type": "STRING",
                 "widget": {
@@ -11126,12 +11487,15 @@
                 "link": 1115338
               },
               {
+                "localized_name": "model1",
                 "name": "model1",
                 "type": "MODEL",
                 "link": 1115339
               },
               {
+                "localized_name": "model2",
                 "name": "model2",
+                "shape": 7,
                 "type": "MODEL",
                 "link": 1115340
               },
@@ -11146,6 +11510,7 @@
             ],
             "outputs": [
               {
+                "localized_name": "text",
                 "name": "text",
                 "type": "INT",
                 "links": [
@@ -11153,6 +11518,7 @@
                 ]
               },
               {
+                "localized_name": "base",
                 "name": "base",
                 "type": "INT",
                 "links": [
@@ -11160,6 +11526,7 @@
                 ]
               },
               {
+                "localized_name": "upscale_1",
                 "name": "upscale_1",
                 "type": "INT",
                 "links": [
@@ -11167,6 +11534,7 @@
                 ]
               },
               {
+                "localized_name": "upscale_2",
                 "name": "upscale_2",
                 "type": "INT",
                 "links": [
@@ -11174,6 +11542,7 @@
                 ]
               },
               {
+                "localized_name": "face",
                 "name": "face",
                 "type": "INT",
                 "links": [
@@ -11181,6 +11550,7 @@
                 ]
               },
               {
+                "localized_name": "filename",
                 "name": "filename",
                 "type": "STRING",
                 "links": [
@@ -11188,6 +11558,7 @@
                 ]
               },
               {
+                "localized_name": "text_1",
                 "name": "text_1",
                 "type": "STRING",
                 "links": [
@@ -11195,6 +11566,7 @@
                 ]
               },
               {
+                "localized_name": "text_2",
                 "name": "text_2",
                 "type": "STRING",
                 "links": [
@@ -11202,6 +11574,7 @@
                 ]
               },
               {
+                "localized_name": "*",
                 "name": "*",
                 "type": "*",
                 "links": [
@@ -11209,6 +11582,7 @@
                 ]
               },
               {
+                "localized_name": "text_3",
                 "name": "text_3",
                 "type": "STRING",
                 "links": [
@@ -11259,10 +11633,11 @@
             "flags": {
               "collapsed": false
             },
-            "order": 24,
+            "order": 13,
             "mode": 4,
             "inputs": [
               {
+                "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
                 "link": 1115350
@@ -11270,6 +11645,7 @@
             ],
             "outputs": [
               {
+                "localized_name": "MODEL",
                 "name": "MODEL",
                 "type": "MODEL",
                 "slot_index": 0,
@@ -11304,25 +11680,28 @@
             ],
             "size": [
               461.5523033076481,
-              714
+              797
             ],
             "flags": {
               "collapsed": false
             },
-            "order": 26,
+            "order": 14,
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
                 "link": 1115333
               },
               {
+                "localized_name": "clip",
                 "name": "clip",
                 "type": "CLIP",
                 "link": 1093517
               },
               {
+                "localized_name": "lora_stack",
                 "name": "lora_stack",
                 "shape": 7,
                 "type": "LORA_STACK",
@@ -11331,6 +11710,7 @@
             ],
             "outputs": [
               {
+                "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
                 "links": [
@@ -11338,6 +11718,7 @@
                 ]
               },
               {
+                "localized_name": "clip",
                 "name": "clip",
                 "type": "CLIP",
                 "links": [
@@ -11345,11 +11726,13 @@
                 ]
               },
               {
+                "localized_name": "lora_stack",
                 "name": "lora_stack",
                 "type": "LORA_STACK",
                 "links": []
               },
               {
+                "localized_name": "show_help",
                 "name": "show_help",
                 "type": "STRING",
                 "links": []
@@ -11592,16 +11975,19 @@
             "type": "INT"
           }
         ],
-        "extra": {}
+        "extra": {
+          "ue_links": [],
+          "links_added_by_ue": []
+        }
       },
       {
         "id": "5067b898-1594-4938-b15c-b60d6869cffe",
         "version": 1,
         "state": {
-          "lastGroupId": 0,
-          "lastNodeId": 1156,
-          "lastLinkId": 0,
-          "lastRerouteId": 0
+          "lastGroupId": 2,
+          "lastNodeId": 1177,
+          "lastLinkId": 1115412,
+          "lastRerouteId": 1
         },
         "revision": 0,
         "config": {},
@@ -11644,6 +12030,7 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "conditioning",
                 "name": "conditioning",
                 "type": "CONDITIONING",
                 "link": null
@@ -11651,20 +12038,28 @@
             ],
             "outputs": [
               {
+                "localized_name": "conditioning",
                 "name": "conditioning",
                 "type": "CONDITIONING",
                 "links": null
               },
               {
+                "localized_name": "diagnostics",
                 "name": "diagnostics",
                 "type": "STRING",
                 "links": null
               }
             ],
+            "title": "Required pack · krea-seed-variance-enhancer",
             "properties": {
               "cnr_id": "krea-seed-variance-enhancer",
               "ver": "1.2.0",
-              "Node name for S&R": "KreaSeedVarianceEnhancer"
+              "Node name for S&R": "KreaSeedVarianceEnhancer",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             },
             "widgets_values": [
               50,
@@ -11680,7 +12075,20 @@
               "uniform",
               "values"
             ],
-            "title": "Required pack · krea-seed-variance-enhancer"
+            "widgets_values_named": {
+              "randomize_percent": 50,
+              "auto_strength_factor": 1,
+              "strength": 20,
+              "noise_insert": "noise on beginning steps",
+              "steps_switchover_percent": 25,
+              "seed": 0,
+              "control_after_generate": "fixed",
+              "mask_starts_at": "beginning",
+              "mask_percent": 0,
+              "log_to_console": false,
+              "noise_distribution": "uniform",
+              "granularity": "values"
+            }
           },
           {
             "id": 1155,
@@ -11698,11 +12106,13 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
                 "link": null
               },
               {
+                "localized_name": "nag_negative",
                 "name": "nag_negative",
                 "type": "CONDITIONING",
                 "link": null
@@ -11710,15 +12120,22 @@
             ],
             "outputs": [
               {
-                "name": "MODEL",
+                "localized_name": "model",
+                "name": "model",
                 "type": "MODEL",
                 "links": null
               }
             ],
+            "title": "Required pack · krea2-nag",
             "properties": {
               "cnr_id": "krea2-nag",
               "ver": "1.0.2",
-              "Node name for S&R": "Krea2NormalizedAttentionGuidance"
+              "Node name for S&R": "Krea2NormalizedAttentionGuidance",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             },
             "widgets_values": [
               4,
@@ -11727,7 +12144,13 @@
               1000,
               0
             ],
-            "title": "Required pack · krea2-nag"
+            "widgets_values_named": {
+              "phi": 4,
+              "tau": 2.5,
+              "alpha": 0.25,
+              "sigma_start": 1000,
+              "sigma_end": 0
+            }
           },
           {
             "id": 1156,
@@ -11745,45 +12168,103 @@
             "mode": 0,
             "inputs": [
               {
+                "localized_name": "model",
                 "name": "model",
                 "type": "MODEL",
                 "link": null
               },
               {
+                "localized_name": "source_latent",
                 "name": "source_latent",
+                "type": "LATENT",
+                "link": null
+              },
+              {
+                "localized_name": "source_latent_b",
+                "name": "source_latent_b",
+                "shape": 7,
+                "type": "LATENT",
+                "link": null
+              },
+              {
+                "localized_name": "ref_boost_mask",
+                "name": "ref_boost_mask",
+                "shape": 7,
+                "type": "MASK",
+                "link": null
+              },
+              {
+                "localized_name": "vae",
+                "name": "vae",
+                "shape": 7,
+                "type": "VAE",
+                "link": null
+              },
+              {
+                "localized_name": "source_image",
+                "name": "source_image",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": null
+              },
+              {
+                "localized_name": "source_image_b",
+                "name": "source_image_b",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": null
+              },
+              {
+                "localized_name": "target_latent",
+                "name": "target_latent",
+                "shape": 7,
                 "type": "LATENT",
                 "link": null
               }
             ],
             "outputs": [
               {
+                "localized_name": "MODEL",
                 "name": "MODEL",
                 "type": "MODEL",
                 "links": null
               }
             ],
+            "title": "Required pack · comfyui-krea2edit",
             "properties": {
               "cnr_id": "comfyui-krea2edit",
               "ver": "1.2.5",
-              "Node name for S&R": "Krea2EditModelPatch"
+              "Node name for S&R": "Krea2EditModelPatch",
+              "ue_properties": {
+                "widget_ue_connectable": {},
+                "version": "7.8",
+                "input_ue_unconnectable": {}
+              }
             },
             "widgets_values": [
               1,
               1,
               "fit"
             ],
-            "title": "Required pack · comfyui-krea2edit"
+            "widgets_values_named": {
+              "ref_boost": 1,
+              "ref_boost_a": 1,
+              "fit_mode": "fit"
+            }
           }
         ],
         "groups": [],
         "links": [],
-        "extra": {}
+        "extra": {
+          "ue_links": [],
+          "links_added_by_ue": []
+        }
       }
     ]
   },
   "config": {},
   "extra": {
-    "frontendVersion": "1.51.9",
+    "frontendVersion": "1.51.10",
     "workflowRendererVersion": "LG",
     "anomalous_hashes": {
       "468_qwen-image/qwen_image_vae.safetensors": {
@@ -11837,10 +12318,10 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.8,
+      "scale": 0.3732059041677939,
       "offset": [
-        100,
-        100
+        377.0015159234854,
+        651.6366444044418
       ]
     },
     "linearData": {

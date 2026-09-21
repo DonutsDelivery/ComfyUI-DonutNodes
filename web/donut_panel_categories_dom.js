@@ -1,7 +1,7 @@
 // DOM adapters reuse the existing panel's widget callbacks and LoRA row editor.
 // No second slots_json implementation, catalog service, or model loader.
 import {app} from '../../scripts/app.js';
-import {graphEntries, SIZE_FIELDS, widgetValue} from './donut_panel_categories_model.js?v=2';
+import {graphEntries, SIZE_FIELDS, widgetValue} from './donut_panel_categories_model.js?v=7';
 import {sizingVisibility} from './donut_reference_crop_geometry.js';
 export const PANEL_CATEGORY_CSS = `
 .donut-section-columns>section:has(textarea),
