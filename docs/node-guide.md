@@ -193,7 +193,14 @@ workflow already zeroes the negative upstream, connect the original conditioning
 to `nag_negative`.
 
 The `nag_phi`, `nag_tau`, `nag_alpha`, and sigma controls match the standalone
-nodes. Edit NAG also exposes reference boosts, a boost mask, and fit mode. Reference
+nodes. Donut also provides optional alpha-normalized phi: with `nag_auto_phi`
+enabled, effective phi is `nag_phi_scale / nag_alpha`. A scale of 1.0 preserves
+the upstream default unclipped linear guidance coefficient
+(`0.25 * 4.0 = 1.0`), so alpha can change the NAG blend while phi compensates
+automatically. Set `nag_auto_phi` off to use `nag_phi` directly. Alpha or scale
+at zero resolves effective phi to zero rather than dividing by zero.
+
+Edit NAG also exposes reference boosts, a boost mask, and fit mode. Reference
 images, VAE, and target latents are supplied internally. Restart ComfyUI and
 refresh the browser to load the new inputs.
 
