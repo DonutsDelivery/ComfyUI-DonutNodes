@@ -13,6 +13,7 @@ experimental forward is attached only to the Donut-created NAG clone by
 :func:`install_donut_nag_experiment` (see ``krea2_nag_integration``).
 """
 import torch
+import types
 
 NAG_TEXT_ENERGY_COMPENSATION = "nag_text_energy_compensation"
 NAG_BATCH_TXTFUSION = "nag_batch_txtfusion"
@@ -107,6 +108,71 @@ def _repeat_batch(tensor, batch):
     return comfy.utils.repeat_to_batch_size(tensor, batch)
 
 
+def _normalized_attention_guidance_no_tau(positive, negative, phi, tau, alpha):
+    """Upstream NAG with only the tau clipping step removed."""
+    if positive.shape != negative.shape:
+        raise ValueError(
+            f"NAG attention shapes must match, got {tuple(positive.shape)} and {tuple(negative.shape)}"
+        )
+    dtype = positive.dtype
+    z_pos = positive.float()
+    z_neg = negative.float()
+    guided = z_pos + float(phi) * (z_pos - z_neg)
+    refined = float(alpha) * guided + (1.0 - float(alpha)) * z_pos
+    if not bool(torch.isfinite(refined).all().item()):
+        raise RuntimeError("NAG no-tau experiment produced NaN/Inf before restoring attention dtype")
+    out = refined.to(dtype=dtype)
+    if not bool(torch.isfinite(out).all().item()):
+        raise RuntimeError("NAG no-tau experiment overflowed while restoring attention dtype")
+    return out
+
+
+def _guide_attention_tail_no_tau(positive, negative, positive_start, negative_start, phi, tau, alpha):
+    positive_tail = positive[:, positive_start:]
+    negative_tail = negative[:, negative_start:]
+    guided_tail = _normalized_attention_guidance_no_tau(
+        positive_tail, negative_tail, phi=phi, tau=tau, alpha=alpha,
+    )
+    return torch.cat((positive[:, :positive_start], guided_tail), dim=1)
+
+
+def _clone_function_with_globals(function, replacements):
+    """Clone one Python function with selected globals, preserving its closure."""
+    if not isinstance(function, types.FunctionType):
+        raise TypeError(f"Expected Python function, got {type(function).__name__}")
+    global_map = dict(function.__globals__)
+    global_map.update(replacements)
+    cloned = types.FunctionType(
+        function.__code__, global_map, function.__name__,
+        function.__defaults__, function.__closure__,
+    )
+    cloned.__kwdefaults__ = getattr(function, "__kwdefaults__", None)
+    cloned.__annotations__ = dict(getattr(function, "__annotations__", {}))
+    cloned.__dict__.update(getattr(function, "__dict__", {}))
+    cloned.__module__ = function.__module__
+    cloned.__doc__ = function.__doc__
+    return cloned
+
+
+def _nag_block_for_mode(upstream, disable_tau_clipping):
+    if not disable_tau_clipping:
+        return upstream._nag_block
+    return _clone_function_with_globals(
+        upstream._nag_block,
+        {"normalized_attention_guidance": _normalized_attention_guidance_no_tau},
+    )
+
+
+def _edit_forward_without_tau(upstream):
+    edit_block = _clone_function_with_globals(
+        upstream._nag_edit_block,
+        {"guide_attention_tail": _guide_attention_tail_no_tau},
+    )
+    return _clone_function_with_globals(
+        upstream.krea2_edit_nag_forward,
+        {"_nag_edit_block": edit_block},
+    )
+
 def donut_nag_forward(
     model,
     x,
@@ -118,6 +184,7 @@ def donut_nag_forward(
     tau,
     alpha,
     upstream,
+    disable_tau_clipping=False,
 ):
     """Mirror of upstream ``krea2_nag_forward`` with the text stage swapped.
 
@@ -129,7 +196,7 @@ def donut_nag_forward(
     from einops import rearrange
     from comfy.ldm.flux.layers import timestep_embedding
 
-    _nag_block = upstream._nag_block
+    _nag_block = _nag_block_for_mode(upstream, disable_tau_clipping)
 
     temporal = x.ndim == 5
     if temporal:
@@ -238,7 +305,8 @@ def _experiment_is_active(transformer_options, state):
 
 
 def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
-                                 sigma_start, sigma_end):
+                                 sigma_start, sigma_end,
+                                 disable_tau_clipping=False):
     """Attach the experimental forward to this Donut NAG clone only.
 
     Reads both flags from the clone's fusion budget. With both flags absent
@@ -248,7 +316,8 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     budget = (options.get("transformer_options") or {}).get("donut_krea2_fusion_budget") or {}
     wants_energy = budget.get(NAG_TEXT_ENERGY_COMPENSATION) is True
     wants_batch = budget.get(NAG_BATCH_TXTFUSION) is True
-    if not (wants_energy or wants_batch) or not nag_negative:
+    wants_no_tau = bool(disable_tau_clipping)
+    if not (wants_energy or wants_batch or wants_no_tau) or not nag_negative:
         return patched
 
     import comfy.patcher_extension
@@ -256,8 +325,32 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     wrapper_type = comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL
     existing = (getattr(patched, "wrappers", {}) or {}).get(wrapper_type, {})
     if "krea2_edit_normalized_attention_guidance" in existing:
-        # The combined edit forward is a different upstream function; the
-        # experimental T2I text stage must not replace it.
+        # Text-energy/batching experiments remain T2I-only. No-tau can reuse
+        # upstream's combined edit wrapper while replacing only its local
+        # krea2_edit_nag_forward global with a cloned no-tau version.
+        if not wants_no_tau:
+            return patched
+        wrappers = list(existing.get("krea2_edit_normalized_attention_guidance", ()))
+        if len(wrappers) != 1:
+            raise RuntimeError("NAG no-tau experiment expected exactly one Krea2Edit NAG wrapper")
+        upstream = _nag_module()
+        edit_forward = _edit_forward_without_tau(upstream)
+        original = wrappers[0]
+        if not isinstance(original, types.FunctionType):
+            raise RuntimeError("NAG no-tau experiment cannot clone the installed Krea2Edit wrapper")
+        cloned = _clone_function_with_globals(
+            original, {"krea2_edit_nag_forward": edit_forward},
+        )
+        cloned._donut_no_tau_clipping = True
+        patched.remove_wrappers_with_key(
+            comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+            "krea2_edit_normalized_attention_guidance",
+        )
+        patched.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL,
+            "krea2_edit_normalized_attention_guidance",
+            cloned,
+        )
         return patched
     from types import SimpleNamespace
 
@@ -307,6 +400,7 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
             state.tau,
             state.alpha,
             upstream,
+            disable_tau_clipping=wants_no_tau,
         )
 
     wrapper._donut_uses_upstream_nag_module = upstream
