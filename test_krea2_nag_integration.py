@@ -47,6 +47,23 @@ class NAGIntegrationTests(unittest.TestCase):
         self.negative = [[torch.ones(1, 2, 4), {'pooled_output': torch.ones(1, 4)}]]
         self.target = {'samples': torch.zeros(2, 16, 8, 12)}
 
+    def test_no_tau_widget_is_append_only_and_defaults_off(self):
+        schema = nag.nag_input_types()
+        self.assertEqual(list(schema)[-1], "nag_disable_tau_clipping")
+        self.assertIs(schema["nag_disable_tau_clipping"][1]["default"], False)
+
+    def test_no_tau_flag_reaches_model_local_installer_not_upstream_node(self):
+        model = Model()
+        with patch.object(
+            nag, "install_donut_nag_experiment", side_effect=lambda patched, **kwargs: patched
+        ) as install:
+            nag.apply_krea2_nag(
+                model, self.negative, nag_enabled=True,
+                nag_disable_tau_clipping=True,
+            )
+        self.assertNotIn("disable_tau_clipping", CaptureNAG.calls[0])
+        self.assertIs(install.call_args.kwargs["disable_tau_clipping"], True)
+
     def test_disabled_needs_no_dependency_and_does_not_clone(self):
         model = Model()
         with patch.dict(nag.nodes.NODE_CLASS_MAPPINGS, {}, clear=True):

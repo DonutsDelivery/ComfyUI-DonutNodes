@@ -11,11 +11,48 @@ from donut_nag_txtfusion import (
     NAG_TEXT_ENERGY_COMPENSATION,
     _fused_text,
     _nudge_tap_energy,
+    _normalized_attention_guidance_no_tau,
+    _nag_block_for_mode,
     donut_nag_forward,
     ensure_nag_txtfusion_is_batched,
     install_donut_nag_experiment,
 )
 from DonutKrea2FusionControl import FUSION_BUDGET_KEY, copy_fusion_budget, prepare_nag_conditioning
+
+
+class NoTauMathTests(unittest.TestCase):
+    def test_no_tau_matches_unclipped_equation_even_when_upstream_would_clip(self):
+        positive = torch.tensor([[[1.0, 0.0]]])
+        negative = torch.tensor([[[-1.0, 0.0]]])
+        result = _normalized_attention_guidance_no_tau(
+            positive, negative, phi=4.0, tau=2.5, alpha=0.45,
+        )
+        guided = positive.float() + 4.0 * (positive.float() - negative.float())
+        expected = 0.45 * guided + 0.55 * positive.float()
+        torch.testing.assert_close(result, expected)
+        ratio = guided.abs().sum(-1) / positive.float().abs().sum(-1)
+        self.assertGreater(ratio.item(), 2.5)
+
+    def test_no_tau_raises_on_output_dtype_overflow(self):
+        positive = torch.full((1, 1, 2), 40000.0, dtype=torch.float16)
+        negative = torch.full((1, 1, 2), -40000.0, dtype=torch.float16)
+        with self.assertRaisesRegex(RuntimeError, "overflowed"):
+            _normalized_attention_guidance_no_tau(
+                positive, negative, phi=4.0, tau=2.5, alpha=0.45,
+            )
+
+    def test_block_clone_changes_only_guidance_global(self):
+        module = types.ModuleType("_no_tau_upstream")
+        exec(
+            "def normalized_attention_guidance(*args, **kwargs):\n    return 'upstream'\n"
+            "def _nag_block():\n    return normalized_attention_guidance()\n",
+            module.__dict__,
+        )
+        cloned = _nag_block_for_mode(module, True)
+        self.assertIs(module._nag_block(), "upstream")
+        with self.assertRaises(TypeError):
+            cloned()
+        self.assertIs(module._nag_block(), "upstream")
 
 
 class TxtfusionHelperTests(unittest.TestCase):
@@ -418,6 +455,42 @@ class InstallExperimentTests(unittest.TestCase):
         self.assertEqual(model.added[0][1], "donut_nag_text_energy_experiment")
         self.assertIs(model.added[0][2]._donut_uses_upstream_nag_module, fake_krea)
         self.assertIn(("diffusion_model", "krea2_normalized_attention_guidance"), model.removed)
+
+    def test_no_tau_flag_installs_wrapper_without_old_experiment_flags(self):
+        model = self._model(budget={"nag_match_taps": True})
+        cond = [[torch.ones(1, 2, 30720), {}]]
+        wrapper_type = "diffusion_model"
+        import comfy.patcher_extension as pe
+        pe.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL=wrapper_type)
+        fake_krea = types.ModuleType("_fake_no_tau_nag")
+        exec(
+            "def normalized_attention_guidance(*args, **kwargs):\n    return None\n"
+            "def _nag_block(*args, **kwargs):\n    return normalized_attention_guidance(*args, **kwargs)\n",
+            fake_krea.__dict__,
+        )
+        fake_pack = types.ModuleType("_fake_no_tau_pack")
+        fake_pack.krea2_nag = fake_krea
+        fake_nodes_mod = types.ModuleType("_fake_no_tau_pack.nodes")
+        class FakeNAG:
+            pass
+        FakeNAG.__module__ = "_fake_no_tau_pack.nodes"
+        fake_nodes = types.ModuleType("nodes")
+        fake_nodes.NODE_CLASS_MAPPINGS = {"Krea2NormalizedAttentionGuidance": FakeNAG}
+        with patch.dict(sys.modules, {
+            "nodes": fake_nodes,
+            "_fake_no_tau_pack": fake_pack,
+            "_fake_no_tau_pack.nodes": fake_nodes_mod,
+            "_fake_no_tau_pack.krea2_nag": fake_krea,
+        }):
+            install_donut_nag_experiment(
+                model, nag_negative=cond, phi=4.0, tau=2.5, alpha=0.45,
+                sigma_start=1000.0, sigma_end=0.0,
+                disable_tau_clipping=True,
+            )
+        self.assertEqual(len(model.added), 1)
+        wrapper = model.added[0][2]
+        self.assertEqual(model.added[0][1], "donut_nag_text_energy_experiment")
+        self.assertIs(wrapper._donut_uses_upstream_nag_module, fake_krea)
 
     def test_edit_nag_path_is_left_alone(self):
         budget = {NAG_TEXT_ENERGY_COMPENSATION: True}

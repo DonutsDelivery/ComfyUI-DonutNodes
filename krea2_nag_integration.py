@@ -24,11 +24,17 @@ def nag_input_types():
         "nag_ref_boost_a": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
         "nag_fit_mode": (["fit", "crop (legacy)"], {"default": "fit"}),
         "nag_ref_boost_mask": ("MASK",),
+        # Append-only: preserve every existing serialized NAG widget position.
+        "nag_disable_tau_clipping": ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: bypass NAG's tau norm clipping entirely. Phi/alpha and all other NAG math remain unchanged. Can expose very large guidance vectors; nonfinite results raise instead of being hidden.",
+        }),
     }
 
 
 def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
-                    nag_phi=4.0, nag_tau=2.5, nag_alpha=0.25,
+                    nag_phi=4.0, nag_tau=2.5, nag_disable_tau_clipping=False,
+                    nag_alpha=0.25,
                     nag_sigma_start=1000.0, nag_sigma_end=0.0,
                     nag_ref_boost=1.0, nag_ref_boost_a=1.0,
                     nag_fit_mode="fit", nag_ref_boost_mask=None,
@@ -80,6 +86,7 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
         phi=nag_phi,
         tau=nag_tau,
         alpha=nag_alpha,
+        disable_tau_clipping=bool(nag_disable_tau_clipping),
         sigma_start=nag_sigma_start,
         sigma_end=nag_sigma_end,
     )
