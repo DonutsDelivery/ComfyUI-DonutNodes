@@ -18,9 +18,9 @@ Package is built from committed source, excluding unrelated unconfirmed Edit
 Studio switch changes. Release commit `de04eb8` pushed to main. Registry upload
 succeeded and local CLI security checks passed.
 
-Exact version checked 2026-09-20 01:14:06 UTC: `NodeVersionStatusPending`,
-with empty status reason. Approval remains unverified. Hourly checks offered;
-no recurring monitor scheduled without the user's yes.
+Exact version checked 2026-09-20 02:27:49 UTC: `NodeVersionStatusActive`,
+with status reason `Passed automated checks`. The exact published version is
+approved by Registry review.
 
 Published ZIP matches staging per member (207 entries). No `.bind(` calls in
 packaged Python; installer scripts, downloader backend, credentials and development
