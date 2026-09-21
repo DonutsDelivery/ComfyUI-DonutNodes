@@ -56,12 +56,24 @@ def match_contribution(reference, patched, *, batch_size, max_gain=4.0):
     return adjusted, r0.detach(), r1.detach(), gain.detach(), ratio.ne(gain).sum().item()
 
 
-def affected_components(model) -> set[str]:
-    """Find active native or recorded Donut bypass adapters; do not convert them."""
+def _looks_like_weight_adapter(value) -> bool:
+    """Distinguish LoRA/adapter patches from ordinary merge patch payloads."""
+    return hasattr(value, "weights") or hasattr(value, "loaded_keys")
+
+
+def active_adapter_keys(model) -> set[str]:
+    """Return active txtfusion adapter keys on one patcher without merge patches."""
     keys = set()
     for key, entries in getattr(model, "patches", {}).items():
-        if isinstance(key, str) and any(float(entry[0]) != 0 or float(entry[2]) != 1 for entry in entries):
-            keys.add(key)
+        if not isinstance(key, str):
+            continue
+        for entry in entries:
+            if not isinstance(entry, (list, tuple)) or len(entry) < 3:
+                continue
+            strength, adapter = float(entry[0]), entry[1]
+            if strength != 0.0 and _looks_like_weight_adapter(adapter):
+                keys.add(key)
+                break
     getter = getattr(model, "get_attachment", None)
     bypass = getter(BYPASS_KEY) if callable(getter) else None
     if bypass is not None and not isinstance(bypass, dict):
@@ -71,13 +83,74 @@ def affected_components(model) -> set[str]:
     for key, entries in (bypass or {}).items():
         if any(float(strength) != 0 for _, strength in entries):
             keys.add(key)
+    return {key for key in keys if key.startswith(PREFIX)}
+
+
+def _components_from_keys(keys) -> set[str]:
     result = set()
     for key in keys:
-        if key.startswith(PREFIX):
-            match = _COMPONENT.match(key[len(PREFIX):])
-            if match:
-                result.add(".".join(match.groups()))
+        match = _COMPONENT.match(key[len(PREFIX):]) if key.startswith(PREFIX) else None
+        if match:
+            result.add(".".join(match.groups()))
     return result
+
+
+def affected_components(model) -> set[str]:
+    """Find active native or recorded Donut bypass adapters on one patcher."""
+    return _components_from_keys(active_adapter_keys(model))
+
+
+def _merge_support(model):
+    """Resolve Donut's runtime model2 swaps without accepting unknown injections.
+
+    Returns (source_model_or_none, plans, ownership) where ownership maps each
+    guarded txtfusion attention/MLP component to "primary" or "retained model2".
+    A component is source-owned only when all of its linear submodules are hard
+    swapped; mixed ownership is rejected because one checkpoint reference cannot
+    represent that component faithfully.
+    """
+    try:
+        from .donut_krea2_merge_serialization import (
+            KREA2_MERGE_INJECTION_KEY, get_krea2_merge_bypass_info,
+        )
+    except ImportError:
+        from donut_krea2_merge_serialization import (
+            KREA2_MERGE_INJECTION_KEY, get_krea2_merge_bypass_info,
+        )
+
+    injections = getattr(model, "injections", {})
+    injection_keys = set(injections) if isinstance(injections, dict) else set()
+    unknown = injection_keys - {"donut_bypass_lora", KREA2_MERGE_INJECTION_KEY}
+    if unknown:
+        raise ValueError(
+            "Guard does not support unrelated model injections: "
+            + ", ".join(sorted(map(str, unknown)))
+        )
+
+    info = get_krea2_merge_bypass_info(model) if KREA2_MERGE_INJECTION_KEY in injection_keys else None
+    if info is None:
+        return None, (), {}
+
+    source, plans, _ = info
+    plan_paths = {module_path for module_path, _key, ratio in plans if float(ratio) == 0.0}
+    linear_suffixes = {
+        "attn": ("wq", "wk", "wv", "gate", "wo"),
+        "mlp": ("gate", "up", "down"),
+    }
+    ownership = {}
+    candidates = affected_components(model) | affected_components(source)
+    for component in candidates:
+        kind = component.rsplit(".", 1)[-1]
+        expected = {PREFIX + component + "." + suffix for suffix in linear_suffixes[kind]}
+        swapped = expected & plan_paths
+        if swapped and swapped != expected:
+            missing = ", ".join(sorted(expected - swapped))
+            raise ValueError(
+                "Checkpoint txtfusion guard cannot represent a partially swapped "
+                f"merge component {component!r}; unswapped linear(s): {missing}"
+            )
+        ownership[component] = "retained model2" if swapped == expected else "primary"
+    return source, tuple(plans), ownership
 
 
 def load_reference_states(path, components, *, opener=None):
@@ -275,12 +348,31 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
     budget = model.model_options.get("transformer_options", {}).get("donut_krea2_fusion_budget", {})
     if budget.get("nag_text_energy_compensation") or budget.get("nag_batch_txtfusion"):
         raise ValueError("Disable midpoint RMS compensation and txtfusion batching for this isolated experiment")
-    if any(key != "donut_bypass_lora" for key in getattr(model, "injections", {})):
-        raise ValueError("Guard does not yet support model merges, SDA or other model injections")
-    components = affected_components(model)
+    source, _merge_plans, ownership = _merge_support(model)
+    primary_components = affected_components(model)
+    source_components = affected_components(source) if source is not None else set()
+    components = primary_components | source_components
     if not components:
         LOGGER.info("[Donut txtfusion guard] no active attention/MLP adapters; unchanged")
         return model, None
+    if source is not None:
+        owners = {ownership.get(component, "primary") for component in components}
+        if len(owners) != 1:
+            raise ValueError(
+                "Checkpoint txtfusion guard needs one effective txtfusion checkpoint, "
+                "but active adapter components span both primary and retained model2"
+            )
+        owner = next(iter(owners))
+        wrong_primary = {component for component in primary_components
+                         if ownership.get(component, "primary") != "primary"}
+        wrong_source = {component for component in source_components
+                        if ownership.get(component, "primary") != "retained model2"}
+        if wrong_primary or wrong_source:
+            raise ValueError(
+                "Adapter routing does not match the active Donut merge ownership; "
+                "queue the workflow again before testing the guard"
+            )
+        LOGGER.info("[Donut txtfusion guard] merge-aware reference owner: %s", owner)
     if reference_path is None:
         raise ValueError("Select the same checkpoint in the V5 txtfusion reference control before enabling the guard")
     fusion = model.get_model_object("diffusion_model").txtfusion
