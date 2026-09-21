@@ -467,7 +467,7 @@
         "",
         "",
         false,
-        "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. \nThe character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n",
+        "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. \nThe character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n",
         "Preset",
         "4:3 Standard",
         1,
@@ -512,7 +512,7 @@
         "image_a": "",
         "image_b": "",
         "use_reference_b": false,
-        "prompt": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. \nThe character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n",
+        "prompt": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. \nThe character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n",
         "resolution_mode": "Preset",
         "aspect_ratio": "4:3 Standard",
         "megapixels": 1,
@@ -10988,10 +10988,10 @@
               }
             },
             "widgets_values": [
-              "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. "
+              "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. "
             ],
             "widgets_values_named": {
-              "Text": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing thick black framed prescription glasses. she has brown wavey hair. she has an innocent smirk with her mouth closed. "
+              "Text": "High Quality Real Photo of a character who's face can be described by: a 21 year old female, wearing glasses so thick the optician filed them under industrial equipment. she has brown wavey hair and the expression of someone having the best idea of her life. "
             },
             "color": "#232",
             "bgcolor": "#353"
@@ -11032,10 +11032,10 @@
               }
             },
             "widgets_values": [
-              "The character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n"
+              "The character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n"
             ],
             "widgets_values_named": {
-              "Text": "The character characters appearance can also be described by: her red and white thick vertically striped blouse and her blue denim jeans, and her red and white stiped winter hat. She is has and oldschool brown walking stick. \nAnd the photo and background also consists of: it is a wide angle landscape photo. She is hiding among a chaotic crowd, she is hard to find.\n"
+              "Text": "The character's appearance can also be described by: her red and white thick vertically striped blouse, blue denim jeans, and a red and white striped winter hat. Her oldschool brown walking stick has a handwritten sign taped to it reading BACK IN 5 MINUTES. \nAnd the photo and background also consists of: it is an impossibly wide angle photo of a chaotic crowd where, suspiciously, everyone is also wearing a red and white striped shirt and hat, including at least two dogs and one mailman. She is technically hiding but has made the strategic error of standing one head taller than everybody else.\n"
             },
             "color": "#323",
             "bgcolor": "#535"
