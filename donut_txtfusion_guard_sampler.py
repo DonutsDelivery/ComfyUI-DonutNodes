@@ -27,7 +27,7 @@ class DonutSampler(_Base):
                  if name.lower().endswith(".safetensors")]
         optional["txtfusion_reference_checkpoint"] = (["None", *names], {
             "default": "None",
-            "tooltip": "Select the SAME diffusion checkpoint as the base model, before extra LoRAs. Reads only txtfusion references; never copies live patched weights. Shape matching cannot verify checkpoint identity. FP8/packed txtfusion and model merges are not supported yet.",
+            "tooltip": "Select the checkpoint that owns the EFFECTIVE txtfusion before extra LoRAs. For V5 grouped merges with Fusion ratio 0, this is the Secondary model; without a txtfusion swap, it is the Primary model. Reads only txtfusion references and never copies live patched weights. Mixed primary/model2 txtfusion ownership and FP8/packed txtfusion are rejected.",
         })
         return schema
 
