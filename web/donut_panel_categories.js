@@ -26,7 +26,13 @@ function observePanels() {
             if (!root) continue;
             roots.add(root);
             if (observed.has(root)) continue;
-            const observer = new MutationObserver(() => synchronize());
+            // Our own re-renders (LoRA row rebuilds, image-size label toggles)
+            // mutate this subtree; each mutation used to run synchronize()
+            // synchronously — a full graph walk per DOM node — and during
+            // heavy panel churn Firefox content processes were crashing in
+            // the compositor. Route observer work through the same batched
+            // refresh so a burst of mutations collapses into one pass.
+            const observer = new MutationObserver(() => refresh());
             // Catalog arrival and row reordering rebuild the original LoRA DOM.
             observer.observe(root,{childList:true,subtree:true});
             const change = () => queueMicrotask(() => {
