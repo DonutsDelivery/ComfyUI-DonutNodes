@@ -47,16 +47,20 @@ split between primary and retained model2, or active guarded components spanning
 both owners, is rejected because one reference file cannot represent that state.
 Arbitrary txtfusion LoRAs are not yet image-validated.
 
-**Reference support is initially plain FP16/BF16/FP32 txtfusion tensors.** Packed
-or FP8 txtfusion, including scaling/quantization metadata, is not supported in
-this PR. Body-only quantization is separate. Do not switch execution mode or
-use a different reference model merely to get past a check.
+**Reference support has two paths.** Plain FP16/BF16/FP32 txtfusion can use the
+explicit safetensors file reference. V5's grouped Experimental-bypass merge with
+Fusion ratio 0 instead uses the retained Secondary/model2 component's captured
+base forwards as the checkpoint reference. This preserves the checkpoint's own
+quantized kernels and weights and bypasses later Donut LoRA forward hooks; it does
+not dequantize or reconstruct the component. Quantized txtfusion with regular or
+already-materialized adapter patches remains unsupported and is rejected.
 
-The reference dropdown must select the checkpoint that owns the **effective
-txtfusion** before additional adapters. With no txtfusion model2 swap this is
-the Primary model. With V5's grouped merge and **Fusion ratio 0**, txtfusion is
-owned by the retained Secondary model, so select that Secondary checkpoint.
-Shape checks cannot prove this identity. The file name and SHA-256 digest of selected reference tensors are
+The reference dropdown is a fallback for file-derived references. With V5's
+grouped Experimental-bypass merge and **Fusion ratio 0**, the guard automatically
+uses the retained Secondary/model2 checkpoint implementation, so the dropdown may
+remain **None**. On paths that cannot use that retained runtime reference, select
+the checkpoint that owns the effective txtfusion before additional adapters.
+Shape checks cannot prove file identity. The file name and SHA-256 digest of selected reference tensors are
 logged; the code does not assert it inferred the original loader's filename.
 
 References stay on CPU and are cast per component call. This adds checkpoint
@@ -117,9 +121,10 @@ prove it fixes the user's images or that every third-party wrapper is compatible
 ## Remaining acceptance check
 
 In a separate audit workflow/session after restarting the backend and refreshing
-the frontend, select the effective txtfusion reference checkpoint in the V5 panel (Secondary
-model when the grouped merge uses Fusion ratio 0; otherwise Primary when
-no txtfusion model2 swap is active). Keep NAG
+the frontend, leave the txtfusion reference at **None** for the normal V5 grouped
+Experimental-bypass merge with Fusion ratio 0; the retained Secondary/model2
+checkpoint is used automatically. Select a file only on a fallback path that
+explicitly requests one. Keep NAG
 alpha **0.45**, eight-step Turbo, existing Bleh preset/beta, Rebalance and
 UncensorFix unchanged. Keep the older two experiments Off. Compare guard Off
 versus On with the same seed/expanded prompt. Save the base-pass decode and PNG
