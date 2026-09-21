@@ -17,10 +17,6 @@ def nag_input_types():
         "nag_negative": ("CONDITIONING", {"tooltip": "Unzeroed negative prompt for NAG. Fusion Rebalance/taps are applied to match the positive stream. Defaults to edit_negative_prompt in edit mode, otherwise negative."}),
         "nag_phi": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 20.0, "step": 0.1}),
         "nag_tau": ("FLOAT", {"default": 2.5, "min": 0.01, "max": 20.0, "step": 0.05}),
-        "nag_disable_tau_clipping": ("BOOLEAN", {
-            "default": False,
-            "tooltip": "EXPERIMENT: bypass NAG's tau norm clipping entirely. Phi/alpha and all other NAG math remain unchanged. Can expose very large guidance vectors; nonfinite results raise instead of being hidden.",
-        }),
         "nag_alpha": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01}),
         "nag_sigma_start": ("FLOAT", {"default": 1000.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
         "nag_sigma_end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
@@ -28,6 +24,11 @@ def nag_input_types():
         "nag_ref_boost_a": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
         "nag_fit_mode": (["fit", "crop (legacy)"], {"default": "fit"}),
         "nag_ref_boost_mask": ("MASK",),
+        # Append-only: preserve every existing serialized NAG widget position.
+        "nag_disable_tau_clipping": ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: bypass NAG's tau norm clipping entirely. Phi/alpha and all other NAG math remain unchanged. Can expose very large guidance vectors; nonfinite results raise instead of being hidden.",
+        }),
     }
 
 
