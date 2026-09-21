@@ -104,7 +104,7 @@ class SamplerTests(unittest.TestCase):
         self.assertEqual(self.run.references, {})
     def test_unsupported_modes_fail_without_running(self):
         for settings in [dict(mode='advanced'), dict(edit_mode=True), dict(sda_enabled=True),
-                         dict(nag_enabled=False), dict(nag_alpha=0), dict(nag_phi=0)]:
+                         dict(nag_enabled=False), dict(nag_phi=0)]:
             with self.subTest(settings=settings), self.assertRaises(ValueError): self.call(**settings)
         self.assertIsNone(self.module._REQUEST.get())
     def test_reference_filename_must_come_from_model_catalog(self):

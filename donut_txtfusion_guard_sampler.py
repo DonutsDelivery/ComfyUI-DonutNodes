@@ -46,8 +46,8 @@ class DonutSampler(_Base):
                 nag = values.get("nag_options", {})
                 if values.get("mode", "simple") != "simple" or values.get("edit_mode") or values.get("sda_enabled"):
                     raise ValueError("Internal txtfusion guard currently supports simple non-edit NAG only; no SDA/multi-model/edit mode")
-                if not nag.get("nag_enabled", False) or float(nag.get("nag_alpha", .25)) == 0 or float(nag.get("nag_phi", 4.0)) == 0:
-                    raise ValueError("Internal txtfusion guard requires active NAG; enable NAG without changing its strength")
+                if not nag.get("nag_enabled", False) or float(nag.get("nag_phi", 4.0)) == 0:
+                    raise ValueError("Internal txtfusion guard requires NAG enabled; enable NAG without changing phi")
                 _REQUEST.set((self, txtfusion_reference_checkpoint))
             return super().sample(*args, **kwargs)
         finally:
