@@ -274,7 +274,8 @@ def _runtime_reference(component, kind):
     proxy = type("_CheckpointComponentView", (), {})()
     if kind == "attn":
         for name in ("heads", "kvheads", "headdim", "qknorm"):
-            setattr(proxy, name, getattr(component, name))
+            if hasattr(component, name):
+                setattr(proxy, name, getattr(component, name))
         for name in ("wq", "wk", "wv", "gate", "wo"):
             setattr(proxy, name, _ForwardCall(getattr(component, name)))
     elif kind == "mlp":
@@ -468,8 +469,9 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
     else:
         if reference_path is None:
             raise ValueError(
-                "Select the effective txtfusion checkpoint in the V5 reference control "
-                "before enabling the guard"
+                "Select the same checkpoint as the model's effective txtfusion "
+                "in the V5 reference control before enabling the guard: "
+                "the guard must never substitute a late live-weight snapshot"
             )
         validate_structure(fusion, allow_quantized=False)
         states, digest = load_reference_states(reference_path, components)
@@ -504,5 +506,6 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
     options["transformer_options"] = transformer
     patched.model_options = options
     LOGGER.info("[Donut txtfusion guard] base-pass only; reference=%s; sha256=%s; components=%s",
-                Path(reference_path).name, digest, ",".join(sorted(components)))
+                None if reference_path is None else Path(reference_path).name,
+                digest, ",".join(sorted(components)))
     return patched, run
