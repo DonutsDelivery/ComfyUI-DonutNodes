@@ -250,11 +250,14 @@ class InternalGuardTests(unittest.TestCase):
         self.model.patches[key] = [(1.0, [(torch.ones(1), lambda x: x)], 0.0, None, None)]
         self.assertEqual(guard.affected_components(self.model), set())
 
-    def test_v5_full_txtfusion_model2_swap_is_supported(self):
+    def test_v5_full_txtfusion_model2_swap_uses_runtime_checkpoint_reference(self):
         source_fusion = copy.deepcopy(self.fusion)
         source = Patcher(source_fusion)
         key = guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'
-        source.patches[key] = [(1.0, types.SimpleNamespace(weights=()), 1.0, None, None)]
+        source.injections['donut_bypass_lora'] = [object()]
+        source.attachments[guard.BYPASS_KEY] = {
+            key: [(types.SimpleNamespace(weights=()), 1.0)]
+        }
         # The component is fully owned by model2 when every attention linear is
         # an exact runtime swap, matching V5's grouped fusion_ratio=0 path.
         plans = tuple(
@@ -266,13 +269,17 @@ class InternalGuardTests(unittest.TestCase):
         merge.KREA2_MERGE_INJECTION_KEY = 'donut_krea2_model_merge_bypass'
         merge.get_krea2_merge_bypass_info = lambda model: (source, plans, ())
         self.model.injections[merge.KREA2_MERGE_INJECTION_KEY] = [object()]
-        source_state = {f'txtfusion.{k}': v.detach().clone()
-                        for k, v in source_fusion.state_dict().items()}
-        save_file(source_state, str(self.file))
         with patch.dict(sys.modules, {'donut_krea2_merge_serialization': merge}):
-            installed, run = guard.install_guard(self.model, self.file)
+            installed, run = guard.install_guard(self.model, None)
         self.assertIsNotNone(run)
-        self.assertIn('layerwise_blocks.0.attn', run.references)
+        self.assertEqual(run.digest, 'runtime-checkpoint:retained-model2')
+        reference = run.references['layerwise_blocks.0.attn']
+        value = torch.randn(1, 3, 4)
+        before = reference(value, mask=None, transformer_options={})
+        original = source_fusion.layerwise_blocks[0].attn.wo.forward
+        source_fusion.layerwise_blocks[0].attn.wo.forward = lambda x: original(x) * 100
+        after = reference(value, mask=None, transformer_options={})
+        torch.testing.assert_close(before, after)
         self.assertIsNot(installed, self.model)
 
     def test_partial_component_model2_swap_is_rejected(self):
