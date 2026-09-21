@@ -351,6 +351,15 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
     source, _merge_plans, ownership = _merge_support(model)
     primary_components = affected_components(model)
     source_components = affected_components(source) if source is not None else set()
+    if source is not None:
+        # Adapters already present on model2 only matter for components whose
+        # forwards are actually swapped to model2. Primary-side bypass adapters
+        # may intentionally wrap those swapped forwards, so their storage
+        # location does not determine checkpoint ownership.
+        source_components = {
+            component for component in source_components
+            if ownership.get(component, "primary") == "retained model2"
+        }
     components = primary_components | source_components
     if not components:
         LOGGER.info("[Donut txtfusion guard] no active attention/MLP adapters; unchanged")
@@ -363,15 +372,6 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
                 "but active adapter components span both primary and retained model2"
             )
         owner = next(iter(owners))
-        wrong_primary = {component for component in primary_components
-                         if ownership.get(component, "primary") != "primary"}
-        wrong_source = {component for component in source_components
-                        if ownership.get(component, "primary") != "retained model2"}
-        if wrong_primary or wrong_source:
-            raise ValueError(
-                "Adapter routing does not match the active Donut merge ownership; "
-                "queue the workflow again before testing the guard"
-            )
         LOGGER.info("[Donut txtfusion guard] merge-aware reference owner: %s", owner)
     if reference_path is None:
         raise ValueError("Select the same checkpoint in the V5 txtfusion reference control before enabling the guard")
