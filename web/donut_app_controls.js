@@ -7,6 +7,7 @@ import { weightControl, vectorControl } from "./donut_weight_controls.js";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
 import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=15";
 
+const NAG_SHARED_WIDGETS = ["nag_phi","nag_auto_phi","nag_phi_scale","nag_tau","nag_sigma_start","nag_sigma_end","nag_ref_boost","nag_ref_boost_a","nag_fit_mode"];
 const service = createLoraService(api);
 const FUSION_PRESET = (tapMethod, tapProfile, tapNormalization, projectorMethod, fusionMethod) => ({
     tap_method: tapMethod, tap_profile: tapProfile, tap_strength: 1,
@@ -108,6 +109,32 @@ function install(node, appOnly = false) {
     const refreshers = [];
     function commit(target, widget, value) {
         commitWidget(target, widget, value);
+        if (NAG_SHARED_WIDGETS.includes(widget.name)) {
+            // Shared NAG settings live on the base sampler but every stage
+            // node keeps its own serialized widget. A global change commits
+            // the same value to the same-named widgets of the workflow
+            // family's other NAG-capable nodes, honoring the per-stage
+            // nag_enabled only (that one never mirrors).
+            const controls = node.properties?.donut_app_controls?.groups?.flatMap(group => group.controls || []) || [];
+            const source = controls.find(item => item.widget === widget.name && resolve(item.path) === target);
+            const seen = new Set([target.id]);
+            for (const item of controls) {
+                if (item.widget !== widget.name) continue;
+                const destination = resolve(item.path);
+                if (!destination || seen.has(destination.id)) continue;
+                seen.add(destination.id);
+                destination.graph.beforeChange();
+                const mirror = destination.widgets?.find(w => w.name === widget.name);
+                if (mirror) {
+                    mirror.value = value;
+                    mirror.callback?.(value, app.canvas, destination);
+                }
+                destination.graph.afterChange();
+                destination.setDirtyCanvas(true, true);
+            }
+            refreshControls();
+            return;
+        }
         if (!["compatibility_preset", "tap_strength"].includes(widget.name)) return;
         // v4 exposes the preset on the outer subgraph, while the advanced
         // controls address its inner Fusion node. The outer widget does not

@@ -26,6 +26,7 @@ function fixture() {
     const generate = panel(2,'06 · Generate & finish',[
         {title:'Generation and finish',color:'blue',controls:[...fields([800],['turbo_mode','steps','sampler_name','scheduler','cfg_start','denoise','rescale_factor','tiled_diffusion','upscale_1_enabled','denoise_1','max_faces','denoise_2','upscale_2_enabled']),{path:[800,5],mode:'bypass',title:'Face detail',fallback_type:'DonutFaceDetailer'}]},
         {title:'Advanced · Latent batch',advanced:true,controls:fields([800,2],['batch_size'])},
+        {title:'Base sampling · NAG',advanced:true,controls:fields([800,5],['nag_enabled','nag_phi','nag_tau'])},
         {title:'Advanced · First upscale',advanced:true,controls:fields([800,3],['resampling_method','feather','tiled_vae','nag_enabled'])},
         {title:'Advanced · Second upscale',advanced:true,controls:fields([800,4],['rescale_factor','tiled_diffusion','nag_phi'])},
         {title:'Advanced · First upscale · engine',donut_seedvr2:true,controls:fields([800,3],['upscale_engine'])},
@@ -64,12 +65,20 @@ test('every existing control and all backend values/links survive regrouping',()
     const after=controls(graph).filter(control=>control.path[0] !== 700).map(signature).sort();
     // The NAG experiment entries are injected aliases of existing Fusion
     // Control widgets (path [800]); they are additions, not moves, so the
-    // surviving set is the pre-organize set plus the two aliases.
+    // surviving set is the pre-organize set plus the two aliases. Shared NAG
+    // settings deliberately collapse onto the base sampler's bindings:
+    // per-stage duplicates of a shared nag widget drop when the base group
+    // carries the same widget (that stage keeps only nag_enabled).
     const aliases=[
         '{"path":[800,9],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
         '{"path":[800,9],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
     ];
-    same(after,[...before,...aliases].sort()); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
+    const expected=[...before,...aliases];
+    const stageDuplicates=expected.filter(item=>JSON.parse(item).path[0]===800
+        && (JSON.parse(item).path[1]===3 || JSON.parse(item).path[1]===4)
+        && ['nag_phi','nag_tau','nag_auto_phi','nag_phi_scale','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode'].includes(JSON.parse(item).widget));
+    same(after,expected.filter(item=>!stageDuplicates.includes(item)).sort());
+    same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
 });
 test('repeated imports/save/reload are idempotent',()=>{
     const graph=fixture(); organizeV4Panels(graph); const saved=JSON.stringify(graph);
@@ -301,4 +310,23 @@ test('fresh-install workflow uses public Krea2 without changing personal model c
     loaders[0].widgets_values[0]='personal.safetensors';
     organizeV4Panels(shipped); splitV4FinishingPanels(shipped);
     assert.equal(loaders[0].widgets_values[0],'personal.safetensors');
+});
+test('per-stage NAG groups shrink to the enable toggle; shared NAG settings globalize on the base sampler',()=>{
+    const graph={ ...JSON.parse(JSON.stringify((()=>{const g=fixture(); return g;})())), links:[] };
+    // Simulate V5: stage NAG groups carrying full settings on the generate panel
+    const generate=graph.nodes.find(node=>node.id===2);
+    generate.properties.donut_app_controls.groups.push(
+        {title:'Donut hires · first upscale · NAG',advanced:true,controls:fields([800,3],['nag_enabled','nag_phi','nag_tau'])},
+        {title:'Face detail · NAG',advanced:true,controls:fields([800,6],['nag_enabled','nag_phi'])},
+    );
+    generate.properties.donut_app_controls.groups.push(
+        {title:'Base sampling · NAG',advanced:true,controls:fields([800,5],['nag_enabled','nag_phi','nag_tau'])},
+    );
+    organizeV4Panels(graph);
+    const titles=generate.properties.donut_app_controls.groups.filter(group=>/NAG/.test(group.title)).map(group=>`${group.title}: ${(group.controls||[]).map(c=>c.widget).join(',')}`);
+    assert.ok(titles.some(t=>t.startsWith('Donut · first upscale · NAG on/off: nag_enabled')), titles.join('|'));
+    assert.ok(titles.some(t=>/Base sampling · NAG: .*nag_phi/.test(t)), titles.join('|'));
+    // Stage keeps only its enable toggle; base keeps all shared settings.
+    const firstNag=titles.find(t=>t.startsWith('Donut · first upscale'));
+    assert.ok(!/nag_phi|nag_tau/.test(firstNag), titles.join('|'));
 });

@@ -83,6 +83,13 @@ function classify(role, group, control) {
         if (group.donut_image_size) return bucket('Image size', 0);
         if (w === 'batch_size') return bucket('Batch', 5);
         if (/AuraFlow/i.test(title)) return bucket('AuraFlow sampling', 12);
+        // Per-stage NAG groups expose only the enable toggle; the shared NAG
+        // settings live in the guidance panel's global group instead.
+        if (/^nag_enabled$/.test(w) && /upscale/i.test(title)) {
+            const stageRank = /First upscale/i.test(title) ? 30 : 50;
+            return bucket(`Donut · ${/First/i.test(title) ? 'first' : 'second'} upscale · NAG on/off`, stageRank, true);
+        }
+        if (/^nag_/.test(w) && /upscale|Face detail/i.test(title)) return null; // moved to the shared NAG panel
         if (/SeedVR2.*post/i.test(title)) {
             const basic = ['enabled','seedvr2_upscale_factor','seedvr2_model_name','seedvr2_vae_name','seedvr2_color_correction'];
             return bucket(basic.includes(w) ? 'SeedVR2 · post upscale' : 'SeedVR2 · post upscale · advanced', basic.includes(w) ? 60 : 61, !basic.includes(w));
@@ -130,6 +137,7 @@ export function categorizeGroups(role, groups) {
         const parts = new Map();
         for (const control of group.controls) {
             const category = classify(role, group, control);
+            if (!category) continue; // null = reclassified elsewhere; the control is dropped from this panel
             const key = `${category.rank}/${category.title}/${category.advanced}`;
             if (!parts.has(key)) parts.set(key, {
                 ...group, title:category.title, advanced:category.advanced,
@@ -171,6 +179,51 @@ function moveGroups(source, target, predicate) {
     from.groups = from.groups.filter(group => !predicate(group));
     target.properties.donut_app_controls.groups.push(...moving.map(group => ({...group,donut_category_fixed:false})));
 }
+// Per-stage NAG groups expose only each stage's enable toggle; the shared
+// NAG settings (phi/auto/tau/sigmas/ref) live once on the base sampler's
+// widgets shown inside the guidance panel. Values are bound to the base
+// node explicitly, and a save that still carries stage-level duplicates
+// heals by moving those controls out of the stage panels on load.
+export const NAG_SHARED_WIDGETS = ['nag_phi','nag_auto_phi','nag_phi_scale','nag_tau','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode'];
+function consolidateNagGlobals(entries, generate) {
+    const panels = entries.map(entry => entry.node);
+    const config = generate.properties.donut_app_controls;
+    if (!Array.isArray(config?.groups)) return;
+    const base = config.groups.find(group => /Base sampling · NAG$/.test(group.title));
+    if (!base?.controls?.length) return;
+    const baseWidgets = new Map(base.controls.map(control => [control.widget, control]));
+    const shared = new Set(NAG_SHARED_WIDGETS);
+    const stages = panels.filter(n => ['generate','hires','face'].includes(panelRole(n)));
+    for (const stage of stages) {
+        if (stage === generate) continue;
+        const groups = stage.properties.donut_app_controls?.groups;
+        if (!Array.isArray(groups)) continue;
+        let touched = false;
+        for (const group of groups) {
+            if (!/NAG/.test(group.title) || !Array.isArray(group.controls)) continue;
+            const kept = group.controls.filter(control => {
+                if (!shared.has(control.widget) || !baseWidgets.has(control.widget)) return true;
+                // Preserve a stage that deliberately differs? No — lockstep by
+                // user preference: stage widgets lose their own copies and the
+                // shared group silently drives every stage.
+                touched = true;
+                return false;
+            });
+            if (kept.length !== group.controls.length) { group.controls = kept; }
+        }
+        if (touched && !groups.some(group => group.controls?.some(control => /^nag_enabled$/.test(control.widget)))) continue;
+        if (touched && !groups.length) stage.properties.donut_app_controls.groups = groups.filter(group => group.controls?.length);
+        void touched;
+    }
+    // Ensure the base NAG group carries every shared widget even if the
+    // saved base group predates one of them (auto phi, for instance).
+    for (const widget of NAG_SHARED_WIDGETS) {
+        if (baseWidgets.has(widget)) continue;
+        const stageWithWidget = stages.flatMap(stage => (stage.properties.donut_app_controls?.groups || []).flatMap(group => group.controls || []))
+            .find(control => control.widget === widget);
+        if (stageWithWidget) base.controls.push({...stageWithWidget, path:[...base.controls[0].path]});
+    }
+}
 export function organizeV4Panels(root) {
     const entries = graphEntries(root);
     const panels = entries.map(entry => entry.node).filter(node => panelRole(node));
@@ -191,6 +244,7 @@ export function organizeV4Panels(root) {
     for (const generate of panels.filter(panel => panelRole(panel) === 'generate')) {
         // Cross-panel ownership requires V4's explicit shared seed path.
         // A custom panel with no family metadata is categorized in place only.
+        consolidateNagGlobals(entries, generate);
         if (!generate.properties.donut_app_controls.seed_path?.length) continue;
         const family = panels.filter(panel => sameFamily(panel, generate));
         if (family.filter(panel => panelRole(panel) === 'generate').length !== 1) continue;
