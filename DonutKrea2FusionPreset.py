@@ -271,13 +271,18 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             "default": False,
             "tooltip": "EXPERIMENT: run NAG's two text streams through one txtfusion call when their token lengths match. Off keeps the upstream two-call path.",
         })
+        optional["nag_txtfusion_energy_guard"] = ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: rescale NAG's txtfusion output to its own unpatched-weight RMS, per stream, when txtfusion LoRAs (UncensorFix etc.) are applied. Rebalance/conditioning is untouched; no-op when no txtfusion LoRA is present.",
+        })
         return {**schema, "required": required, "optional": optional}
 
     def apply(
         self, *args, ui_mode=UI_MODE_ADVANCED,
         uncensorfix_controls=UNCENSORFIX_LORA_ONLY,
         execution_mode="Comfy patches", uncensorfix_strength=None,
-        nag_text_energy_compensation=False, nag_batch_txtfusion=False, **kwargs,
+        nag_text_energy_compensation=False, nag_batch_txtfusion=False,
+        nag_txtfusion_energy_guard=False, **kwargs,
     ):
         if ui_mode not in UI_MODES:
             raise ValueError(f"Unknown Krea2 Fusion UI mode: {ui_mode}")
@@ -315,6 +320,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             delegated["compatibility_preset"] = base.PRESET_MANUAL
             delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
             delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
+            delegated["nag_txtfusion_energy_guard"] = bool(nag_txtfusion_energy_guard)
             result = list(super().apply(**delegated))
             result[-1] = _rewrite_preset_diagnostics(result[-1], base.PRESET_MANUAL, preset)
             if uncensorfix_controls in (FUSION_WITH_LORA, FUSION_WITH_WEIGHTS):
@@ -344,7 +350,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                     f"conditioning_routes={sum(value is not None for value in conditionings)}/4\n"
                     "external_files_loaded=none"
                 )
-                if nag_text_energy_compensation or nag_batch_txtfusion:
+                if nag_text_energy_compensation or nag_batch_txtfusion or nag_txtfusion_energy_guard:
                     # No fusion budget is created on this path, so the NAG
                     # experiment has nothing to read its flags from.
                     diagnostics += "\nnag_experiment_flags_inactive=no fusion budget in LoRA-only mode"
@@ -354,6 +360,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                 delegated["compatibility_preset"] = base.PRESET_MANUAL
                 delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
                 delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
+                delegated["nag_txtfusion_energy_guard"] = bool(nag_txtfusion_energy_guard)
                 result = list(super().apply(*args, **delegated))
             patched_model, loaded_count, source_details = _apply_uncensorfix(
                 result[0], strength, execution_mode=execution_mode,
@@ -372,6 +379,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         delegated["compatibility_preset"] = legacy_preset
         delegated["nag_text_energy_compensation"] = bool(nag_text_energy_compensation)
         delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
+        delegated["nag_txtfusion_energy_guard"] = bool(nag_txtfusion_energy_guard)
         result = list(super().apply(*args, **delegated))
         if preset in SIMPLE_PRESET_TO_LEGACY:
             result[-1] = _rewrite_preset_diagnostics(result[-1], legacy_preset, preset)

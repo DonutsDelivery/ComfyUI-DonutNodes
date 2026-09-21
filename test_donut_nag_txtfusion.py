@@ -9,6 +9,7 @@ import torch
 from donut_nag_txtfusion import (
     NAG_BATCH_TXTFUSION,
     NAG_TEXT_ENERGY_COMPENSATION,
+    NAG_TXTFUSION_ENERGY_GUARD,
     _fused_text,
     _nudge_tap_energy,
     donut_nag_forward,
@@ -347,6 +348,55 @@ class FusionBudgetFlagTests(unittest.TestCase):
         self.assertIs(budget[NAG_TEXT_ENERGY_COMPENSATION], False)
         self.assertIs(budget[NAG_BATCH_TXTFUSION], False)
         self.assertIn("nag_text_energy_compensation=false", diagnostics)
+
+
+class TxtfusionEnergyGuardTests(unittest.TestCase):
+    def _build(self):
+        class Identity(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.eye(3))
+
+            def forward(self, ctx, mask=None, transformer_options=None):
+                return ctx @ self.weight
+
+        fusion = Identity()
+        model = types.SimpleNamespace(txtfusion=fusion, txtmlp=lambda value: value)
+        return model, fusion
+
+    def test_guard_rescales_patched_output_to_baseline(self):
+        model, fusion = self._build()
+        pos, neg = torch.ones(1, 4, 3), torch.full((1, 4, 3), 2.0)
+        with torch.no_grad():
+            fusion.weight.mul_(10.0)  # "LoRA applied": patched output is 10x baseline
+        opts = {"donut_krea2_fusion_budget": {NAG_TXTFUSION_ENERGY_GUARD: True}}
+        out_pos, out_neg = _fused_text(model, pos, neg, opts)
+        torch.testing.assert_close(out_pos, pos)
+        torch.testing.assert_close(out_neg, neg)
+
+    def test_guard_is_noop_without_weight_change(self):
+        model, fusion = self._build()
+        pos, neg = torch.ones(1, 4, 3), torch.zeros(1, 2, 3)
+        opts = {"donut_krea2_fusion_budget": {NAG_TXTFUSION_ENERGY_GUARD: True}}
+        out_pos, out_neg = _fused_text(model, pos, neg, opts)
+        torch.testing.assert_close(out_pos, pos)
+        torch.testing.assert_close(out_neg, neg)
+
+    def test_guard_restores_patched_weights_after_baseline_forward(self):
+        model, fusion = self._build()
+        with torch.no_grad():
+            fusion.weight.mul_(10.0)
+        opts = {"donut_krea2_fusion_budget": {NAG_TXTFUSION_ENERGY_GUARD: True}}
+        _fused_text(model, torch.ones(1, 4, 3), torch.ones(1, 4, 3), opts)
+        torch.testing.assert_close(fusion.weight, torch.eye(3) * 10.0)
+
+    def test_guard_off_keeps_patched_output(self):
+        model, fusion = self._build()
+        pos = torch.ones(1, 4, 3)
+        with torch.no_grad():
+            fusion.weight.mul_(10.0)
+        out_pos, _ = _fused_text(model, pos, pos, {})
+        torch.testing.assert_close(out_pos, pos * 10.0)
 
 
 class InstallExperimentTests(unittest.TestCase):

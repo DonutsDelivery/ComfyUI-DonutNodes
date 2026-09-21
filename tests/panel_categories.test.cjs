@@ -68,6 +68,7 @@ test('every existing control and all backend values/links survive regrouping',()
     const aliases=[
         '{"path":[800,9],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
         '{"path":[800,9],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
+        '{"path":[800,9],"widget":"nag_txtfusion_energy_guard","title":"Txtfusion energy guard"}',
     ];
     same(after,[...before,...aliases].sort()); same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
 });
@@ -96,7 +97,7 @@ test('uncensorfix is standard and retains its original callback target',()=>{
     const graph=fixture(); organizeV4Panels(graph); const group=findGroup(graph,'uncensorfix_controls');
     assert.equal(group.title,'UncensorFix'); assert.equal(group.advanced,false); same(group.controls[0].path,[800,9]);
 });
-test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control',()=>{
+test('V5 guidance panel exposes all NAG experiment toggles from Fusion Control',()=>{
     const graph=fixture(); organizeV4Panels(graph);
     const guidance=groups(graph.nodes[4]);
     for(const widget of ['nag_text_energy_compensation','nag_batch_txtfusion']) {

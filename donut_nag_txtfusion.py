@@ -16,6 +16,7 @@ import torch
 
 NAG_TEXT_ENERGY_COMPENSATION = "nag_text_energy_compensation"
 NAG_BATCH_TXTFUSION = "nag_batch_txtfusion"
+NAG_TXTFUSION_ENERGY_GUARD = "nag_txtfusion_energy_guard"
 NAG_TEXT_ENERGY_MAX_SCALE = "nag_text_energy_max_scale"
 _DEFAULT_MAX_SCALE = 4.0
 
@@ -68,21 +69,66 @@ def _nudge_tap_energy(positive_context, negative_context, nag_alpha, transformer
     )
 
 
+def _energy_guard(run, model, budget):
+    """Rescale txtfusion output to its own base-weight RMS, per batch item.
+
+    Runs the stream once with the module's unpatched weights (the baseline)
+    and once normally, then rescales the normal result toward the baseline
+    RMS. When no txtfusion LoRA is applied the two runs agree and the guard
+    is a numerical no-op, so no LoRA-presence detection is needed. Weights
+    are swapped in place around the baseline forward and restored even if
+    the forward raises.
+    """
+    module = getattr(model, "txtfusion", None)
+    params = (list(module.named_parameters())
+              if module is not None and hasattr(module, "named_parameters") else [])
+    if not params:
+        return run
+    max_scale = float(budget.get(NAG_TEXT_ENERGY_MAX_SCALE, _DEFAULT_MAX_SCALE))
+    if not (max_scale > 1.0):
+        max_scale = _DEFAULT_MAX_SCALE
+    base = {name: value.detach().clone() for name, value in params}
+
+    def guarded(ctx):
+        saved = {}
+        with torch.no_grad():
+            for name, value in params:
+                saved[name] = value.detach().clone()
+                value.copy_(base[name])
+        try:
+            reference = run(ctx)
+        finally:
+            with torch.no_grad():
+                for name, value in params:
+                    value.copy_(saved[name])
+        result = run(ctx)
+        ratio = (_item_rms(reference) / _item_rms(result)).clamp(1.0 / max_scale, max_scale)
+        return (result.float() * ratio).to(dtype=result.dtype)
+
+    return guarded
+
+
 def _fused_text(model, positive_context, negative_context, transformer_options, nag_alpha=0.0):
     """Fuse NAG text. Default is the upstream two-call path.
 
     Equal-length batching is only used when ``nag_batch_txtfusion`` is True.
     Unequal sequence lengths always use two calls; there is no discarded warmup.
+    ``nag_txtfusion_energy_guard`` rescales each txtfusion result to its own
+    unpatched-weight RMS without touching the conditioning itself.
     """
+    budget = _fusion_budget(transformer_options)
+
     def run(ctx):
         return model.txtmlp(
             model.txtfusion(ctx, mask=None, transformer_options=transformer_options)
         )
 
+    if budget.get(NAG_TXTFUSION_ENERGY_GUARD) is True:
+        run = _energy_guard(run, model, budget)
+
     positive_context, negative_context = _nudge_tap_energy(
         positive_context, negative_context, nag_alpha, transformer_options,
     )
-    budget = _fusion_budget(transformer_options)
     if (
         budget.get(NAG_BATCH_TXTFUSION) is True
         and positive_context.shape[1:] == negative_context.shape[1:]
@@ -248,7 +294,8 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     budget = (options.get("transformer_options") or {}).get("donut_krea2_fusion_budget") or {}
     wants_energy = budget.get(NAG_TEXT_ENERGY_COMPENSATION) is True
     wants_batch = budget.get(NAG_BATCH_TXTFUSION) is True
-    if not (wants_energy or wants_batch) or not nag_negative:
+    wants_guard = budget.get(NAG_TXTFUSION_ENERGY_GUARD) is True
+    if not (wants_energy or wants_batch or wants_guard) or not nag_negative:
         return patched
 
     import comfy.patcher_extension

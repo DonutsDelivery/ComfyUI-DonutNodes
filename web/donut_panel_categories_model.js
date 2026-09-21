@@ -211,6 +211,7 @@ export function organizeV4Panels(root) {
             const experimentWidgets = [
                 ['nag_text_energy_compensation', 'Text-energy compensation'],
                 ['nag_batch_txtfusion', 'Batch equal-length text fusion'],
+                ['nag_txtfusion_energy_guard', 'Txtfusion energy guard'],
             ];
             const experimentTitles = new Map(experimentWidgets);
             // Workflows saved while an earlier binding was active carry the

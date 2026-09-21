@@ -637,6 +637,7 @@ class DonutKrea2FusionControl:
         nag_match_taps=True,
         nag_text_energy_compensation=False,
         nag_batch_txtfusion=False,
+        nag_txtfusion_energy_guard=False,
     ):
         # Older saved workflows/subgraphs may still submit this removed input.
         # It never participates in the current fusion path, but accepting it
@@ -750,6 +751,7 @@ class DonutKrea2FusionControl:
             or (fusion_method == FUSION_METHOD_ENHANCER and fusion_strength != 0.0)
             or bool(nag_text_energy_compensation)
             or bool(nag_batch_txtfusion)
+            or bool(nag_txtfusion_energy_guard)
         )
         if fusion_budget_active:
             output_model = _attach_fusion_budget(
@@ -770,6 +772,7 @@ class DonutKrea2FusionControl:
                     "nag_match_taps": bool(nag_match_taps),
                     "nag_text_energy_compensation": bool(nag_text_energy_compensation),
                     "nag_batch_txtfusion": bool(nag_batch_txtfusion),
+                    "nag_txtfusion_energy_guard": bool(nag_txtfusion_energy_guard),
                 },
             )
 
@@ -790,6 +793,7 @@ class DonutKrea2FusionControl:
             f"nag_match_taps={str(bool(nag_match_taps)).lower()}\n"
             f"nag_text_energy_compensation={str(bool(nag_text_energy_compensation)).lower()}\n"
             f"nag_batch_txtfusion={str(bool(nag_batch_txtfusion)).lower()}\n"
+            f"nag_txtfusion_energy_guard={str(bool(nag_txtfusion_energy_guard)).lower()}\n"
             f"conditioning_routes={sum(value is not None for value in conditioning_inputs)}/"
             f"{CONDITIONING_SLOT_COUNT}\n"
             "external_files_loaded=none"
