@@ -61,8 +61,7 @@ def _looks_like_weight_adapter(value) -> bool:
     return hasattr(value, "weights") or hasattr(value, "loaded_keys")
 
 
-def active_adapter_keys(model) -> set[str]:
-    """Return active txtfusion adapter keys on one patcher without merge patches."""
+def _regular_adapter_keys(model) -> set[str]:
     keys = set()
     for key, entries in getattr(model, "patches", {}).items():
         if not isinstance(key, str):
@@ -74,16 +73,26 @@ def active_adapter_keys(model) -> set[str]:
             if strength != 0.0 and _looks_like_weight_adapter(adapter):
                 keys.add(key)
                 break
+    return {key for key in keys if key.startswith(PREFIX)}
+
+
+def _bypass_adapter_keys(model) -> set[str]:
     getter = getattr(model, "get_attachment", None)
     bypass = getter(BYPASS_KEY) if callable(getter) else None
     if bypass is not None and not isinstance(bypass, dict):
         raise RuntimeError("Unrecognized Donut bypass metadata")
     if "donut_bypass_lora" in getattr(model, "injections", {}) and not bypass:
         raise RuntimeError("Guard requires recorded Donut bypass adapters; rebuild the LoRA model after restart")
-    for key, entries in (bypass or {}).items():
-        if any(float(strength) != 0 for _, strength in entries):
-            keys.add(key)
-    return {key for key in keys if key.startswith(PREFIX)}
+    return {
+        key for key, entries in (bypass or {}).items()
+        if isinstance(key, str) and key.startswith(PREFIX)
+        and any(float(strength) != 0 for _, strength in entries)
+    }
+
+
+def active_adapter_keys(model) -> set[str]:
+    """Return active txtfusion adapter keys without treating merge patches as LoRAs."""
+    return _regular_adapter_keys(model) | _bypass_adapter_keys(model)
 
 
 def _components_from_keys(keys) -> set[str]:
@@ -239,7 +248,75 @@ def make_reference(live, state, kind):
     return ref
 
 
-def validate_structure(fusion):
+class _ForwardCall:
+    """Frozen callable for one base linear forward, immune to later hook replacement."""
+    def __init__(self, module):
+        forward = module.forward
+        owner = getattr(forward, "__self__", None)
+        original = getattr(owner, "original_forward", None)
+        if owner is not module and getattr(owner, "module", None) is module and callable(original):
+            forward = original
+        self.forward = forward
+
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+
+
+def _runtime_reference(component, kind):
+    """Capture the pristine forward path of an effective checkpoint component.
+
+    This is used for V5's retained quantized model2. Donut bypass LoRAs replace
+    child Linear.forward methods at injection time while leaving the checkpoint
+    QuantizedTensor itself intact. Capturing each child's original bound forward
+    before sampling gives a base-checkpoint evaluation without dequantizing,
+    reconstructing or swapping live weights.
+    """
+    proxy = type("_CheckpointComponentView", (), {})()
+    if kind == "attn":
+        for name in ("heads", "kvheads", "headdim", "qknorm"):
+            setattr(proxy, name, getattr(component, name))
+        for name in ("wq", "wk", "wv", "gate", "wo"):
+            setattr(proxy, name, _ForwardCall(getattr(component, name)))
+    elif kind == "mlp":
+        for name in ("gate", "up", "down"):
+            setattr(proxy, name, _ForwardCall(getattr(component, name)))
+    else:
+        raise ValueError(f"Unknown txtfusion component kind: {kind}")
+    native_forward = type(component).forward
+
+    class Reference:
+        def __call__(self, value, **kwargs):
+            return native_forward(proxy, value, **kwargs)
+
+    return Reference()
+
+
+def make_runtime_references(owner_model, components):
+    """Build checkpoint references from an untouched bypass-mode owner.
+
+    Regular weight patches on a guarded component are rejected because they may
+    already have materialized into the module. Recorded Donut bypass adapters
+    are safe: the underlying checkpoint weights remain intact and the captured
+    child forwards bypass future adapter hooks.
+    """
+    regular = _components_from_keys(_regular_adapter_keys(owner_model))
+    conflict = regular & set(components)
+    if conflict:
+        names = ", ".join(sorted(conflict))
+        raise ValueError(
+            "Quantized txtfusion runtime reference requires bypass adapters; "
+            f"regular/materialized adapter patches affect: {names}"
+        )
+    fusion = owner_model.get_model_object("diffusion_model").txtfusion
+    validate_structure(fusion, allow_quantized=True)
+    refs = {}
+    for name in sorted(components):
+        component = fusion.get_submodule(name)
+        refs[name] = _runtime_reference(component, name.rsplit(".", 1)[1])
+    return refs
+
+
+def validate_structure(fusion, *, allow_quantized=True):
     from comfy.ldm.krea2.model import Attention, SwiGLU, TextFusionBlock, TextFusionTransformer
 
     if type(fusion) is not TextFusionTransformer:
@@ -250,11 +327,10 @@ def validate_structure(fusion):
     for block in [*fusion.layerwise_blocks, *fusion.refiner_blocks]:
         if type(block) is not TextFusionBlock or type(block.attn) is not Attention or type(block.mlp) is not SwiGLU:
             raise ValueError("Guard requires native Krea2 attention/MLP blocks")
-    for name, parameter in fusion.named_parameters():
-        # Do not silently substitute manual-cast reference math for packed or
-        # FP8 txtfusion kernels. Body-only quantization does not hit this check.
-        if type(parameter) not in (torch.Tensor, torch.nn.Parameter) or parameter.dtype not in _PLAIN_DTYPES:
-            raise ValueError(f"Quantized/dynamic txtfusion parameter unsupported by guard: {name}")
+    if not allow_quantized:
+        for name, parameter in fusion.named_parameters():
+            if type(parameter) not in (torch.Tensor, torch.nn.Parameter) or parameter.dtype not in _PLAIN_DTYPES:
+                raise ValueError(f"Quantized/dynamic txtfusion parameter unsupported by file-reference guard: {name}")
 
 
 @dataclass
@@ -373,13 +449,34 @@ def install_guard(model, reference_path, *, reference_factory=make_reference):
             )
         owner = next(iter(owners))
         LOGGER.info("[Donut txtfusion guard] merge-aware reference owner: %s", owner)
-    if reference_path is None:
-        raise ValueError("Select the same checkpoint in the V5 txtfusion reference control before enabling the guard")
     fusion = model.get_model_object("diffusion_model").txtfusion
-    validate_structure(fusion)
-    states, digest = load_reference_states(reference_path, components)
-    references = {name: reference_factory(fusion.get_submodule(name), state, name.rsplit(".", 1)[1])
-                  for name, state in states.items()}
+    validate_structure(fusion, allow_quantized=True)
+
+    runtime_owner = None
+    if source is not None and owner == "retained model2":
+        runtime_owner = source
+    elif source is None and _bypass_adapter_keys(model) and not _regular_adapter_keys(model):
+        runtime_owner = model
+
+    if runtime_owner is not None:
+        references = make_runtime_references(runtime_owner, components)
+        digest = "runtime-checkpoint:" + ("retained-model2" if runtime_owner is source else "primary")
+        LOGGER.info(
+            "[Donut txtfusion guard] using quantization-preserving runtime checkpoint reference: %s",
+            digest,
+        )
+    else:
+        if reference_path is None:
+            raise ValueError(
+                "Select the effective txtfusion checkpoint in the V5 reference control "
+                "before enabling the guard"
+            )
+        validate_structure(fusion, allow_quantized=False)
+        states, digest = load_reference_states(reference_path, components)
+        references = {
+            name: reference_factory(fusion.get_submodule(name), state, name.rsplit(".", 1)[1])
+            for name, state in states.items()
+        }
     run = GuardRun(references, digest)
     original = selected[0]
 
