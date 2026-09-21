@@ -27,6 +27,10 @@ const CSS = `
 .donut-edit-studio input[type=checkbox]:checked { background:#306552; border-color:var(--de-accent); }
 .donut-edit-studio input[type=checkbox]:checked::before { transform:translateX(12px); background:var(--de-accent); }
 .donut-edit-studio .de-toggle-main { padding:9px 11px; border-radius:20px; border:1px solid var(--de-line); background:#1c2630; }
+.donut-edit-studio .de-switch-track { width:30px; height:17px; border:1px solid #586977; border-radius:10px; background:#26303a; flex-shrink:0; pointer-events:none; }
+.donut-edit-studio .de-switch-track::before { content:""; display:block; width:11px; height:11px; border-radius:50%; background:#abb9c2; margin:2px; }
+.donut-edit-studio [role=switch][aria-checked=true] .de-switch-track { background:#306552; border-color:var(--de-accent); }
+.donut-edit-studio [role=switch][aria-checked=true] .de-switch-track::before { transform:translateX(12px); background:var(--de-accent); }
 .donut-edit-studio .de-refs { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
 .donut-edit-studio .de-ref { min-width:0; border:1px solid var(--de-line); border-radius:10px; overflow:hidden; background:var(--de-card); }
 .donut-edit-studio .de-ref.de-active { border-color:var(--de-accent); box-shadow:0 0 0 1px #92e4c722; }
@@ -190,9 +194,20 @@ export function installEditStudio(node, definition) {
         return input;
     }
     function toggle(name, title, className = "") {
-        const label = element("label", `de-toggle ${className}`);
-        label.append(control(name, "input", {type:"checkbox", label:title}), element("span", "", title));
-        return label;
+        const button = element("button", `de-toggle ${className}`);
+        button.type = "button";
+        button.setAttribute("role", "switch");
+        button.setAttribute("aria-label", title);
+        button.append(element("span", "de-switch-track"), element("span", "", title));
+        for (const type of ["pointerdown", "mousedown", "pointerup"]) {
+            button.addEventListener(type, event => event.stopPropagation());
+        }
+        button.addEventListener("click", event => {
+            event.preventDefault(); event.stopPropagation();
+            commit(name, !get(name)); render();
+        });
+        const entries = controls.get(name) || []; entries.push(button); controls.set(name, entries);
+        return button;
     }
     function field(label, input) {
         const wrap = element("label", "de-field"); wrap.append(element("span", "", label), input); return wrap;
@@ -507,7 +522,8 @@ export function installEditStudio(node, definition) {
         featherField.hidden = !get("inpaint_enabled");
         for (const [name, inputs] of controls) for (const input of inputs) {
             const value = get(name);
-            if (input.type === "checkbox") input.checked = Boolean(value);
+            if (input.getAttribute("role") === "switch") input.setAttribute("aria-checked", String(Boolean(value)));
+            else if (input.type === "checkbox") input.checked = Boolean(value);
             else {
                 if (input.tagName === "SELECT" && value && ![...input.options].some(option => option.value === String(value))) {
                     const option = element("option", "", String(value)); option.value = value; input.append(option);
