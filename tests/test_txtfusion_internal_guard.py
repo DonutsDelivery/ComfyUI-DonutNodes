@@ -158,7 +158,9 @@ class InternalGuardTests(unittest.TestCase):
             self.fusion.layerwise_blocks[0].attn.wo.weight.mul_(2)
             self.fusion.refiner_blocks[1].mlp.down.weight.mul_(3)
         for name in ['layerwise_blocks.0.attn.wo.weight', 'refiner_blocks.1.mlp.down.weight']:
-            self.model.patches[guard.PREFIX + name] = [(1., object(), 1., None, None)]
+            self.model.patches[guard.PREFIX + name] = [
+                (1., types.SimpleNamespace(weights=()), 1., None, None)
+            ]
     def test_reference_is_file_derived_even_after_live_adapters_materialize(self):
         self.adapt()
         installed, run = guard.install_guard(self.model, self.file)
@@ -186,7 +188,9 @@ class InternalGuardTests(unittest.TestCase):
             installed, run = guard.install_guard(self.model, None)
         self.assertIs(installed, self.model); self.assertIsNone(run)
     def test_zero_strength_returns_original_path(self):
-        self.model.patches[guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'] = [(0., object(), 1., None, None)]
+        self.model.patches[guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'] = [
+            (0., types.SimpleNamespace(weights=()), 1., None, None)
+        ]
         self.assertIs(guard.install_guard(self.model, None)[0], self.model)
     def test_native_order_without_references_matches_exactly(self):
         run = guard.GuardRun({}, 'test')
@@ -236,9 +240,54 @@ class InternalGuardTests(unittest.TestCase):
         self.state['txtfusion.layerwise_blocks.0.attn.wo.weight'] = self.state['txtfusion.layerwise_blocks.0.attn.wo.weight'].to(torch.float8_e4m3fn)
         save_file(self.state, str(self.file))
         with self.assertRaisesRegex(ValueError, 'Unsupported'): guard.install_guard(self.model, self.file)
-    def test_unsupported_merge_injection_fails(self):
-        self.model.injections['model2_swap'] = []
-        with self.assertRaisesRegex(ValueError, 'merges'): guard.install_guard(self.model, self.file)
+    def test_unknown_injection_still_fails(self):
+        self.model.injections['unrelated_runtime_patch'] = []
+        with self.assertRaisesRegex(ValueError, 'unrelated model injections'):
+            guard.install_guard(self.model, self.file)
+
+    def test_merge_patch_payload_is_not_mistaken_for_lora_adapter(self):
+        key = guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'
+        self.model.patches[key] = [(1.0, [(torch.ones(1), lambda x: x)], 0.0, None, None)]
+        self.assertEqual(guard.affected_components(self.model), set())
+
+    def test_v5_full_txtfusion_model2_swap_is_supported(self):
+        source_fusion = copy.deepcopy(self.fusion)
+        source = Patcher(source_fusion)
+        key = guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'
+        source.patches[key] = [(1.0, types.SimpleNamespace(weights=()), 1.0, None, None)]
+        # The component is fully owned by model2 when every attention linear is
+        # an exact runtime swap, matching V5's grouped fusion_ratio=0 path.
+        plans = tuple(
+            (guard.PREFIX + 'layerwise_blocks.0.attn.' + suffix,
+             guard.PREFIX + 'layerwise_blocks.0.attn.' + suffix + '.weight', 0.0)
+            for suffix in ('wq','wk','wv','gate','wo')
+        )
+        merge = types.ModuleType('donut_krea2_merge_serialization')
+        merge.KREA2_MERGE_INJECTION_KEY = 'donut_krea2_model_merge_bypass'
+        merge.get_krea2_merge_bypass_info = lambda model: (source, plans, ())
+        self.model.injections[merge.KREA2_MERGE_INJECTION_KEY] = [object()]
+        source_state = {f'txtfusion.{k}': v.detach().clone()
+                        for k, v in source_fusion.state_dict().items()}
+        save_file(source_state, str(self.file))
+        with patch.dict(sys.modules, {'donut_krea2_merge_serialization': merge}):
+            installed, run = guard.install_guard(self.model, self.file)
+        self.assertIsNotNone(run)
+        self.assertIn('layerwise_blocks.0.attn', run.references)
+        self.assertIsNot(installed, self.model)
+
+    def test_partial_component_model2_swap_is_rejected(self):
+        source = Patcher(copy.deepcopy(self.fusion))
+        key = guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight'
+        source.patches[key] = [(1.0, types.SimpleNamespace(weights=()), 1.0, None, None)]
+        plans = ((guard.PREFIX + 'layerwise_blocks.0.attn.wo',
+                  guard.PREFIX + 'layerwise_blocks.0.attn.wo.weight', 0.0),)
+        merge = types.ModuleType('donut_krea2_merge_serialization')
+        merge.KREA2_MERGE_INJECTION_KEY = 'donut_krea2_model_merge_bypass'
+        merge.get_krea2_merge_bypass_info = lambda model: (source, plans, ())
+        self.model.injections[merge.KREA2_MERGE_INJECTION_KEY] = [object()]
+        with patch.dict(sys.modules, {'donut_krea2_merge_serialization': merge}):
+            with self.assertRaisesRegex(ValueError, 'partially swapped'):
+                guard.install_guard(self.model, self.file)
     def test_reference_component_finite_and_cpu(self):
         self.adapt()
         _, run = guard.install_guard(self.model, self.file)
