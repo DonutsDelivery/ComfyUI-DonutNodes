@@ -35,6 +35,24 @@ class CaptureNAG:
         return (kwargs['model'],)
 
 
+class NAGPhiResolutionTests(unittest.TestCase):
+    def test_manual_phi_is_unchanged(self):
+        self.assertEqual(nag.resolve_nag_phi(4.0, 0.45, False, 1.0), 4.0)
+
+    def test_auto_phi_preserves_upstream_default_linear_strength(self):
+        self.assertAlmostEqual(nag.resolve_nag_phi(4.0, 0.45, True, 1.0), 1.0 / 0.45)
+        self.assertAlmostEqual(0.45 * nag.resolve_nag_phi(4.0, 0.45, True, 1.0), 1.0)
+        self.assertAlmostEqual(nag.resolve_nag_phi(4.0, 0.25, True, 1.0), 4.0)
+
+    def test_phi_scale_multiplies_effective_linear_strength(self):
+        phi = nag.resolve_nag_phi(4.0, 0.45, True, 1.5)
+        self.assertAlmostEqual(0.45 * phi, 1.5)
+
+    def test_zero_alpha_or_scale_resolves_to_zero_without_division(self):
+        self.assertEqual(nag.resolve_nag_phi(4.0, 0.0, True, 1.0), 0.0)
+        self.assertEqual(nag.resolve_nag_phi(4.0, 0.45, True, 0.0), 0.0)
+
+
 class NAGIntegrationTests(unittest.TestCase):
     def setUp(self):
         CaptureNAG.calls = []
@@ -53,6 +71,16 @@ class NAGIntegrationTests(unittest.TestCase):
             self.assertIs(nag.apply_krea2_nag(model, self.negative), model)
             with self.assertRaisesRegex(RuntimeError, 'Install/enable'):
                 nag.apply_krea2_nag(model, self.negative, nag_enabled=True)
+
+    def test_auto_phi_reaches_upstream_patch_as_resolved_value(self):
+        model = Model()
+        nag.apply_krea2_nag(
+            model, self.negative, nag_enabled=True,
+            nag_phi=4.0, nag_alpha=0.45,
+            nag_auto_phi=True, nag_phi_scale=1.0,
+        )
+        self.assertAlmostEqual(CaptureNAG.calls[0]["phi"], 1.0 / 0.45)
+        self.assertEqual(CaptureNAG.calls[0]["alpha"], 0.45)
 
     def test_edit_replaces_competing_wrappers_on_clone_and_passes_both_references(self):
         model = Model()
