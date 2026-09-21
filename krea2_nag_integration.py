@@ -17,6 +17,10 @@ def nag_input_types():
         "nag_negative": ("CONDITIONING", {"tooltip": "Unzeroed negative prompt for NAG. Fusion Rebalance/taps are applied to match the positive stream. Defaults to edit_negative_prompt in edit mode, otherwise negative."}),
         "nag_phi": ("FLOAT", {"default": 4.0, "min": 0.0, "max": 20.0, "step": 0.1}),
         "nag_tau": ("FLOAT", {"default": 2.5, "min": 0.01, "max": 20.0, "step": 0.05}),
+        "nag_disable_tau_clipping": ("BOOLEAN", {
+            "default": False,
+            "tooltip": "EXPERIMENT: bypass NAG's tau norm clipping entirely. Phi/alpha and all other NAG math remain unchanged. Can expose very large guidance vectors; nonfinite results raise instead of being hidden.",
+        }),
         "nag_alpha": ("FLOAT", {"default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01}),
         "nag_sigma_start": ("FLOAT", {"default": 1000.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
         "nag_sigma_end": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
@@ -28,7 +32,8 @@ def nag_input_types():
 
 
 def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
-                    nag_phi=4.0, nag_tau=2.5, nag_alpha=0.25,
+                    nag_phi=4.0, nag_tau=2.5, nag_disable_tau_clipping=False,
+                    nag_alpha=0.25,
                     nag_sigma_start=1000.0, nag_sigma_end=0.0,
                     nag_ref_boost=1.0, nag_ref_boost_a=1.0,
                     nag_fit_mode="fit", nag_ref_boost_mask=None,
@@ -79,6 +84,7 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
         nag_negative=arguments["nag_negative"],
         phi=nag_phi,
         tau=nag_tau,
+        disable_tau_clipping=bool(nag_disable_tau_clipping),
         alpha=nag_alpha,
         sigma_start=nag_sigma_start,
         sigma_end=nag_sigma_end,
