@@ -24,11 +24,38 @@ def nag_input_types():
         "nag_ref_boost_a": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.01}),
         "nag_fit_mode": (["fit", "crop (legacy)"], {"default": "fit"}),
         "nag_ref_boost_mask": ("MASK",),
+        # Append-only: preserve serialized positions of all existing NAG widgets.
+        "nag_auto_phi": ("BOOLEAN", {
+            "default": False,
+            "tooltip": "Derive phi from alpha so alpha*phi keeps the upstream default linear guidance strength (0.25*4 = 1.0).",
+        }),
+        "nag_phi_scale": ("FLOAT", {
+            "default": 1.0, "min": 0.0, "max": 4.0, "step": 0.05,
+            "tooltip": "Multiplier for auto phi. 1.0 keeps upstream-default linear guidance strength; higher/lower scales it.",
+        }),
     }
+
+
+def resolve_nag_phi(nag_phi, nag_alpha, nag_auto_phi=False, nag_phi_scale=1.0):
+    """Resolve manual or alpha-normalized phi.
+
+    Upstream defaults alpha=0.25 and phi=4.0, so the unclipped linear guidance
+    coefficient alpha*phi is 1.0. Auto mode preserves that coefficient and lets
+    nag_phi_scale deliberately move it up or down.
+    """
+    phi = float(nag_phi)
+    alpha = float(nag_alpha)
+    scale = float(nag_phi_scale)
+    if not nag_auto_phi:
+        return phi
+    if alpha <= 0.0 or scale <= 0.0:
+        return 0.0
+    return scale / alpha
 
 
 def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
                     nag_phi=4.0, nag_tau=2.5, nag_alpha=0.25,
+                    nag_auto_phi=False, nag_phi_scale=1.0,
                     nag_sigma_start=1000.0, nag_sigma_end=0.0,
                     nag_ref_boost=1.0, nag_ref_boost_a=1.0,
                     nag_fit_mode="fit", nag_ref_boost_mask=None,
@@ -62,9 +89,12 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     nag_cond = prepare_nag_conditioning(
         model, negative if nag_negative is None else nag_negative,
     )
+    effective_phi = resolve_nag_phi(
+        nag_phi, nag_alpha, nag_auto_phi=nag_auto_phi, nag_phi_scale=nag_phi_scale,
+    )
     arguments = dict(
         model=model, nag_negative=nag_cond,
-        phi=nag_phi, tau=nag_tau, alpha=nag_alpha,
+        phi=effective_phi, tau=nag_tau, alpha=nag_alpha,
         sigma_start=nag_sigma_start, sigma_end=nag_sigma_end, **kwargs,
     )
     try:
@@ -77,7 +107,7 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     patched = install_donut_nag_experiment(
         patched,
         nag_negative=arguments["nag_negative"],
-        phi=nag_phi,
+        phi=effective_phi,
         tau=nag_tau,
         alpha=nag_alpha,
         sigma_start=nag_sigma_start,
