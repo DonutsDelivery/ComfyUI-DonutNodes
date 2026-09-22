@@ -1,0 +1,1202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Donut Tone Lab · Feature Learner</title>
+<meta name="description" content="Offline, global feature-based gamma learner with manual targets and honest validation.">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg:#101214; --panel:#181b1f; --panel2:#20242a; --border:#343a42;
+    --text:#eef1f4; --muted:#9da6b2; --accent:#ffb45b; --good:#67c587;
+    --warn:#e9b95f; --bad:#df7373; --blue:#76a7e8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.4 system-ui,-apple-system,Segoe UI,sans-serif; background:var(--bg); color:var(--text); }
+  header {
+    position:sticky; top:0; z-index:20; background:rgba(16,18,20,.96);
+    border-bottom:1px solid var(--border); backdrop-filter:blur(8px);
+  }
+  .topbar { display:flex; gap:10px; align-items:center; padding:12px 16px; flex-wrap:wrap; }
+  h1 { margin:0 14px 0 0; font-size:18px; }
+  button,.button,select,input[type="number"] {
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:7px; padding:7px 10px;
+  }
+  button,.button { cursor:pointer; }
+  button:hover,.button:hover { border-color:#606975; }
+  .button input { display:none; }
+  .primary { border-color:#8a6134; background:#2c251e; }
+  .controls {
+    display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:10px; padding:0 16px 14px;
+  }
+  .control-group { background:var(--panel); border:1px solid var(--border); border-radius:9px; padding:10px; }
+  .control-group h3 { margin:0 0 8px; font-size:13px; color:#d8dee6; }
+  .row { display:grid; grid-template-columns:1fr 85px; gap:8px; align-items:center; margin:5px 0; }
+  .row label { color:var(--muted); }
+  .row input[type="range"] { width:100%; grid-column:1 / -1; accent-color:var(--accent); }
+  .inline { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .hint { color:var(--muted); font-size:12px; }
+  #summary { padding:0 16px 12px; color:var(--muted); display:flex; gap:14px; flex-wrap:wrap; }
+  #drop {
+    margin:12px 16px; padding:22px; border:1px dashed #505864; border-radius:10px;
+    color:var(--muted); text-align:center;
+  }
+  #drop.over { border-color:var(--accent); color:var(--text); background:#1c1a17; }
+  #gallery {
+    display:grid; grid-template-columns:repeat(auto-fill,minmax(420px,1fr));
+    gap:14px; padding:2px 16px 30px;
+  }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+  .cardhead { display:flex; justify-content:space-between; gap:10px; padding:9px 11px; border-bottom:1px solid var(--border); }
+  .filename { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-weight:600; }
+  .dims { color:var(--muted); white-space:nowrap; font-size:12px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--border); }
+  figure { margin:0; background:#0b0c0d; min-height:170px; display:flex; flex-direction:column; }
+  figcaption { padding:5px 8px; font-size:11px; color:var(--muted); background:#14171a; }
+  figure img,figure canvas { width:100%; height:230px; object-fit:contain; background:#0a0a0a; display:block; }
+  .metrics {
+    display:grid; grid-template-columns:repeat(3,1fr); gap:5px 9px; padding:9px 11px;
+    font-variant-numeric:tabular-nums; font-size:12px;
+  }
+  .metric span:first-child { color:var(--muted); margin-right:4px; }
+  .judge { display:flex; gap:6px; padding:0 11px 11px; align-items:center; flex-wrap:wrap; }
+  .judge button { font-size:12px; padding:5px 8px; }
+  .judge button.active { outline:2px solid currentColor; }
+  .too-dark { color:var(--blue); } .good { color:var(--good); }
+  .too-light { color:var(--warn); } .skip { color:var(--muted); }
+  .empty { padding:40px 16px; text-align:center; color:var(--muted); }
+  .badge { padding:2px 6px; border:1px solid var(--border); border-radius:999px; font-size:11px; }
+  .optimizer-status { margin-top:8px; padding:8px; border:1px solid var(--border); border-radius:7px; background:#121518; color:var(--muted); font-size:12px; min-height:38px; }
+  .optimizer-status strong { color:var(--text); }
+  .optimizer-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .optimizer-actions button { font-size:12px; padding:6px 8px; }
+  .optimizer-actions .primary { border-color:#8a6134; background:#2c251e; }
+  .score-good { color:var(--good); } .score-mid { color:var(--warn); } .score-low { color:var(--bad); }
+  details { padding:0 16px 12px; }
+  details summary { cursor:pointer; color:var(--muted); }
+  .note { max-width:900px; padding:8px 0 0; color:var(--muted); }
+  @media (max-width:600px) {
+    #gallery { grid-template-columns:1fr; padding:2px 8px 24px; }
+    #drop { margin:8px; }
+    figure img,figure canvas { height:180px; }
+    .metrics { grid-template-columns:repeat(2,1fr); }
+  }
+  /* The lightbox owns the existing controls while open: one set of state/listeners. */
+  [hidden] { display:none !important; }
+  button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible {
+    outline:2px solid var(--accent); outline-offset:3px;
+  }
+  button:disabled { opacity:.4; cursor:default; }
+  .card .pair { cursor:zoom-in; position:relative; }
+  .card .pair:hover::after { content:'Click to inspect'; position:absolute; bottom:31px; left:50%;
+    transform:translateX(-50%); background:#14171ae8; border:1px solid #626973; padding:5px 12px;
+    border-radius:20px; color:#fff; font-size:12px; white-space:nowrap; pointer-events:none; }
+  .inspect { font-size:12px; padding:4px 8px; white-space:nowrap; }
+  .cardhead { align-items:center; }
+  .cardhead .filename { flex:1; }
+  .control-group select { max-width:100%; }
+  .control-group .row:has(select) { grid-template-columns:1fr; }
+  #lightbox { position:fixed; inset:0; margin:0; padding:0; border:0; width:100%; height:100%;
+    width:100vw; height:100dvh; max-width:none; max-height:none; background:#101214;
+    color:var(--text); overflow:hidden; }
+  #lightbox[open] { display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; }
+  #lightbox::backdrop { background:#090a0b; }
+  #lightbox:fullscreen { width:100vw; height:100dvh; }
+  .lb-top { display:flex; gap:10px; align-items:center; padding:10px 14px;
+    border-bottom:1px solid var(--border); min-width:0; }
+  .lb-brand { color:var(--accent); font-weight:750; font-size:12px; letter-spacing:.1em; white-space:nowrap; }
+  .lb-nav { display:flex; gap:5px; align-items:center; flex-shrink:0; }
+  #lbCounter { min-width:65px; text-align:center; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .lb-title { min-width:0; flex:1; }
+  #lbName { font-size:14px; font-weight:600; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  #lbSize { font-size:11px; color:var(--muted); }
+  #lbClose { flex-shrink:0; }
+  .lb-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 14px;
+    background:#181b1f; border-bottom:1px solid var(--border); }
+  .lb-tabs { display:flex; gap:3px; flex-wrap:wrap; }
+  .lb-tabs button { font-size:12px; padding:6px 9px; background:transparent; border-color:transparent; }
+  .lb-tabs button[aria-pressed="true"] { background:#30261d; border-color:#825c33; color:#ffd29a; }
+  .lb-zoom { display:flex; align-items:center; gap:4px; }
+  .lb-zoom button { font-size:12px; padding:6px 9px; }
+  #lbZoom { min-width:49px; text-align:center; font-size:12px; font-variant-numeric:tabular-nums; }
+  .lb-actions { display:flex; gap:5px; margin-left:auto; }
+  .lb-actions button { font-size:12px; padding:6px 9px; }
+  .lb-body { display:grid; grid-template-columns:minmax(0,1fr) 310px; min-height:0; position:relative; }
+  .lb-body.controls-hidden { grid-template-columns:minmax(0,1fr); }
+  #lbViewport { position:relative; min-width:0; min-height:0; overflow:hidden; outline-offset:-3px;
+    background:#111315; touch-action:none; user-select:none; cursor:grab; }
+  #lbViewport.dragging { cursor:grabbing; }
+  #lbCanvas { position:absolute; display:block; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+  .lb-label { position:absolute; z-index:2; top:12px; padding:5px 9px; background:#0c0f13d9;
+    border:1px solid #4c535e; border-radius:5px; font-size:11px; text-transform:uppercase;
+    letter-spacing:.08em; pointer-events:none; }
+  #lbLeftLabel { left:12px; }
+  #lbRightLabel { right:12px; border-color:#8a6134; color:#ffcf97; }
+  #lbWipe { position:absolute; z-index:3; top:0; bottom:0; width:30px; margin-left:-15px;
+    cursor:ew-resize; touch-action:none; outline-offset:-6px; }
+  #lbWipe::before { content:''; position:absolute; top:0; bottom:0; left:14px; width:2px;
+    background:#fff; box-shadow:0 0 4px #0009; }
+  #lbWipe::after { content:'‹ ›'; position:absolute; left:-3px; top:50%; margin-top:-20px;
+    width:36px; height:40px; display:grid; place-items:center; font-size:20px; background:#20242a;
+    color:#fff; border:1px solid #fff; border-radius:7px; box-shadow:0 2px 12px #0008; }
+  #lbBusy { position:absolute; z-index:4; bottom:18px; left:50%; transform:translateX(-50%);
+    padding:7px 13px; background:#191d22ee; border:1px solid #626873; border-radius:20px;
+    color:#e3e8ef; font-size:12px; pointer-events:none; text-align:center; max-width:90%; }
+  #lbPanel { min-height:0; overflow:auto; border-left:1px solid var(--border); background:#15181c; }
+  .lb-panel-heading { padding:14px 12px 8px; font-size:12px; font-weight:650; }
+  .lb-panel-heading span { display:block; color:var(--muted); font-weight:400; margin-top:3px; }
+  #lbControls .controls { display:grid; grid-template-columns:1fr; padding:4px 10px 14px; gap:8px; }
+  #lbControls .row { grid-template-columns:minmax(0,1fr) 85px; }
+  #lbControls .row:has(select) { grid-template-columns:1fr; }
+  #lbControls input[type="number"] { width:85px; }
+  .lb-bottom { padding:9px 14px 10px; border-top:1px solid var(--border); background:#181b1f; }
+  #lbMetrics { display:flex; gap:6px 18px; flex-wrap:wrap; font-size:12px; color:var(--muted);
+    font-variant-numeric:tabular-nums; margin-bottom:8px; }
+  #lbMetrics b { color:var(--text); font-weight:550; }
+  .lb-bottom-line { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  #lbJudge { padding:0; }
+  #lbKeys { color:var(--muted); font-size:11px; margin-left:auto; }
+  kbd { font:inherit; padding:1px 4px; border:1px solid #46505a; border-radius:3px; color:#cbd3dd; white-space:nowrap; }
+  .lb-small-hint { display:none; }
+  @media (max-width:1000px) {
+    .lb-brand { display:none; }
+    .lb-body { grid-template-columns:minmax(0,1fr) 280px; }
+    #lbKeys { flex-basis:100%; margin-left:0; }
+  }
+  @media (max-width:680px) {
+    .lb-top { padding:7px 8px; gap:6px; }
+    #lbName { font-size:12px; }
+    #lbSize { font-size:10px; }
+    #lbCounter { min-width:48px; }
+    #lbClose { padding:6px 8px; font-size:12px; }
+    .lb-toolbar { padding:6px 8px; gap:6px; }
+    .lb-tabs { width:100%; }
+    .lb-tabs button { flex:1; padding:5px; }
+    .lb-body { display:block; }
+    #lbViewport { width:100%; height:100%; }
+    #lbPanel { position:absolute; right:0; top:0; bottom:0; width:min(300px,88%); z-index:5;
+      box-shadow:-10px 0 30px #0009; }
+    .lb-bottom { padding:7px 8px; }
+    #lbMetrics { gap:4px 10px; font-size:11px; }
+    #lbKeys { display:none; }
+    .lb-small-hint { display:block; color:var(--muted); font-size:10px; }
+  }
+  .pair { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .pair figure { min-width:0; }
+  @media (max-width:1100px), (max-height:760px) {
+    /* A tall sticky settings header would otherwise cover the entire gallery. */
+    body > header { position:relative; }
+  }
+
+
+  body > header { position:relative; }
+  h1 small { font-size:10px; color:var(--accent); vertical-align:middle; letter-spacing:.1em; margin-left:6px; }
+  .optimizer-status { white-space:pre-line; }
+  #optProgress { width:100%; margin:10px 0; accent-color:var(--accent); }
+  .round-strip { display:flex; align-items:center; flex-wrap:wrap; gap:7px; padding:0 0 9px; }
+  .round-strip span { margin-right:auto; font-size:12px; color:var(--accent); }
+  .round-strip button { font-size:12px; padding:5px 8px; }
+  #roundReport { color:var(--text); background:var(--panel); border:1px solid #555d69; border-radius:14px;
+    width:min(1000px,96vw); max-height:91dvh; padding:22px; overflow:auto; box-shadow:0 15px 100px #000b; }
+  #roundReport::backdrop { background:#080a0dd9; }
+  .report-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+  .report-buttons { display:flex; gap:7px; flex-wrap:wrap; }
+  .report-head h2 { font-size:22px; margin:5px 0; }
+  .eyebrow { color:var(--accent); letter-spacing:.12em; font-size:10px; font-weight:700; }
+  .report-warning { padding:12px; background:#29251f; border-left:3px solid var(--accent); }
+  .table-scroll { overflow:auto; border:1px solid var(--border); border-radius:8px; }
+  table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; font-size:12px; }
+  th,td { padding:8px 10px; text-align:left; border-bottom:1px solid var(--border); }
+  th { background:#252a30; color:var(--muted); white-space:nowrap; }
+  .changed { color:#ffcd8d; }
+  .report-foot { display:flex; gap:14px; align-items:center; justify-content:space-between; margin-top:18px; }
+  @media(max-width:600px){#roundReport{padding:12px;} .report-foot{flex-wrap:wrap;} .report-head h2{font-size:18px;} .lb-bottom .round-strip span{flex-basis:100%;}}
+
+
+:root{--bg:#101416;--panel:#191e21;--panel2:#232a2e;--border:#354148;--muted:#a2b0b9;--accent:#ffbd70;}
+body{font-size:14px;} h1{font-size:22px;letter-spacing:-.04em;} .eyebrow{font-size:11px;} .topbar{padding:20px 24px;gap:10px;} .brandbox{margin-right:auto;} .brandbox p{margin:4px 0 0;color:var(--muted);font-size:12px;}
+button,.button,select{min-height:34px;} .dashboard{display:grid;grid-template-columns:1fr 1fr 1.35fr;gap:12px;padding:0 24px 16px;} .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;min-width:0;} h2,h3{margin:0 0 10px;} h3{font-size:14px;} .panel p{margin:8px 0;font-size:12px;color:var(--muted);} .bigstat{font-size:25px;line-height:1.3;font-weight:600;letter-spacing:-.04em;}.bigstat small{font-size:12px;color:var(--muted);font-weight:400;letter-spacing:0;}
+.training-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;} .training-grid label{font-size:12px;color:var(--muted);} .training-grid select{display:block;width:100%;margin-top:4px;} .trainbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;}.trainbar button{font-size:12px;}.textinput,input[type=text]{background:#11171a;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px;max-width:100%;} #sceneGroup{width:100%;margin:8px 0;} #drop{margin:0 24px 12px;padding:15px;} #gallery{grid-template-columns:repeat(auto-fill,minmax(360px,1fr));padding:0 24px 28px;} .gallery-tools{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:0 24px 14px;} .gallery-tools strong{margin-right:auto;} #status{padding:10px 24px;color:var(--muted);font-size:12px;white-space:pre-line;border-top:1px solid var(--border);} #storageWarning{background:#3b2a1b;padding:10px 24px;color:#ffd49f;} .notice{margin:0 24px 14px;border-left:3px solid var(--accent);padding:12px;background:#29251e;color:#f3d9ba;font-size:13px;} .note details{padding:0;} .help{margin:12px 24px;color:var(--muted);font-size:13px;max-width:1100px;} .help p{margin:10px 0;}.help summary{color:var(--text);font-weight:600;} #fileErrors{color:#f5baaa;}
+.card figure img,.card figure canvas{height:240px;} .metrics{grid-template-columns:repeat(2,1fr);min-height:60px;} .role-badge{color:#abbccc;font-size:10px;border:1px solid #425361;border-radius:5px;padding:2px 5px;}.role-validation{color:#9acfff;border-color:#356d8f;}.mono{font-variant-numeric:tabular-nums;}.card.heldout{border-color:#35607d;}.judge .hint{flex-basis:100%;}.target-row{display:flex;gap:6px;align-items:center;justify-content:space-between;margin:8px 0;font-size:12px;} .target-row input{width:90px;} .target-row select{max-width:165px;} .mini-panel{border-top:1px solid var(--border);padding:13px 12px;} .mini-panel input[type=range]{width:100%;accent-color:var(--accent);} .mini-panel button{font-size:12px;} .mini-panel details{padding:10px 0;} #histogram{width:100%;height:110px;display:block;background:#11171b;border-radius:6px;}.hist-legend{font-size:10px;color:var(--muted);margin:5px 0 10px;} #featureSummary{font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:6px;} .feature-line{display:flex;justify-content:space-between;gap:6px;padding:4px 0;font-size:11px;border-bottom:1px solid #263036;} .feature-heading{color:var(--accent);font-size:11px;margin-top:10px;}.mode-pill{font-size:10px;letter-spacing:.1em;color:#a9dec4;border:1px solid #365a4b;border-radius:4px;padding:4px 6px;display:inline-block;}.mode-pill.manual{color:#ffd19a;border-color:#b37532;background:#382c1f;}.target-warning{font-size:12px;color:#ffd29a;border-left:3px solid var(--accent);padding-left:9px;}.spaced{margin-top:10px;}.lb-body{grid-template-columns:minmax(0,1fr) 325px;} #lbKeys{font-size:10px;} .lb-bottom .round-strip{padding-bottom:8px;} #lbMetrics{font-size:12px;}.lb-panel-heading{font-size:13px;}.statline{margin-bottom:4px;} .statline b{font-weight:550;} #resetTools button{margin:4px 3px 0 0;} progress{width:100%;accent-color:var(--accent);height:7px;} .table-scroll td{max-width:320px;word-break:break-word;} .small-table th,.small-table td{padding:9px 10px;}
+@media(max-width:1050px){.dashboard{grid-template-columns:1fr 1fr;}.dashboard .trainpanel{grid-column:1/-1;}.training-grid{grid-template-columns:repeat(4,1fr);}}
+@media(max-width:680px){.topbar{padding:14px 12px;}.brandbox{width:100%;}.topbar button,.topbar .button{font-size:11px;padding:6px 8px;}.dashboard{display:block;padding:0 12px 10px;}.panel{margin-bottom:8px;padding:12px;}.training-grid{grid-template-columns:1fr 1fr;}.bigstat{font-size:21px;} #gallery{grid-template-columns:1fr;padding:0 12px 20px;} #drop,.notice{margin-left:12px;margin-right:12px;}.gallery-tools{padding:0 12px 12px;} #status{padding:10px 12px;}.lb-body{display:block;} .lb-bottom .round-strip{gap:4px;} .lb-bottom .round-strip span{flex-basis:100%;} #lbMetrics{font-size:10px;gap:3px 9px;}.lb-top #lbSize{max-height:28px;overflow:hidden;} .lb-tabs button{font-size:11px;}.lb-zoom button,.lb-actions button{padding:5px 7px;font-size:11px;}.lb-toolbar{gap:4px;}.lb-actions{margin-left:0;}.help{margin:8px 12px;} .role-badge{display:block;}}
+
+#gallery > .empty{grid-column:1/-1;}
+</style></head><body>
+<header>
+ <div class="topbar"><div class="brandbox"><div class="eyebrow">DONUT / IMAGE RESEARCH</div><h1>Tone Lab <small>FEATURE LEARNER · V4</small></h1><p>One shared model. Learn from your eyes. Test on new images.</p></div>
+ <label class="button primary">Choose folder<input id="folder" type="file" webkitdirectory multiple></label>
+ <label class="button">Choose images<input id="files" type="file" accept="image/*" multiple></label>
+ <label class="button">Import<input id="importData" type="file" accept=".json,application/json"></label>
+ <button id="exportSession">Export session</button><button id="exportModel">Export model only</button>
+ </div>
+ <div id="storageWarning" role="alert" hidden></div>
+ <div id="onboard" class="notice"><b>No pretrained model is bundled.</b> The first preview is unchanged. Teach a few images with Fine-tune target or quick ratings, then Train. Import a v3 session to recover your earlier judgments after reloading its source folders.</div>
+ <div class="dashboard">
+  <section class="panel"><div class="eyebrow">COLLECTION</div><div class="bigstat" id="dataCount">0 <small>images loaded</small></div><p id="recordCount">0 saved examples · retained across folders</p><p id="splitCount">Stable scene-group split: approximately 80% training / 20% validation.</p><p id="pendingLegacy" hidden></p><div id="fileErrors"></div></section>
+  <section class="panel"><div class="eyebrow">SHARED GLOBAL MODEL</div><div class="bigstat" id="modelName">Untrained</div><p id="modelDescription"></p><p id="modelStatus">Gallery and lightbox show the same model. Targets never silently replace predictions.</p><div class="inline"><button id="undoModel" disabled>Undo model update</button><button id="viewReport" disabled>Last training report</button></div></section>
+  <section class="panel trainpanel"><div class="eyebrow">TRAINING</div><div class="training-grid">
+   <label>Epoch budget<select id="epochs"><option value="200">200 · quick</option><option value="400" selected>400 · balanced</option><option value="800">800 · longer</option></select></label>
+   <label>Regularization<select id="regularization"><option value="0.002">Light · 0.002</option><option value="0.01" selected>Balanced · 0.01</option><option value="0.04">Strong · 0.04</option></select></label>
+   <label>Directional tone step<select id="toneStep"><option value="0.015">Gentle · 0.015</option><option value="0.025" selected>Normal · 0.025</option><option value="0.04">Strong · 0.04</option></select></label>
+   <label>Review batch<select id="roundSize"><option value="10">10 judgments</option><option value="20" selected>20 judgments</option><option value="40">40 judgments</option><option value="0">Entire folder</option></select></label>
+  </div><div class="trainbar"><label class="hint"><input type="checkbox" id="autoAdvance" checked> Next after rating</label><label class="hint"><input type="checkbox" id="autoTrain"> Train at batch end</label><button id="train" class="primary">Train + next round</button><button id="cancelTrain" hidden>Cancel</button></div><progress id="trainProgress" max="1" value="0" hidden></progress></section>
+ </div><div id="status" role="status">Ready. Everything runs locally; images are never uploaded or overwritten.</div>
+</header>
+<div class="gallery-tools"><strong id="roundSummary">Review round 1</strong><select id="galleryFilter" aria-label="Gallery filter"><option value="all">All loaded images</option><option value="unrated">Not reviewed this round</option><option value="train">Training scenes</option><option value="validation">Validation scenes</option><option value="targets">Has saved target</option></select><button id="inspectNext">Inspect next image ↗</button><button id="exportFeatures">Export measurements CSV</button></div>
+<div id="drop">Drop image files here, or choose a folder above. Click either preview to inspect at full size.</div>
+<div id="gallery"><div class="empty">Your next model starts with your examples—not another preset.</div></div>
+<details class="help"><summary>How this learner works · limits · reset tools</summary>
+<p><b>Prediction:</b> sRGB pixels → histogram, exposure, colour and spatial measurements → one globally trained 16 / 8 unit neural network → gamma and brightness. Filenames, scene IDs and ratings are never prediction inputs. A no-change head is learned from exact approvals; its score is not a calibrated confidence probability. Small predicted curves can snap to exact identity.</p>
+<p><b>Feedback:</b> Good saves the first approved model curve as a stable target. Later Good votes do not move it. Original is already right teaches identity. Fine-tune target is explicitly a manual preview; Save target replaces that example’s learning target, not its model output. Directional votes without a target constrain the midtone result; they cannot fully specify two sliders. For an image with a saved target, training keeps fitting that target until you explicitly change or remove it.</p>
+<p><b>Validation:</b> groups, not individual files, are assigned to training or validation. Both variants of a scene must share a group. Validation labels never enter weight updates, feature normalization or epoch selection; they are reported separately. Repeatedly choosing settings after looking at validation makes it a development set, not a final independent test. Hold out another folder for your final check.</p>
+<p><b>Limits:</b> analysis uses a 256-pixel-long-edge, browser-decoded sRGB proxy. Local contrast features depend on that scale. The output is a global RGB power curve (exponent ⅓–3, gain 0.8–1.25), not local exposure editing, contrast recovery or white-balance correction. Measurements cannot establish artistic intent. An untrained model returns the original. Native lightbox rendering uses a 16 MP / 8192-pixel safety limit and labels reduced previews. PNG/JPEG/WebP/AVIF/BMP are accepted when the browser can decode them; animated images are excluded.</p>
+<p><b>Persistence:</b> example features, targets and weights are saved locally, not image pixels. Reopen a folder to view it. Export session is the portable backup; Export model only carries weights and normalization, with no rating history. A local HTML file cannot enumerate sibling images silently.</p>
+<div id="resetTools"><button id="resetControls">Reset training controls</button><button id="resetModel">Reset model to untrained</button><button id="clearRound">Clear current-round votes</button><button id="clearData">Clear all saved examples &amp; model</button></div>
+</details>
+<dialog id="lightbox" aria-labelledby="lbName" aria-describedby="lbKeys">
+  <div class="lb-top">
+    <span class="lb-brand">DONUT / INSPECT</span>
+    <div class="lb-nav">
+      <button id="lbPrev" type="button" title="Previous image (Left arrow)" aria-label="Previous image">←</button>
+      <span id="lbCounter">1 / 1</span>
+      <button id="lbNext" type="button" title="Next image (Right arrow)" aria-label="Next image">→</button>
+    </div>
+    <div class="lb-title"><div id="lbName">Image comparison</div><div id="lbSize"></div></div>
+    <button id="lbClose" type="button" title="Close lightbox (Esc)" aria-label="Close lightbox">Close ×</button>
+  </div>
+  <div class="lb-toolbar">
+    <div class="lb-tabs" role="group" aria-label="Comparison mode">
+      <button type="button" data-lb-view="wipe" aria-pressed="true" title="Drag the divider to compare (W)">Split slider</button>
+      <button type="button" data-lb-view="side" aria-pressed="false" title="Two synchronized views (S)">Side by side</button>
+      <button type="button" data-lb-view="original" aria-pressed="false" title="Show original (O)">Original</button>
+      <button type="button" data-lb-view="corrected" aria-pressed="false" title="Show corrected (C)">Corrected</button>
+    </div>
+    <div class="lb-zoom" role="group" aria-label="Image zoom">
+      <button id="lbFit" type="button" title="Fit image in viewer (0)">Fit</button>
+      <button id="lbActual" type="button" title="One image pixel per display pixel (1)">100%</button>
+      <button id="lbZoomOut" type="button" title="Zoom out (-)" aria-label="Zoom out">−</button>
+      <span id="lbZoom">100%</span>
+      <button id="lbZoomIn" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    </div>
+    <div class="lb-actions">
+      <button id="lbPeek" type="button" title="Press and hold to see the original. Keyboard: hold Space.">Hold: original</button>
+      <button id="lbSettings" type="button" aria-controls="lbPanel" aria-expanded="true" title="Toggle adjustment controls (Tab button or A)">Targets / stats</button>
+      <button id="lbFullscreen" type="button" title="Toggle fullscreen (F)">Fullscreen</button>
+    </div>
+  </div>
+  <div class="lb-body" id="lbBody">
+    <div id="lbViewport" tabindex="0" aria-label="Image comparison. Scroll to zoom, drag to pan. Hold Space for original. Left and Right navigate.">
+      <canvas id="lbCanvas" aria-label="Original and gamma-corrected image"></canvas>
+      <span id="lbLeftLabel" class="lb-label">Original</span>
+      <span id="lbRightLabel" class="lb-label">Model output</span>
+      <div id="lbWipe" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-orientation="horizontal"></div>
+      <div id="lbBusy" role="status" hidden>Preparing full-size preview…</div>
+    </div>
+    <aside id="lbPanel" aria-label="Target editor and image measurements">
+      <div class="lb-panel-heading">Global model prediction<span id="predictionSource">No image-specific overrides are used.</span></div>
+      <div id="featureSidebar">
+       <div class="mini-panel"><div class="mode-pill" id="previewBadge">MODEL OUTPUT</div><p class="hint" id="modelReadout"></p>
+        <div class="inline"><button id="editTarget" class="primary">Fine-tune target</button><button id="useModel" hidden>Return to model</button></div>
+        <div id="targetEditor" hidden>
+         <p class="target-warning">MANUAL TARGET PREVIEW — not the model’s prediction. Saving teaches the global model; it does not override this image.</p>
+         <label class="target-row">Gamma slider <input type="number" id="manualGammaN" min="-100" max="100" step="0.5" value="0"></label>
+         <input type="range" id="manualGamma" min="-100" max="100" step="0.5" value="0" aria-label="Manual gamma target">
+         <label class="target-row">Brightness gain % <input type="number" id="manualGainN" min="-20" max="25" step="0.1" value="0"></label>
+         <input type="range" id="manualGain" min="-20" max="25" step="0.1" value="0" aria-label="Manual brightness gain target">
+         <button class="primary" id="saveTarget">Save target &amp; next</button>
+         <p class="hint">One combined curve: RGB^exponent × gain. The brightness value is a post-gamma multiplier, not the LocalBooru brightness slider.</p>
+        </div>
+        <div class="inline spaced"><button id="acceptOriginal">Original is already right</button></div>
+        <p class="hint" id="anchorInfo">No approved target.</p><div class="inline"><button id="viewTarget">View saved target</button><button id="removeTarget">Remove target</button></div>
+       </div>
+       <div class="mini-panel"><h3>Data role</h3><div class="target-row"><label for="imageRole">Role for this group</label><select id="imageRole"><option value="train">Training</option><option value="validation">Validation only</option><option value="ignore">Excluded</option></select></div>
+        <input id="sceneGroup" type="text" aria-label="Scene group name"><button id="saveGroup">Set group</button>
+        <p class="hint">Put corrected/original copies and near-duplicates in the same group. A group has one role. Changing a role/group resets trained weights to keep the split clean.</p>
+       </div>
+       <div class="mini-panel"><h3>Measured tone distribution</h3><canvas id="histogram" width="520" height="180"></canvas><div class="hist-legend">Dashed: original · solid: current preview</div><div id="featureSummary"></div>
+        <details><summary>All image measurements</summary><div id="featureValues"></div></details>
+        <details id="sensitivityDetails"><summary>Model sensitivity</summary><p class="hint">Response to a small change in one measurement. Correlated features make this a diagnostic, not a causal explanation.</p><div id="sensitivityValues"></div></details>
+       </div>
+      </div>
+    </aside>
+  </div>
+  <div class="lb-bottom">
+    <div class="round-strip"><span id="lbRoundStatus" role="status">Round 1</span><button id="lbOptimize" class="primary" type="button">Train + next round</button><button id="lbReportButton" type="button" disabled>Changes</button></div>
+    <div id="lbMetrics"></div>
+    <div class="lb-bottom-line">
+      <div id="lbJudge" class="judge">
+        <span class="hint">Model result:</span>
+        <button type="button" class="too-dark" data-lb-rate="too_dark" title="Rate too dark (2)">Too dark</button>
+        <button type="button" class="good" data-lb-rate="good" title="Rate good (3)">Good</button>
+        <button type="button" class="too-light" data-lb-rate="too_light" title="Rate too bright (4)">Too bright</button>
+        <button type="button" class="skip" data-lb-rate="skip" title="Skip image (5)">Skip</button>
+      </div>
+      <span id="lbKeys"><kbd>Space</kbd> hold original · <kbd>←</kbd> <kbd>→</kbd> images · scroll zoom · drag pan · <kbd>0</kbd> fit · <kbd>1</kbd> 100% · <kbd>Esc</kbd> close</span>
+      <span class="lb-small-hint">Pinch to zoom · drag to pan · drag the divider to compare</span>
+    </div>
+  </div>
+</dialog>
+<dialog id="roundReport" aria-labelledby="reportHeading"><div class="report-head"><div><div class="eyebrow">GLOBAL MODEL / TRAINING REPORT</div><h2 id="reportHeading">Training result</h2></div><div class="report-buttons"><button id="reportNext" class="primary">Review next round</button><button id="reportClose">Close ×</button></div></div><p id="reportSummary"></p><p id="reportWarnings" class="report-warning"></p><div class="table-scroll"><table class="small-table"><thead><tr><th>Measure</th><th>Training · before → after</th><th>Validation · before → after</th></tr></thead><tbody id="reportMetrics"></tbody></table></div><p class="hint">These are errors against saved targets and directional bounds, not a human acceptance score. Validation images are not used to fit weights, normalization or select an epoch.</p><h3>Image predictions · one shared model</h3><div class="table-scroll"><table><thead><tr><th>Image</th><th>Role</th><th>Gamma slider</th><th>Gain %</th><th>Midtone Δ /255</th></tr></thead><tbody id="imageChanges"></tbody></table></div></dialog>
+<script>
+"use strict";
+/* Pure, versioned analyzer and global predictor. No files, names, IDs or ratings
+   are inputs to predict(). This same function is used by gallery, lightbox and worker. */
+function buildFeatureEngine(){
+  'use strict';
+  const SCHEMA='donut_srgb256_features_v4.0', ALGORITHM='donut_feature_mlp_v4.0';
+  const LOGG=Math.log(3), LOGB=Math.log(1.25), H1=16, H2=8;
+  const clip=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const avg=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
+  const variance=(a,m=avg(a))=>a.length?avg(a.map(x=>(x-m)**2)):0;
+  const q=(a,p)=>{if(!a.length)return 0;const z=(a.length-1)*p,i=Math.floor(z);return a[i]+(a[Math.ceil(z)]-a[i])*(z-i);};
+  const sigmoid=x=>1/(1+Math.exp(-clip(x,-40,40)));
+  const slider=g=>-100*Math.log(g)/Math.log(3);
+  const exponent=s=>3**(-s/100);
+  function random(seed){return()=>{seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function hash(s){let h=2166136261;for(let i=0;i<s.length;i++)h=Math.imul(h^s.charCodeAt(i),16777619);return h>>>0;}
+  const lin=x=>x<=.04045?x/12.92:((x+.055)/1.055)**2.4;
+  function analyze(data,w,h){
+    if(!Number.isInteger(w)||!Number.isInteger(h)||w<1||h<1||data.length!==w*h*4)throw Error('Invalid analysis pixels.');
+    const ys=[],linear=[],ss=[],cs=[],channels=[[],[],[]],hist=Array(64).fill(0),satHist=Array(8).fill(0),rgbHist=Array(256).fill(0),midHist=Array(256).fill(0);
+    const tiles=Array.from({length:16},()=>[]),valid=new Uint8Array(w*h),ymap=new Float64Array(w*h);
+    let blacks=0,whites=0,anyBlack=0,anyWhite=0,neutral=0,centerSum=0,centerN=0,borderSum=0,borderN=0;
+    for(let p=0;p<w*h;p++){
+      if(data[4*p+3]<250)continue;
+      const r=data[4*p]/255,g=data[4*p+1]/255,b=data[4*p+2]/255,y=.299*r+.587*g+.114*b;
+      const mx=Math.max(r,g,b),mn=Math.min(r,g,b),ch=mx-mn,s=mx>1e-12?ch/mx:0;
+      valid[p]=1;ymap[p]=y;ys.push(y);linear.push(.2126*lin(r)+.7152*lin(g)+.0722*lin(b));ss.push(s);cs.push(ch);
+      channels[0].push(r);channels[1].push(g);channels[2].push(b);
+      hist[Math.min(63,Math.floor(y*64))]++;satHist[Math.min(7,Math.floor(s*8))]++;
+      rgbHist[data[4*p]]+=.299;rgbHist[data[4*p+1]]+=.587;rgbHist[data[4*p+2]]+=.114;
+      blacks+=y<=1/255;whites+=y>=254/255;anyBlack+=mn<=1/255;anyWhite+=mx>=254/255;neutral+=ch<.05;
+      const x=p%w,ypos=Math.floor(p/w),tx=Math.min(3,Math.floor(x/w*4)),ty=Math.min(3,Math.floor(ypos/h*4));tiles[ty*4+tx].push(y);
+      if(tx>=1&&tx<=2&&ty>=1&&ty<=2){centerSum+=y;centerN++;}else{borderSum+=y;borderN++;}
+    }
+    const n=ys.length;ys.sort((a,b)=>a-b);ss.sort((a,b)=>a-b);cs.sort((a,b)=>a-b);channels.forEach(a=>a.sort((a,b)=>a-b));
+    const mean=avg(ys),std=Math.sqrt(variance(ys,mean)),lo=q(ys,.25),hi=q(ys,.75);let midN=0;
+    for(let p=0;p<w*h;p++)if(valid[p]&&ymap[p]>=lo&&ymap[p]<=hi){midHist[data[4*p]]+=.299;midHist[data[4*p+1]]+=.587;midHist[data[4*p+2]]+=.114;midN++;}
+    for(let k=0;k<256;k++){rgbHist[k]/=n||1;midHist[k]/=midN||1;}
+    for(let k=0;k<64;k++)hist[k]/=n||1;for(let k=0;k<8;k++)satHist[k]/=n||1;
+    const names=[],groups=[],features=[];
+    function add(name,v,group){names.push(name);features.push(Number.isFinite(v)?v:0);groups.push(group);}
+    hist.forEach((v,i)=>add('Luma bin '+String(i).padStart(2,'0'),v,'Luma histogram'));
+    const qs=[.01,.05,.10,.25,.50,.75,.90,.95,.99],quantiles=qs.map(p=>q(ys,p));
+    qs.forEach((v,i)=>add('p'+Math.round(v*100).toString().padStart(2,'0'),quantiles[i],'Tonal shape'));
+    add('Mean luma',mean,'Tonal shape');add('Luma standard deviation',std,'Tonal shape');
+    add('Skewness / 4',std>1e-6?clip(avg(ys.map(y=>((y-mean)/std)**3)),-4,4)/4:0,'Tonal shape');
+    add('Excess kurtosis / 20',std>1e-6?clip(avg(ys.map(y=>((y-mean)/std)**4))-3,-3,20)/20:0,'Tonal shape');
+    const entropy=-hist.reduce((s,p)=>s+(p?p*Math.log2(p):0),0)/6;
+    add('Histogram entropy / 6',entropy,'Tonal shape');add('Geometric mean luma',n?Math.exp(avg(ys.map(x=>Math.log(Math.max(x,1/255))))):0,'Tonal shape');
+    add('Linear-light mean',avg(linear),'Tonal shape');add('Linear-light standard deviation',Math.sqrt(variance(linear)),'Tonal shape');
+    for(const [name,a,b]of [['p99 − p01',.99,.01],['p95 − p05',.95,.05],['p90 − p10',.9,.1],['Interquartile range',.75,.25]])add(name,q(ys,a)-q(ys,b),'Exposure & range');
+    const bounds=[0,.05,.2,.4,.6,.85,.97,1.000001];for(let i=0;i<7;i++)add('Zone '+bounds[i].toFixed(2)+'–'+Math.min(1,bounds[i+1]).toFixed(2),ys.filter(y=>y>=bounds[i]&&y<bounds[i+1]).length/(n||1),'Exposure & range');
+    add('Near-black luma',blacks/(n||1),'Exposure & range');add('Near-white luma',whites/(n||1),'Exposure & range');
+    add('Any RGB channel near black',anyBlack/(n||1),'Exposure & range');add('Any RGB channel near white',anyWhite/(n||1),'Exposure & range');
+    add('Highlight headroom',1-q(ys,.99),'Exposure & range');add('Median / p95',q(ys,.5)/Math.max(q(ys,.95),1e-6),'Exposure & range');
+    for(let c=0;c<3;c++){let a=channels[c],prefix=['R','G','B'][c];add(prefix+' mean',avg(a),'Colour & saturation');add(prefix+' standard deviation',Math.sqrt(variance(a)),'Colour & saturation');for(const p of [.05,.5,.95])add(prefix+' p'+Math.round(p*100),q(a,p),'Colour & saturation');}
+    add('R mean − G mean',avg(channels[0])-avg(channels[1]),'Colour & saturation');add('B mean − G mean',avg(channels[2])-avg(channels[1]),'Colour & saturation');
+    add('Neutral pixel fraction',neutral/(n||1),'Colour & saturation');
+    for(const [name,a]of [['Chroma',cs],['Saturation',ss]]){add(name+' mean',avg(a),'Colour & saturation');add(name+' standard deviation',Math.sqrt(variance(a)),'Colour & saturation');add(name+' p90',q(a,.9),'Colour & saturation');}
+    satHist.forEach((v,i)=>add('Saturation bin '+i,v,'Colour & saturation'));
+    const tmean=tiles.map(a=>a.length?avg(a):mean),tstd=tiles.map(a=>Math.sqrt(variance(a)));
+    tmean.forEach((v,i)=>add('Tile '+Math.floor(i/4)+','+(i%4)+' mean',v,'Spatial & texture'));
+    tstd.forEach((v,i)=>add('Tile '+Math.floor(i/4)+','+(i%4)+' contrast',v,'Spatial & texture'));
+    add('Between-tile variation',Math.sqrt(variance(tmean)),'Spatial & texture');add('Mean local contrast',avg(tstd),'Spatial & texture');add('Center − border luma',centerSum/(centerN||1)-borderSum/(borderN||1),'Spatial & texture');
+    let dx=0,dy=0,nx=0,ny=0,edge=0,lap=0,nlap=0;
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let p=y*w+x;if(!valid[p])continue;
+      if(x+1<w&&valid[p+1]){const d=Math.abs(ymap[p+1]-ymap[p]);dx+=d;nx++;edge+=d>.08;}
+      if(y+1<h&&valid[p+w]){const d=Math.abs(ymap[p+w]-ymap[p]);dy+=d;ny++;edge+=d>.08;}
+      if(x>0&&x+1<w&&y>0&&y+1<h&&valid[p-1]&&valid[p+1]&&valid[p-w]&&valid[p+w]){lap+=((4*ymap[p]-ymap[p-1]-ymap[p+1]-ymap[p-w]-ymap[p+w])/4)**2;nlap++;}}
+    add('Horizontal gradient',dx/(nx||1),'Spatial & texture');add('Vertical gradient',dy/(ny||1),'Spatial & texture');add('Edge fraction',edge/(nx+ny||1),'Spatial & texture');add('Laplacian RMS / 4',Math.sqrt(lap/(nlap||1)),'Spatial & texture');
+    return {schema:SCHEMA,features,names,groups,hist,midHist,rgbHist,sampleCount:n,opaqueFraction:n/(w*h),mean,std,p05:q(ys,.05),p50:q(ys,.5),p95:q(ys,.95),ratio:q(ys,.5)/Math.max(q(ys,.95),1e-6),entropy,flat:q(ys,.95)-q(ys,.05)<.03,analysisWidth:w,analysisHeight:h};
+  }
+  function curve(hist,g,b){let y=0;for(let k=1;k<256;k++)if(hist[k])y+=hist[k]*Math.min(1,(k/255)**g*b);return y;}
+  function curveGrad(hist,g,b){let value=0,dg=0,db=0;for(let k=1;k<256;k++)if(hist[k]){const x=k/255,v=x**g*b,w=hist[k];value+=w*Math.min(1,v);if(v<1){dg+=w*v*g*Math.log(x);db+=w*v;}}return {value,dg,db};}
+  function curveRMS(hist,a,b){let z=0;for(let k=0;k<256;k++)if(hist[k]){const x=k/255,d=Math.min(1,x**a.gamma*a.gain)-Math.min(1,x**b.gamma*b.gain);z+=hist[k]*d*d;}return Math.sqrt(z);}
+  function identityDistance(a){let z=0;for(let i=1;i<32;i++){const x=i/32;z+=(Math.min(1,x**a.gamma*a.gain)-x)**2;}return Math.sqrt(z/31);}
+  function layer(ni,no,rng,scale=1){return {ni,no,w:Array.from({length:ni*no},()=> (rng()*2-1)*Math.sqrt(6/(ni+no))*scale),b:Array(no).fill(0)};}
+  function initialize(count,stats,seed=49137){const rng=random(seed);return {format:ALGORITHM,schema:SCHEMA,featureCount:count,names:stats.names.slice(),mu:Array(count).fill(0),sd:Array(count).fill(1),layers:[layer(count,H1,rng),layer(H1,H2,rng),layer(H2,3,rng,.02)],trained:false,revision:0};}
+  function standardize(features,m){return features.map((x,i)=>clip((x-m.mu[i])/m.sd[i],-6,6));}
+  function forward(features,m){const acts=[standardize(features,m)];for(let i=0;i<m.layers.length;i++){const l=m.layers[i],input=acts[i],out=[];for(let j=0;j<l.no;j++){let sum=l.b[j];for(let k=0;k<l.ni;k++)sum+=l.w[j*l.ni+k]*input[k];out.push(i===m.layers.length-1?sum:Math.tanh(sum));}acts.push(out);}const raw=acts[3],lg=LOGG*Math.tanh(raw[0]),lb=LOGB*Math.tanh(raw[1]);return {gamma:Math.exp(lg),gain:Math.exp(lb),logGamma:lg,logGain:lb,noOpScore:sigmoid(raw[2]),acts};}
+  function predict(features,m){
+    if(!m||!m.trained)return {gamma:1,gain:1,noOpScore:null,untrained:true,noop:true,coverage:0};
+    if(features.length!==m.featureCount)throw Error('Feature dimension mismatch.');
+    const a=forward(features,m),distance=identityDistance(a),noop=distance<.0025||(a.noOpScore>=.9&&distance<.015);
+    let outside=0;for(let i=0;i<features.length;i++)outside+=Math.abs((features[i]-m.mu[i])/m.sd[i])>3;
+    return {gamma:noop?1:a.gamma,gain:noop?1:a.gain,noOpScore:a.noOpScore,noop,coverage:outside/features.length,rawGamma:a.gamma,rawGain:a.gain};
+  }
+  function validatedModel(m){
+    if(!m||m.format!==ALGORITHM||m.schema!==SCHEMA||!m.trained)throw Error('Not a supported trained Tone Lab feature model.');
+    const n=m.featureCount;if(!Number.isInteger(n)||n<1||n>1000||!Array.isArray(m.names)||m.names.length!==n||!Array.isArray(m.mu)||m.mu.length!==n||!Array.isArray(m.sd)||m.sd.length!==n)throw Error('Invalid model dimensions.');
+    for(let i=0;i<n;i++)if(!Number.isFinite(m.mu[i])||!Number.isFinite(m.sd[i])||m.sd[i]<=0||typeof m.names[i]!=='string')throw Error('Invalid model preprocessing.');
+    const shapes=[[n,H1],[H1,H2],[H2,3]];if(!Array.isArray(m.layers)||m.layers.length!==3)throw Error('Invalid layer count.');
+    m.layers.forEach((l,i)=>{const [ni,no]=shapes[i];if(l.ni!==ni||l.no!==no||!Array.isArray(l.w)||!Array.isArray(l.b)||l.w.length!==ni*no||l.b.length!==no||![...l.w,...l.b].every(x=>Number.isFinite(x)&&Math.abs(x)<1e5))throw Error('Invalid network weights.');});
+    return JSON.parse(JSON.stringify(m));
+  }
+  function labelFor(r,step=.025){
+    if(r.anchor)return {kind:'target',target:r.anchor,weight:r.anchor.source==='manual'||r.anchor.source==='original'?1.5:1};
+    const es=(r.events||[]).filter(e=>e.rating==='too_dark'||e.rating==='too_light');if(!es.length)return null;
+    let lower=null,upper=null,streak=0,last=null;
+    for(const e of es){const v=curve(r.stats.midHist,e.gamma,e.gain);streak=last?.rating===e.rating?streak+1:1;
+      if(e.rating==='too_light'){upper=upper===null?v:Math.min(upper,v);if(lower!==null&&lower>=upper)lower=null;}
+      else{lower=lower===null?v:Math.max(lower,v);if(upper!==null&&upper<=lower)upper=null;}last=e;}
+    const margin=Math.min(.06,step*1.3**Math.min(4,streak-1));
+    return {kind:lower!==null&&upper!==null?'bracket':last.rating,lower,upper,margin,observed:last,weight:.7};
+  }
+  function sampleLoss(r,a,label,grad=true){
+    let loss=0,dg=0,db=0,dn=0;
+    if(label.kind==='target'){
+      const t=label.target,eg=a.logGamma-Math.log(t.gamma),eb=a.logGain-Math.log(t.gain);
+      loss=.5*((eg/.35)**2+(eb/.12)**2);dg=eg/.35**2;db=eb/.12**2;
+      const no=identityDistance(t)<.004?1:0,p=clip(a.noOpScore,1e-8,1-1e-8);
+      loss+=.12*(-no*Math.log(p)-(1-no)*Math.log(1-p));dn=.12*(p-no);
+    }else{
+      const m=curveGrad(r.stats.midHist,a.gamma,a.gain);let err=0;
+      if(label.kind==='bracket')err=m.value-(label.lower+label.upper)/2;
+      else if(label.kind==='too_light')err=Math.max(0,m.value-Math.max(0,label.upper-label.margin));
+      else err=Math.min(0,m.value-Math.min(1,label.lower+label.margin));
+      loss=.5*(err/.05)**2;dg=err/.05**2*m.dg;db=err/.05**2*m.db;
+      // Direction alone does not identify gamma AND gain. Weakly prefer retaining
+      // the judged gain instead of achieving every request through brightness.
+      const eb=a.logGain-Math.log(label.observed.gain);loss+=.025*(eb/.12)**2;db+=.05*eb/.12**2;
+    }
+    return {loss:loss*label.weight,dg:dg*label.weight,db:db*label.weight,dn:dn*label.weight};
+  }
+  function evaluate(records,m,step=.025,overrides=null){
+    let loss=0,n=0,ex=0,rms=0,gs=0,bs=0,dirs=0,satisfied=0,noops=0;
+    for(const r of records){const label=labelFor(r,step);if(!label)continue;const pred=overrides?.[r.id]||(m?.trained?predict(r.stats.features,m):{gamma:1,gain:1,noOpScore:.5});
+      const a={...pred,noOpScore:pred.noOpScore??.5,logGamma:Math.log(pred.gamma),logGain:Math.log(pred.gain)};loss+=sampleLoss(r,a,label,false).loss;n++;
+      if(label.kind==='target'){const d=curveRMS(r.stats.rgbHist,pred,label.target);rms+=d*d;gs+=Math.abs(slider(pred.gamma)-slider(label.target.gamma));bs+=100*Math.abs(pred.gain-label.target.gain);ex++;if(label.target.gamma===1&&label.target.gain===1)noops++;}
+      else{const mid=curve(r.stats.midHist,pred.gamma,pred.gain);dirs++;satisfied+=label.kind==='bracket'?mid>=label.lower&&mid<=label.upper:label.kind==='too_light'?mid<label.upper-.005:mid>label.lower+.005;}}
+    return {n,loss:n?loss/n:null,targets:ex,curveRMS:ex?Math.sqrt(rms/ex):null,gammaMAE:ex?gs/ex:null,gainMAE:ex?bs/ex:null,directional:dirs,directionSatisfied:satisfied,originalTargets:noops};
+  }
+  async function train(payload,progress=()=>{}){
+    const all=payload.records.filter(r=>r.stats?.schema===SCHEMA&&r.stats.sampleCount>=16&&labelFor(r,payload.step));
+    const tr=all.filter(r=>r.role==='train'),va=all.filter(r=>r.role==='validation');
+    if(tr.length<4||new Set(tr.map(r=>r.group)).size<3)throw Error('Collect feedback on at least 4 training images in 3 scene groups. Validation images are not used for training.');
+    const count=tr[0].stats.features.length;if(tr.some(r=>r.stats.features.length!==count))throw Error('Mixed feature versions. Reload source images to reanalyze.');
+    let m=payload.model?.trained?validatedModel(payload.model):initialize(count,tr[0].stats,payload.seed||49137);
+    const beforeModel=payload.model?.trained?validatedModel(payload.model):null;
+    const mu=Array(count).fill(0),sd=Array(count).fill(0);
+    for(const r of tr)for(let i=0;i<count;i++)mu[i]+=r.stats.features[i]/tr.length;
+    for(const r of tr)for(let i=0;i<count;i++)sd[i]+=(r.stats.features[i]-mu[i])**2/tr.length;
+    for(let i=0;i<count;i++)sd[i]=Math.max(.03,Math.sqrt(sd[i]));
+    if(m.trained){const l=m.layers[0],oldW=l.w.slice();for(let j=0;j<l.no;j++)for(let i=0;i<count;i++){l.b[j]+=oldW[j*count+i]*(mu[i]-m.mu[i])/m.sd[i];l.w[j*count+i]=oldW[j*count+i]*sd[i]/m.sd[i];}}
+    m.mu=mu;m.sd=sd;m.trained=true;
+    const rng=random(payload.seed||49137),epochs=clip(Math.round(payload.epochs||400),50,2000),lr=.004,lambda=clip(payload.regularization??.01,.0001,.5);
+    const labels=tr.map(r=>labelFor(r,payload.step));
+    const packs=m.layers.map(l=>({mw:new Float64Array(l.w.length),vw:new Float64Array(l.w.length),mb:new Float64Array(l.b.length),vb:new Float64Array(l.b.length)}));
+    let iter=0,best=JSON.parse(JSON.stringify(m)),bestLoss=Infinity,trace=[];
+    // Weight each scene group equally: near-duplicates do not get extra voting power.
+    const sizes={};tr.forEach(r=>sizes[r.group]=(sizes[r.group]||0)+1);const ng=Object.keys(sizes).length;
+    for(let epoch=0;epoch<epochs;epoch++){
+      const grads=m.layers.map(l=>({w:new Float64Array(l.w.length),b:new Float64Array(l.b.length)}));let total=0;
+      for(let idx=0;idx<tr.length;idx++){
+        const r=tr[idx],a=forward(r.stats.features,m),v=sampleLoss(r,a,labels[idx]),weight=1/(ng*sizes[r.group]);total+=weight*v.loss;
+        let delta=[v.dg*LOGG*(1-Math.tanh(a.acts[3][0])**2),v.db*LOGB*(1-Math.tanh(a.acts[3][1])**2),v.dn].map(x=>x*weight);
+        for(let li=2;li>=0;li--){const l=m.layers[li],inp=a.acts[li],next=Array(l.ni).fill(0),g=grads[li];
+          for(let j=0;j<l.no;j++){g.b[j]+=delta[j];for(let i=0;i<l.ni;i++){g.w[j*l.ni+i]+=delta[j]*inp[i];next[i]+=l.w[j*l.ni+i]*delta[j];}}
+          if(li>0)next.forEach((v,i)=>next[i]=v*(1-inp[i]**2));delta=next;}
+      }
+      let norm=0;for(let li=0;li<3;li++){const l=m.layers[li],g=grads[li];for(let j=0;j<l.w.length;j++){g.w[j]+=lambda*l.w[j];total+=.5*lambda*l.w[j]*l.w[j];norm+=g.w[j]**2;}for(const v of g.b)norm+=v*v;}
+      if(!Number.isFinite(total))throw Error('Training became non-finite. Previous model was kept.');
+      if(total<bestLoss){bestLoss=total;best=JSON.parse(JSON.stringify(m));}
+      const factor=Math.min(1,5/Math.max(1e-12,Math.sqrt(norm)));iter++;
+      const rate=lr*(.2+.8*(1-epoch/epochs));
+      for(let li=0;li<3;li++)for(const key of ['w','b']){const l=m.layers[li],g=grads[li][key],mm=packs[li]['m'+key],vv=packs[li]['v'+key];for(let j=0;j<g.length;j++){const d=g[j]*factor;mm[j]=.9*mm[j]+.1*d;vv[j]=.999*vv[j]+.001*d*d;l[key][j]-=rate*(mm[j]/(1-.9**iter))/(Math.sqrt(vv[j]/(1-.999**iter))+1e-8);}}
+      if(epoch%20===0||epoch===epochs-1){const v={epoch:epoch+1,epochs,loss:total};trace.push(v);progress(v);await new Promise(r=>setTimeout(r,0));}
+    }
+    const finalTrain=evaluate(tr,best,payload.step),previousTrain=evaluate(tr,beforeModel,payload.step,payload.baselineCurves),validation=evaluate(va,best,payload.step),previousValidation=evaluate(va,beforeModel,payload.step,payload.baselineCurves);
+    best.revision=(payload.model?.revision||0)+1;best.training={imageCount:tr.length,groupCount:ng,validationCount:va.length,epochs,regularization:lambda,step:payload.step||.025,seed:payload.seed||49137};
+    best.trainingKeys=undefined; // No image records are required by or exported with the model.
+    const changes=all.map(r=>{const old=payload.baselineCurves?.[r.id]||predict(r.stats.features,beforeModel),next=predict(r.stats.features,best);return {id:r.id,name:r.name,role:r.role,gammaBefore:old.gamma,gammaAfter:next.gamma,gainBefore:old.gain,gainAfter:next.gain,midDelta:curve(r.stats.midHist,next.gamma,next.gain)-curve(r.stats.midHist,old.gamma,old.gain),targetDrift:r.anchor?curveRMS(r.stats.rgbHist,next,r.anchor):null};});
+    return {model:best,training:finalTrain,validation,previousTraining:previousTrain,previousValidation,trace,changes,learnedWeights:best.layers.reduce((s,l)=>s+l.w.length+l.b.length,0),groups:ng};
+  }
+  function sensitivity(features,m){if(!m?.trained)return [];const base=predict(features,m);return features.map((v,i)=>{const f=features.slice(),step=.2*m.sd[i];f[i]+=step;const p=predict(f,m);return {name:m.names[i],effect:slider(p.gamma)-slider(base.gamma),gainEffect:100*(p.gain-base.gain)};}).sort((a,b)=>Math.abs(b.effect)-Math.abs(a.effect)).slice(0,8);}
+  return {SCHEMA,ALGORITHM,H1,H2,clip,slider,exponent,hash,analyze,predict,forward,initialize,validatedModel,train,evaluate,labelFor,curve,curveGrad,curveRMS,identityDistance,sensitivity};
+}
+
+const E=buildFeatureEngine();
+const $=id=>document.getElementById(id),clamp=E.clip,fmt=(n,d=3)=>Number.isFinite(n)?n.toFixed(d):'—';
+const exponentToSlider=E.slider;
+const META=E.analyze(new Uint8ClampedArray([0,0,0,255]),1,1);
+const DEFAULT_SETTINGS={epochs:400,regularization:.01,step:.025,roundSize:20,autoAdvance:true,autoTrain:false};
+const fresh=()=>({version:4,tool:'Donut Tone Lab Feature Learner',schema:E.SCHEMA,model:null,legacyBaseline:null,records:{},groups:{},legacy:[],round:1,votes:{},reports:[],settings:{...DEFAULT_SETTINGS},undo:null,importedModelUnverified:false});
+let state=fresh(),images=[],manualPreview=null,optimizerBusy=false,loading=false,worker=null,trainToken=0,loadGeneration=0,modelToken=1,autoTimer=null,saveTimer=null,galleryObserver=null,storage=null,storageOK=false,lastStatus='Ready.',lastVoteTime=0;
+const visibleCards=new Set();
+function esc(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function warn(s){$('storageWarning').hidden=false;$('storageWarning').textContent=s;}
+function status(s){lastStatus=s;$('status').textContent=s;updateOptimizerStatus();}
+async function storageInit(){
+ try{storage=await new Promise((resolve,reject)=>{const req=indexedDB.open('DonutToneLabFeatureV4',1);req.onupgradeneeded=()=>req.result.createObjectStore('state');req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});
+ const stored=await new Promise((resolve,reject)=>{const tx=storage.transaction('state','readonly'),r=tx.objectStore('state').get('current');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});if(stored)state=validateSession(stored);storageOK=true;
+ }catch(e){try{const s=localStorage.getItem('donutFeatureLabV4');if(s)state=validateSession(JSON.parse(s));storageOK=true;warn('IndexedDB is unavailable. Browser storage is limited; export a session regularly.');}catch(err){warn('Browser storage is unavailable. Your work is held in this tab only. Export a session before closing.');}}
+}
+function saveSoon(){clearTimeout(saveTimer);saveTimer=setTimeout(saveNow,350);}
+async function saveNow(){
+ clearTimeout(saveTimer);
+ try{const snap=structuredClone(state);if(storage)await new Promise((resolve,reject)=>{const tx=storage.transaction('state','readwrite');tx.objectStore('state').put(snap,'current');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});else localStorage.setItem('donutFeatureLabV4',JSON.stringify(snap));storageOK=true;}
+ catch(e){storageOK=false;warn('Could not save locally: '+e.message+'. Export session now to protect your work.');}
+}
+function validateStats(s){if(!s||s.schema!==E.SCHEMA||!Array.isArray(s.features)||s.features.length!==META.features.length||!s.features.every(Number.isFinite))throw Error('Missing or incompatible image features.');for(const k of ['rgbHist','midHist'])if(!Array.isArray(s[k])||s[k].length!==256||!s[k].every(x=>Number.isFinite(x)&&x>=0))throw Error('Invalid tone histogram.');return s;}
+function validateCurve(a){if(!a||!Number.isFinite(a.gamma)||!Number.isFinite(a.gain)||a.gamma<1/3-1e-8||a.gamma>3+1e-8||a.gain<.8-1e-8||a.gain>1.25+1e-8)throw Error('Target is outside this model’s gamma/gain range.');return a;}
+function validateSession(s){
+ if(s.version!==4||s.schema!==E.SCHEMA||!s.records||typeof s.records!=='object')throw Error('Not a compatible v4 session.');
+ if(Object.keys(s.records).length>5000)throw Error('Session has too many stored images.');
+ const out={...fresh(),...s,settings:{...DEFAULT_SETTINGS,...s.settings}};
+ for(const [key,r]of Object.entries(out.records)){validateStats(r.stats);if(typeof r.id!=='string'||typeof r.group!=='string'||r.id!==key)throw Error('Invalid image record.');if(r.anchor)validateCurve(r.anchor);r.events=(r.events||[]).filter(e=>['too_dark','too_light','good','target','original'].includes(e.rating)&&Number.isFinite(e.gamma)&&e.gamma>=1/3&&e.gamma<=3&&Number.isFinite(e.gain)&&e.gain>=.8&&e.gain<=1.25).slice(-100);}
+ if(out.model){out.model=E.validatedModel(out.model);if(out.model.featureCount!==META.features.length||JSON.stringify(out.model.names)!==JSON.stringify(META.names))throw Error('Model feature layout does not match this analyzer.');}
+ out.groups=Object.fromEntries(Object.entries(out.groups||{}).filter(([k,v])=>['train','validation','ignore'].includes(v)));
+ out.votes=out.votes||{};out.reports=Array.isArray(out.reports)?out.reports:[];out.legacy=Array.isArray(out.legacy)?out.legacy:[];out.round=Math.max(1,Math.floor(out.round)||1);return out;
+}
+function groupFromName(name){return name.replace(/\.[^.]+$/,'').toLowerCase().replace(/(?:[ _-]+(?:gamma[ _-]*(?:corrected|adjusted)|corrected|edited|copy)(?:[ _-]*\d+)?)$/i,'').trim()||'untitled';}
+function roleFor(group){return state.groups[group]||(E.hash('scene:'+group)%5===0?'validation':'train');}
+function recordFor(item){return state.records[item.id];}
+function trainingRecords(){return Object.values(state.records).map(r=>({...r,role:roleFor(r.group)}));}
+function legacyTone(s,p){
+ const mean=s.mean<=p.idealMean?1:1+((s.mean-p.idealMean)/Math.max(.006,p.brightRef-p.idealMean))**2,r=s.ratio;
+ const ratio=r<=p.targetRatio||r<=0?1:r>=.999999?3:Math.max(1,Math.log(p.targetRatio)/Math.log(r));
+ let g=p.mode==='mean'?mean:p.mode==='ratio'?ratio:p.mode==='hybrid'?mean*p.hybridWeight+ratio*(1-p.hybridWeight):3**(-p.fixedSlider/100);
+ g=clamp(1+(g-1)*p.strength,1,p.maxGamma);const d=clamp(p.highlightTarget/Math.max(s.p95**g,1e-6),1,p.maxGain);
+ const b=!p.highlightFix||p.strength===0||g<=1.00000001?1:1+(d-1)*Math.min(1,(g-1)/.08)*Math.min(1,p.strength);
+ return {gamma:g,gain:b,noOpScore:null,legacy:true,noop:g===1&&b===1,coverage:0};
+}
+function modelTone(item){
+ if(item.predToken===modelToken&&item.prediction)return item.prediction;
+ const p=item.stats.sampleCount<16?{gamma:1,gain:1,noop:true,noOpScore:null,unusable:true}:state.model?E.predict(item.stats.features,state.model):state.legacyBaseline?legacyTone(item.stats,state.legacyBaseline):E.predict(item.stats.features,null);
+ item.predToken=modelToken;item.prediction=p;return p;
+}
+function previewTone(item){return manualPreview&&lbOpen()&&lbItem()?.id===item.id?manualPreview:modelTone(item);}
+function gammaFor(item){return modelTone(item).gamma;}function gainFor(item){return modelTone(item).gain;}
+function modelLabel(){return state.model?'FEATURE MODEL r'+state.model.revision:state.legacyBaseline?'LEGACY BASELINE':'UNTRAINED · ORIGINAL';}
+function updateOptimizerStatus(){
+ const votes=images.filter(i=>state.votes[i.id]?.round===state.round),n=votes.length,goal=state.settings.roundSize?Math.min(images.length,state.settings.roundSize):images.length;
+ const good=votes.filter(i=>state.votes[i.id].rating==='good').length,targets=votes.filter(i=>['target','original'].includes(state.votes[i.id].rating)).length;
+ $('roundSummary').textContent=`Round ${state.round} · ${n}/${goal||0} reviewed · ${good} Good · ${targets} explicit targets`;
+ $('lbRoundStatus').textContent=optimizerBusy?lastStatus:`Round ${state.round} · ${n}/${goal||0} reviewed · ${modelLabel()}`;
+ const all=trainingRecords(),labeled=all.filter(r=>E.labelFor(r,state.settings.step)),tr=labeled.filter(r=>r.role==='train'),va=labeled.filter(r=>r.role==='validation');
+ $('dataCount').innerHTML=`${images.length} <small>images loaded</small>`;
+ $('recordCount').textContent=`${labeled.length} labeled examples saved across ${new Set(labeled.map(r=>r.folder)).size} folders · ${all.length} analyzed images`;
+ $('splitCount').textContent=`${tr.length} training / ${va.length} validation examples · scene-group split`;
+ const pending=state.legacy.filter(r=>!r.migrated).length;$('pendingLegacy').hidden=!pending;$('pendingLegacy').textContent=`${pending} legacy examples await source images for full feature extraction.`;
+ $('modelName').textContent=state.model?`Feature model r${state.model.revision}`:state.legacyBaseline?'Legacy preview':'Untrained';
+ $('modelDescription').textContent=`${META.features.length} image measurements → 16 → 8 → gamma, gain, no-change score`;
+ $('modelStatus').textContent=state.model?`${state.model.training?.imageCount??'Imported'} training examples. ${state.importedModelUnverified?'Imported weights: validation independence is not verified.':'Validation is excluded from fitting.'}`:state.legacyBaseline?'The v3 rule is only a temporary preview. Train builds the new feature model from recovered examples.':'No correction until you train. “Good” approves this unchanged result.';
+ $('onboard').hidden=!!state.model;
+ for(const id of ['train','lbOptimize'])$(id).disabled=optimizerBusy||loading||tr.length<4;
+ $('undoModel').disabled=optimizerBusy||!state.undo;$('viewReport').disabled=!state.reports.length;$('lbReportButton').disabled=!state.reports.length;
+ $('exportModel').disabled=!state.model;$('trainProgress').hidden=!optimizerBusy;$('cancelTrain').hidden=!optimizerBusy;
+ if(lbOpen())lbSyncRating();
+}
+function controlsFromState(){for(const [id,key]of [['epochs','epochs'],['regularization','regularization'],['toneStep','step'],['roundSize','roundSize']])$(id).value=state.settings[key];for(const k of ['autoTrain','autoAdvance'])$(k).checked=state.settings[k];}
+function refreshAll(){modelToken++;renderGallery();updateOptimizerStatus();if(lbOpen()){manualPreview=null;updateSidebar();lbRequestCorrection();}}
+function updateAll(){for(const i of visibleCards)renderCorrected(i);updateOptimizerStatus();}
+function imageFromUrl(url){return new Promise((resolve,reject)=>{const i=new Image();i.onload=()=>resolve(i);i.onerror=()=>reject(Error('Browser cannot decode this image.'));i.src=url;});}
+function isImageFile(f){return /\.(png|jpe?g|webp|avif|bmp)$/i.test(f.name);}
+async function fileIdentity(f,providedBytes=null){
+ const bytes=providedBytes||await f.arrayBuffer();
+ if(globalThis.crypto?.subtle){const digest=await crypto.subtle.digest('SHA-256',bytes);return 'sha256:'+Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');}
+ // Fallback for restricted file:// environments. Used for bookkeeping, never prediction.
+ const a=new Uint8Array(bytes);let h1=2166136261,h2=2246822519;for(const b of a){h1=Math.imul(h1^b,16777619);h2=Math.imul(h2^b,3266489917);}return `fallback:${a.length}:${h1>>>0}:${h2>>>0}`;
+}
+function isAnimated(buffer,name){
+ const b=new Uint8Array(buffer),v=new DataView(buffer),text=(p,n)=>String.fromCharCode(...b.subarray(p,p+n));
+ if(/\.png$/i.test(name)&&b.length>8){let p=8;while(p+12<=b.length){const len=v.getUint32(p),type=text(p+4,4);if(type==='acTL')return true;if(type==='IEND')break;p+=12+len;}}
+ if(/\.webp$/i.test(name)&&b.length>12){let p=12;while(p+8<=b.length){const type=text(p,4),len=v.getUint32(p+4,true);if(type==='ANIM'||type==='ANMF')return true;p+=8+len+(len%2);}}
+ if(/\.avif$/i.test(name)&&b.length>16&&text(4,4)==='ftyp'){const end=Math.min(v.getUint32(0),b.length);for(let p=8;p+4<=end;p+=4)if(text(p,4)==='avis')return true;}
+ return false;
+}
+async function analyzeFile(file){
+ const url=URL.createObjectURL(file);
+ try{const bytes=await file.arrayBuffer();if(isAnimated(bytes,file.name))throw Error("Animated images are not supported; use a still frame.");const img=await imageFromUrl(url),width=img.naturalWidth,height=img.naturalHeight;if(!width||!height)throw Error('Empty image.');
+ const scale=Math.min(1,256/Math.max(width,height)),w=Math.max(1,Math.round(width*scale)),h=Math.max(1,Math.round(height*scale));
+ const c=document.createElement('canvas');c.width=w;c.height=h;const ctx=c.getContext('2d',{willReadFrequently:true,colorSpace:'srgb'});ctx.drawImage(img,0,0,w,h);
+ const frame=ctx.getImageData(0,0,w,h),stats=E.analyze(frame.data,w,h),id=await fileIdentity(file,bytes),key=file.webkitRelativePath||file.name;
+ let record=state.records[id];
+ if(!record){record={id,name:file.name,key,size:file.size,width,height,folder:key.includes('/')?key.split('/')[0]:'Loose images',group:groupFromName(file.name),stats,anchor:null,events:[]};state.records[id]=record;migrateLegacy(record);}
+ else record.stats=stats; // Versioned source reanalysis, never output pixels.
+ const vote=state.votes[id],rating=vote?.round===state.round?vote.rating:'';
+ return {file,url,img:c,width,height,stats,id,key,preview:frame,thumb:c.toDataURL('image/png'),rating};
+ }catch(e){URL.revokeObjectURL(url);throw e;}
+}
+async function loadFiles(fileList){
+ if(optimizerBusy){status('Cancel training before loading another folder.');return;}
+ const files=[...fileList].filter(isImageFile).sort((a,b)=>(a.webkitRelativePath||a.name).localeCompare(b.webkitRelativePath||b.name,undefined,{numeric:true}));
+ if(!files.length){status('Choose PNG, JPEG, WebP, AVIF or BMP images. Animated formats are excluded.');return;}
+ if(files.length>2000){status('Choose at most 2,000 images per load. Previous work is unchanged.');return;}
+ clearTimeout(autoTimer);loading=true;const generation=++loadGeneration;if(lbDialog.open)lbClose();galleryObserver?.disconnect();visibleCards.clear();images.forEach(x=>URL.revokeObjectURL(x.url));images=[];
+ $('gallery').innerHTML='<div class="empty">Analyzing histograms, colour and spatial features…</div>';let failed=[],duplicates=0;const ids=new Set();
+ for(let i=0;i<files.length;i++){
+  if(generation!==loadGeneration)return;
+  try{const item=await analyzeFile(files[i]);if(generation!==loadGeneration){URL.revokeObjectURL(item.url);return;}if(ids.has(item.id)){URL.revokeObjectURL(item.url);duplicates++;}else{ids.add(item.id);images.push(item);}}
+  catch(e){failed.push(files[i].name+': '+e.message);}
+  if(i%4===0){status(`Analyzing ${i+1}/${files.length} · full feature extraction stays local.`);await new Promise(r=>setTimeout(r,0));}
+ }
+ loading=false;$('fileErrors').textContent=failed.length?`${failed.length} decode failures. `+failed.slice(0,3).join(' · '):'';
+ saveSoon();renderGallery();status(`${images.length} images ready. ${duplicates?duplicates+' byte-identical duplicates omitted. ':''}Global model and all prior examples were kept. Click a preview to inspect.`);
+}
+function migrateLegacy(r){
+ const match=state.legacy.find(x=>!x.migrated&&x.name===r.name&&(!x.size||x.size===r.size)&&(!x.width||x.width===r.width)&&(!x.height||x.height===r.height)&&(!x.stats||Math.abs(x.stats.mean-r.stats.mean)<.025));
+ if(!match)return;
+ const usable=(match.events||[]).filter(e=>e.gamma>=1/3&&e.gamma<=3&&e.gain>=.8&&e.gain<=1.25);r.events=usable;
+ const approved=usable.find(e=>e.rating==='good');if(approved)r.anchor={gamma:approved.gamma,gain:approved.gain,source:'legacy_good',time:approved.time};
+ match.migrated=r.id;
+}
+function recordVisible(item){const role=roleFor(recordFor(item).group),filter=$('galleryFilter').value;return filter==='all'||filter==='unrated'&&!item.rating||filter===role||filter==='targets'&&!!recordFor(item).anchor;}
+function renderGallery(){
+ galleryObserver?.disconnect();visibleCards.clear();const g=$('gallery');g.textContent='';
+ if(!images.length){g.innerHTML='<div class="empty">Choose a folder to view and teach its images. Stored examples remain available for training.</div>';return;}
+ galleryObserver=new IntersectionObserver(entries=>{for(const e of entries){const i=Number(e.target.dataset.index);if(e.isIntersecting){visibleCards.add(i);renderCorrected(i);}else visibleCards.delete(i);}},{rootMargin:'250px'});
+ let shown=0;
+ images.forEach((item,i)=>{
+   if(!recordVisible(item))return;shown++;const r=recordFor(item),role=roleFor(r.group),p=modelTone(item),card=document.createElement('article');card.className='card'+(role==='validation'?' heldout':'');card.dataset.index=i;
+   const caption=state.model?'Feature model':state.legacyBaseline?'Legacy baseline':'Untrained · unchanged';
+   card.innerHTML=`<div class="cardhead"><div class="filename" title="${esc(item.key)}">${esc(item.file.name)}</div><span class="role-badge role-${role}">${role}</span><button class="inspect" type="button">Inspect ↗</button></div><div class="pair" tabindex="0" role="button" aria-label="Inspect ${esc(item.file.name)}"><figure><img src="${item.thumb}" alt="Original" loading="lazy"><figcaption>Original</figcaption></figure><figure><canvas class="corrected"></canvas><figcaption>${caption}</figcaption></figure></div><div class="metrics"><span>Gamma <b>${fmt(E.slider(p.gamma),1)}</b> · exp ${fmt(p.gamma)}</span><span>Gain <b>${fmt((p.gain-1)*100,1)}%</b></span><span>${r.anchor?'Saved target: '+r.anchor.source:'No exact target'}</span><span>${p.noop?'No change':p.coverage>.2?'Outside training range':''}${item.stats.flat?' · flat tones':''}</span></div><div class="judge"><span class="hint">Rate the global model result:</span><button class="too-dark" data-rate="too_dark">Too dark</button><button class="good" data-rate="good">Good</button><button class="too-light" data-rate="too_light">Too bright</button><button class="skip" data-rate="skip">Skip</button></div>`;
+   card.querySelector('.inspect').onclick=e=>openLightbox(i,e.currentTarget);const pair=card.querySelector('.pair');pair.onclick=()=>openLightbox(i,pair);pair.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openLightbox(i,pair);}};
+   for(const b of card.querySelectorAll('[data-rate]')){b.classList.toggle('active',b.dataset.rate===item.rating);b.disabled=optimizerBusy;b.onclick=()=>setImageRating(i,b.dataset.rate);}
+   g.appendChild(card);galleryObserver.observe(card);
+ });if(!shown)g.innerHTML='<div class="empty">No images match this filter.</div>';
+}
+function renderCorrected(i){
+ const item=images[i],card=$('gallery').querySelector(`.card[data-index="${i}"]`);if(!item||!card)return;
+ const can=card.querySelector('canvas.corrected'),f=item.preview,p=modelTone(item);can.width=f.width;can.height=f.height;
+ const ctx=can.getContext('2d',{colorSpace:'srgb'}),out=ctx.createImageData(f.width,f.height),lut=new Uint8ClampedArray(256);
+ for(let k=0;k<256;k++)lut[k]=clamp((k/255)**p.gamma*p.gain,0,1)*255;
+ for(let k=0;k<f.data.length;k+=4){out.data[k]=lut[f.data[k]];out.data[k+1]=lut[f.data[k+1]];out.data[k+2]=lut[f.data[k+2]];out.data[k+3]=f.data[k+3];}ctx.putImageData(out,0,0);
+}
+function nextUnratedIndex(from){for(let j=1;j<=images.length;j++){const i=(from+j)%images.length;if(!images[i].rating)return i;}return -1;}
+function afterVote(index){
+ saveSoon();renderGallery();updateOptimizerStatus();if(lbOpen())updateSidebar();
+ const reviewed=images.filter(i=>i.rating).length,goal=state.settings.roundSize?Math.min(state.settings.roundSize,images.length):images.length;
+ if(state.settings.autoTrain&&reviewed>=goal&&goal){clearTimeout(autoTimer);autoTimer=setTimeout(trainModel,450);}
+ else if(state.settings.autoAdvance&&lbOpen()){const next=nextUnratedIndex(index);if(next>=0)setTimeout(()=>{if(lbOpen()&&!optimizerBusy)lbShowImage(next);},130);else status('Batch reviewed. Train + next round will fit the one shared model.');}
+}
+function setImageRating(index,rating){
+ if(optimizerBusy||loading||manualPreview||!images[index]||lbOpen()&&lb.busy)return;
+ if(Date.now()-lastVoteTime<140)return;lastVoteTime=Date.now();
+ const item=images[index],r=recordFor(item),p=modelTone(item);
+ if(r.stats.sampleCount<16&&rating!=='skip'){status('Too few opaque analysis pixels. Exclude or skip this image.');return;}
+ const event={rating,gamma:p.gamma,gain:p.gain,time:new Date().toISOString(),modelRevision:state.model?.revision||0,round:state.round};
+ if(rating!=='skip'){
+   r.events.push(event);r.events=r.events.slice(-100);
+   if(rating==='good'&&!r.anchor)r.anchor={gamma:p.gamma,gain:p.gain,source:'good',time:event.time};
+ }
+ state.votes[item.id]={...event,round:state.round};item.rating=rating;
+ status(rating==='good'?'Approval recorded. Existing exact targets remain fixed.':rating==='skip'?'Skipped; this vote is not training data.':r.anchor?'Vote recorded. This example still fits its saved target; use Fine-tune to explicitly revise that target.':'Directional feedback saved for the global model.');afterVote(index);
+}
+function manualFrom(g,b){return {gamma:clamp(g,1/3,3),gain:clamp(b,.8,1.25)};}
+function updateManualControls(){if(!manualPreview)return;$('manualGamma').value=E.slider(manualPreview.gamma);$('manualGammaN').value=+E.slider(manualPreview.gamma).toFixed(4);$('manualGain').value=(manualPreview.gain-1)*100;$('manualGainN').value=+((manualPreview.gain-1)*100).toFixed(4);}
+function beginManual(tone){if(!lbOpen()||optimizerBusy)return;manualPreview=manualFrom(tone.gamma,tone.gain);updateManualControls();updateSidebar();lbRequestCorrection();}
+function returnToModel(){manualPreview=null;updateSidebar();lbRequestCorrection();}
+function saveTarget(kind='manual'){
+ if(!lbOpen()||optimizerBusy||lb.busy)return;const item=lbItem(),r=recordFor(item);if(r.stats.sampleCount<16){status('Not enough opaque pixels to train.');return;}
+ const p=kind==='original'?{gamma:1,gain:1}:manualPreview;if(!p)return;
+ r.anchor={gamma:p.gamma,gain:p.gain,source:kind,time:new Date().toISOString()};
+ const rating=kind==='original'?'original':'target';r.events.push({...r.anchor,rating,round:state.round});r.events=r.events.slice(-100);state.votes[item.id]={rating,round:state.round,gamma:p.gamma,gain:p.gain};item.rating=rating;
+ manualPreview=null;updateSidebar();lbRequestCorrection();status('Target saved for learning. The preview has returned to the global model—not your target. Train to update every prediction.');afterVote(lb.index);
+}
+function updateSidebar(){
+ if(!lbOpen())return;const item=lbItem(),r=recordFor(item),p=modelTone(item),m=!!manualPreview;
+ $('previewBadge').textContent=m?'MANUAL TARGET PREVIEW':'MODEL OUTPUT';$('previewBadge').classList.toggle('manual',m);$('targetEditor').hidden=!m;$('useModel').hidden=!m;$('editTarget').hidden=m;
+ $('predictionSource').textContent=m?'This explicit target preview is separate from model inference.':'Pixels and one model only. Rating history is not an input.';
+ $('modelReadout').textContent=`${modelLabel()} · gamma ${fmt(E.slider(p.gamma),1)} · gain ${fmt((p.gain-1)*100,1)}%`+(p.noOpScore===null?'':` · no-change score ${fmt(p.noOpScore,2)} (uncalibrated)`)+(p.coverage>.2?' · many measurements outside training range':'');
+ $('anchorInfo').textContent=r.anchor?`Saved ${r.anchor.source} target: gamma ${fmt(E.slider(r.anchor.gamma),1)}, gain ${fmt((r.anchor.gain-1)*100,1)}%. Good votes do not replace it.`:'No approved target. Fine-tune to teach both sliders precisely.';
+ $('viewTarget').disabled=!r.anchor||optimizerBusy;$('removeTarget').disabled=!r.anchor||optimizerBusy;$('imageRole').value=roleFor(r.group);$('sceneGroup').value=r.group;
+ $('featureSummary').innerHTML=[['Mean',item.stats.mean],['Contrast σ',item.stats.std],['p05',item.stats.p05],['Median',item.stats.p50],['p95',item.stats.p95],['Entropy',item.stats.entropy]].map(([k,v])=>`<span>${k} <b>${fmt(v)}</b></span>`).join('');
+ const fv=$('featureValues');fv.textContent='';let group='';for(let i=0;i<META.names.length;i++){if(META.groups[i]!==group){group=META.groups[i];const h=document.createElement('div');h.className='feature-heading';h.textContent=group;fv.appendChild(h);}const line=document.createElement('div');line.className='feature-line';line.innerHTML=`<span>${esc(META.names[i])}</span><b>${fmt(item.stats.features[i],4)}</b>`;fv.appendChild(line);}
+ drawHistogram();lbSyncRating();if($('sensitivityDetails').open)renderSensitivity();
+}
+function drawHistogram(){
+ if(!lbOpen())return;const item=lbItem(),tone=previewTone(item),a=item.preview.data,after=Array(64).fill(0);let n=0;
+ for(let i=0;i<a.length;i+=4)if(a[i+3]>=250){const r=clamp((a[i]/255)**tone.gamma*tone.gain,0,1),g=clamp((a[i+1]/255)**tone.gamma*tone.gain,0,1),b=clamp((a[i+2]/255)**tone.gamma*tone.gain,0,1),y=.299*r+.587*g+.114*b;after[Math.min(63,Math.floor(y*64))]++;n++;}
+ for(let i=0;i<64;i++)after[i]/=n||1;const before=item.stats.hist,canvas=$('histogram'),ctx=canvas.getContext('2d'),w=canvas.width,h=canvas.height,max=Math.max(...before,...after,.01);ctx.clearRect(0,0,w,h);ctx.strokeStyle='#344249';ctx.lineWidth=1;for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(i*w/4,0);ctx.lineTo(i*w/4,h);ctx.stroke();}
+ for(const [hist,color,dash]of [[before,'#a1afba',[6,5]],[after,'#ffbd70',[]]]){ctx.strokeStyle=color;ctx.setLineDash(dash);ctx.lineWidth=2;ctx.beginPath();hist.forEach((v,i)=>{const x=4+i/63*(w-8),y=h-5-v/max*(h-10);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.stroke();}ctx.setLineDash([]);
+}
+function renderSensitivity(){const out=$('sensitivityValues');out.textContent='';if(!lbOpen()||!state.model){out.textContent='Train a model first.';return;}for(const x of E.sensitivity(lbItem().stats.features,state.model)){const line=document.createElement('div');line.className='feature-line';line.innerHTML=`<span>${esc(x.name)}</span><b>${x.effect>=0?'+':''}${fmt(x.effect,2)} gamma</b>`;out.appendChild(line);}}
+async function changeGroupRole(action){
+ if(!lbOpen()||optimizerBusy)return;const r=recordFor(lbItem()),group=action==='group'?$('sceneGroup').value.trim().slice(0,200):r.group,role=$('imageRole').value;if(!group){$('sceneGroup').value=r.group;return;}
+ if(state.model&&!confirm('Changing the train/validation grouping resets trained weights to avoid validation leakage. Targets are kept. Continue?')){updateSidebar();return;}
+ if(state.model){state.model=null;state.undo=null;state.importedModelUnverified=false;state.legacyBaseline=null;modelToken++;}
+ if(action==='group')r.group=group;else state.groups[group]=role;
+ saveSoon();renderGallery();updateSidebar();lbRequestCorrection();status('Scene grouping updated. Related images in the same group share a single data role.');
+}
+function workerTrain(payload){return new Promise((resolve,reject)=>{
+ const source=`const E=(${buildFeatureEngine.toString()})(); self.onmessage=async e=>{try{const result=await E.train(e.data,p=>self.postMessage({progress:p}));self.postMessage({result});}catch(err){self.postMessage({error:err.message});}};`;
+ const url=URL.createObjectURL(new Blob([source],{type:'text/javascript'}));
+ try{worker=new Worker(url);}catch(e){URL.revokeObjectURL(url);reject(Error('This browser blocked the local training worker. Try another browser; no data was changed.'));return;}
+ URL.revokeObjectURL(url);worker.onmessage=e=>{if(e.data.progress){const p=e.data.progress;$('trainProgress').value=p.epoch/p.epochs;status(`Training shared weights · epoch ${p.epoch}/${p.epochs} · regularized training loss ${fmt(p.loss,4)}`);}else{worker.terminate();worker=null;e.data.error?reject(Error(e.data.error)):resolve(e.data.result);}};
+ worker.onerror=e=>{worker?.terminate();worker=null;reject(Error(e.message||'Worker failed.'));};worker.postMessage(payload);
+ });}
+function setBusy(b){optimizerBusy=b;for(const el of document.querySelectorAll('header input,header select,#resetTools button,#imageRole,#saveGroup,#editTarget,#saveTarget,#acceptOriginal'))el.disabled=b;updateOptimizerStatus();if(lbOpen())lbSetBusy(lb.busy);}
+function cancelTraining(){trainToken++;worker?.terminate();worker=null;setBusy(false);status('Training cancelled. Previous model and all feedback are unchanged.');}
+async function trainModel(){
+ if(optimizerBusy||loading)return;if(manualPreview){status('Save the manual target or return to the model before training.');return;}
+ clearTimeout(autoTimer);const records=trainingRecords(),token=++trainToken,base=state.model?structuredClone(state.model):null,oldLegacy=state.legacyBaseline?{...state.legacyBaseline}:null,round=state.round;
+ const labeled=records.filter(r=>r.role==='train'&&E.labelFor(r,state.settings.step));if(labeled.length<4){status('Collect at least 4 labeled training images first. Validation does not train the model.');return;}
+ const votes=Object.values(state.votes).filter(v=>v.round===state.round),human={good:0,too_dark:0,too_light:0,target:0,original:0,skip:0};for(const v of votes)if(v.rating in human)human[v.rating]++;
+ setBusy(true);$('trainProgress').value=0;status('Fitting one feature model to all saved training folders. Validation is excluded.');
+ try{const baselineCurves=oldLegacy?Object.fromEntries(records.map(r=>[r.id,legacyTone(r.stats,oldLegacy)])):null;const result=await workerTrain({records,model:base,baselineCurves,epochs:state.settings.epochs,regularization:state.settings.regularization,step:state.settings.step,seed:49137+state.round*97});if(token!==trainToken)return;
+   const improved=(!base&&!oldLegacy)||result.training.loss<result.previousTraining.loss-1e-6;
+   const report={...result,time:new Date().toISOString(),round,human,applied:improved,legacyBefore:!!oldLegacy,importedModelUnverified:state.importedModelUnverified};
+   if(improved){state.undo={model:base,legacyBaseline:oldLegacy,round,votes:structuredClone(state.votes),importedModelUnverified:state.importedModelUnverified};state.model=result.model;state.legacyBaseline=null;state.round++;state.votes={};images.forEach(i=>i.rating='');modelToken++;manualPreview=null;}
+   state.reports.push(report);state.reports=state.reports.slice(-20);setBusy(false);saveSoon();renderGallery();if(lbOpen()){updateSidebar();lbRequestCorrection();}status(improved?'New shared model applied. Review its predictions; validation results are in the report.':'Candidate did not improve training feedback loss. Model and votes were kept.');showReport(report);
+ }catch(e){if(token!==trainToken)return;setBusy(false);status('Training failed: '+e.message+' Your model and feedback were kept.');console.error(e);}
+}
+function showReport(r){
+ if(!r)return;$('reportHeading').textContent=r.applied?`Round ${r.round} → ${r.round+1}: feature model updated`:`Round ${r.round}: model kept`;
+ const h=r.human||{},n=(h.good||0)+(h.too_dark||0)+(h.too_light||0);
+ $('reportSummary').textContent=`Frozen-model judgments: ${h.good||0}/${n} Good, ${h.too_light||0} too bright, ${h.too_dark||0} too dark. ${h.target||0} manual targets; ${h.original||0} original approvals. Fitted ${r.learnedWeights} shared weights/biases on ${r.training.n} training images in ${r.groups} groups. ${r.validation.n} validation images were never fitted.`;
+ const drift=r.changes.filter(x=>x.targetDrift>.012),messages=[];
+ if(!r.validation.n)messages.push('No labeled validation examples yet. Generalization has not been measured.');
+ if(r.validation.n&&r.validation.loss>r.previousValidation.loss)messages.push('Validation feedback loss increased. The training improvement did not transfer to this validation set.');
+ if(r.training.n<30)messages.push('Small training set for a 169-feature model. Add diverse examples; watch validation rather than training fit.');
+ if(drift.length)messages.push(`${drift.length} stored targets differ from predictions by more than 3/255 RMS. They were not silently overridden.`);
+ if(r.legacyBefore)messages.push('Before metrics use your imported v3 baseline. The new candidate uses the feature network, not the old formula.');
+ if(r.importedModelUnverified)messages.push('The initial imported model has unknown training membership. Validation independence is not verified.');
+ $('reportWarnings').textContent=messages.join(' ')||'Training fit is not a visual-quality score. Review the new global model before accepting it as a baseline.';
+ const metrics=[['Feedback loss','loss',1,4],['Target RGB-curve RMS /255','curveRMS',255,2],['Gamma slider MAE','gammaMAE',1,2],['Gain MAE, percentage points','gainMAE',1,2]];
+ const table=$('reportMetrics');table.textContent='';for(const [name,key,scale,d]of metrics){const tr=document.createElement('tr');for(const v of [name,`${fmt(r.previousTraining[key]===null?NaN:r.previousTraining[key]*scale,d)} → ${fmt(r.training[key]===null?NaN:r.training[key]*scale,d)}`,`${fmt(r.previousValidation[key]===null?NaN:r.previousValidation[key]*scale,d)} → ${fmt(r.validation[key]===null?NaN:r.validation[key]*scale,d)}`]){const td=document.createElement('td');td.textContent=v;tr.appendChild(td);}table.appendChild(tr);}
+ const tbody=$('imageChanges');tbody.textContent='';for(const x of r.changes){const tr=document.createElement('tr');for(const v of [x.name,x.role,`${fmt(E.slider(x.gammaBefore),1)} → ${fmt(E.slider(x.gammaAfter),1)}`,`${fmt((x.gainBefore-1)*100,1)} → ${fmt((x.gainAfter-1)*100,1)}`,`${x.midDelta>=0?'+':''}${fmt(x.midDelta*255,1)}`]){const td=document.createElement('td');td.textContent=v;tr.appendChild(td);}tbody.appendChild(tr);}
+ if(!$('roundReport').open)$('roundReport').showModal();
+}
+function download(name,text,type){const u=URL.createObjectURL(new Blob([text],{type})),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),3000);}
+function exportSession(){saveNow();download('donut-tone-lab-feature-session-v4.json',JSON.stringify({...state,exportedAt:new Date().toISOString(),undo:state.undo},null,2),'application/json');status('Session exported, including features, immutable targets, history and global model. No image pixels included.');}
+function exportModel(){if(!state.model)return;download('donut-tone-model-v4.json',JSON.stringify({version:4,type:'donut-tone-model',schema:E.SCHEMA,algorithm:E.ALGORITHM,analysis:{longEdge:256,colorSpace:'srgb',opaqueAlphaMinimum:250},model:state.model},null,2),'application/json');status('Model-only export contains global weights and normalization—not image records, filenames or ratings.');}
+function importLegacy(s){
+ const history=s.optimizer?.history||[],rows=s.images||[],names=new Set([...rows.map(r=>r.file||r.key),...history.map(e=>e.key)]),list=[];
+ for(const key of names){if(typeof key!=='string')continue;const row=rows.find(r=>(r.file||r.key)===key),es=history.filter(e=>e.key===key);const events=es.map(e=>({rating:e.rating,gamma:Number(e.judgedGamma),gain:Number(e.judgedGain),time:e.time,round:e.round,legacy:true}));
+  if(row&&['good','too_dark','too_light'].includes(row.rating)){const snap=row.rating_snapshot;events.push({rating:row.rating,gamma:Number(snap?.gamma??row.gamma_exponent),gain:Number(snap?.gain??row.brightness_gain),time:snap?.time||s.exported_at,legacy:true});}
+  if(!events.length)continue;list.push({key,name:key.split('/').pop(),size:row?.file_size||Number((es[0]?.imageId||'').split('|')[1])||0,width:row?.width,height:row?.height,stats:row?.stats||es[0]?.stats,events});}
+ const existing=new Set(state.legacy.map(r=>r.key));state.legacy.push(...list.filter(r=>!existing.has(r.key)));
+ if(!state.model&&s.parameters){const p=s.parameters;if(['mean','ratio','hybrid','fixed'].includes(p.mode)&&['strength','maxGamma','idealMean','brightRef','targetRatio','hybridWeight','highlightTarget','maxGain','fixedSlider'].every(k=>Number.isFinite(p[k])))state.legacyBaseline={...p};}
+ for(const r of Object.values(state.records))migrateLegacy(r);
+ modelToken++;saveSoon();refreshAll();status(`Imported ${list.length} legacy examples. Reload their source folders to compute new features. Earliest Good becomes a stable target; saved global v3 parameters are only a temporary preview.`);
+}
+async function importFile(file){
+ if(optimizerBusy||loading){status("Wait for image analysis/training to finish before importing.");return;}try{if(file.size>60*1024*1024)throw Error('JSON is larger than 60 MB.');const s=JSON.parse(await file.text());
+ if(s.version===3||s.version===2||s.version===1){importLegacy(s);return;}
+ if(s.type==='donut-tone-model'){
+  const model=E.validatedModel(s.model);if(model.featureCount!==META.features.length||JSON.stringify(model.names)!==JSON.stringify(META.names))throw Error('Model feature schema mismatch.');
+  if(Object.keys(state.records).length&&!confirm('Load these global weights? Existing targets are kept, but their validation independence cannot be verified for imported weights.'))return;
+  state.undo={model:state.model,legacyBaseline:state.legacyBaseline,round:state.round,votes:structuredClone(state.votes),importedModelUnverified:state.importedModelUnverified};state.model=model;state.legacyBaseline=null;state.importedModelUnverified=true;state.round++;state.votes={};images.forEach(i=>i.rating='');saveSoon();refreshAll();status('Global model imported. No image-specific history is needed for prediction.');return;
+ }
+ const next=validateSession(s);if(Object.keys(state.records).length&&!confirm('Replace this local session with the imported session? Export first to keep the current work.'))return;
+ if(lbOpen())lbClose();images.forEach(i=>URL.revokeObjectURL(i.url));images=[];state=next;controlsFromState();saveSoon();refreshAll();status('Session restored. Choose a source folder to view it; all saved training folders remain available to the learner.');
+ }catch(e){status('Import rejected: '+e.message+'. Existing state was not replaced.');console.error(e);}
+}
+function exportCSV(){
+ const names=['file','scene_group','role',...META.names,'predicted_gamma_slider','predicted_gain_percent','target_gamma_slider','target_gain_percent'];
+ const escape=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replaceAll('"','""')+'"';
+ const rows=images.map(i=>{const r=recordFor(i),p=modelTone(i);return [i.key,r.group,roleFor(r.group),...i.stats.features,E.slider(p.gamma),(p.gain-1)*100,r.anchor?E.slider(r.anchor.gamma):'',r.anchor?(r.anchor.gain-1)*100:''];});download('donut-tone-image-measurements-v4.csv',[names,...rows].map(r=>r.map(escape).join(',')).join('\n'),'text/csv');
+}
+function setupApp(){
+ $('folder').onchange=e=>{const fs=[...e.target.files];e.target.value='';loadFiles(fs);};$('files').onchange=e=>{const fs=[...e.target.files];e.target.value='';loadFiles(fs);};$('importData').onchange=e=>{const f=e.target.files[0];e.target.value='';if(f)importFile(f);};
+ $('exportSession').onclick=exportSession;$('exportModel').onclick=exportModel;$('exportFeatures').onclick=exportCSV;
+ $('train').onclick=trainModel;$('lbOptimize').onclick=trainModel;$('cancelTrain').onclick=cancelTraining;
+ $('viewReport').onclick=()=>showReport(state.reports.at(-1));$('lbReportButton').onclick=()=>showReport(state.reports.at(-1));
+ $('reportClose').onclick=()=>$('roundReport').close();$('reportNext').onclick=()=>{$('roundReport').close();const i=nextUnratedIndex(-1);if(i>=0)openLightbox(i);};
+ $('galleryFilter').onchange=renderGallery;$('inspectNext').onclick=()=>{const i=nextUnratedIndex(-1);if(i>=0)openLightbox(i);else if(images.length)openLightbox(0);};
+ for(const [id,key]of [['epochs','epochs'],['regularization','regularization'],['toneStep','step'],['roundSize','roundSize']])$(id).onchange=()=>{state.settings[key]=Number($(id).value);saveSoon();updateOptimizerStatus();};
+ for(const key of ['autoAdvance','autoTrain'])$(key).onchange=()=>{state.settings[key]=$(key).checked;saveSoon();};
+ $('editTarget').onclick=()=>beginManual(modelTone(lbItem()));$('useModel').onclick=returnToModel;$('viewTarget').onclick=()=>{if(recordFor(lbItem()).anchor)beginManual(recordFor(lbItem()).anchor);};
+ $('saveTarget').onclick=()=>saveTarget('manual');$('acceptOriginal').onclick=()=>saveTarget('original');
+ for(const [range,number,kind]of [['manualGamma','manualGammaN','gamma'],['manualGain','manualGainN','gain']]){
+   function update(v){if(!manualPreview)return;v=Number(v);if(!Number.isFinite(v))return;if(kind==='gamma')manualPreview.gamma=E.exponent(clamp(v,-100,100));else manualPreview.gain=1+clamp(v,-20,25)/100;updateManualControls();lbRequestCorrection();drawHistogram();}
+   $(range).oninput=()=>update($(range).value);$(number).oninput=()=>update($(number).value);
+ }
+ $('removeTarget').onclick=()=>{if(!lbOpen()||!confirm('Remove the saved target and directional constraints for this example? The global model is unchanged.'))return;const r=recordFor(lbItem());r.anchor=null;r.events=[];saveSoon();updateSidebar();updateOptimizerStatus();};
+ $('imageRole').onchange=()=>changeGroupRole('role');$('saveGroup').onclick=()=>changeGroupRole('group');$('sensitivityDetails').ontoggle=()=>{if($('sensitivityDetails').open)renderSensitivity();};
+ $('resetControls').onclick=()=>{state.settings={...DEFAULT_SETTINGS};controlsFromState();saveSoon();status('Training controls reset. Learned weights and targets were kept.');};
+ $('resetModel').onclick=()=>{if(!confirm('Reset the global model to identity? All saved targets and measurements are kept.'))return;state.model=null;state.legacyBaseline=null;state.undo=null;state.importedModelUnverified=false;state.round++;state.votes={};images.forEach(i=>i.rating='');saveSoon();refreshAll();status('Model reset to untrained. Train again from the saved examples.');};
+ $('clearRound').onclick=()=>{if(!confirm('Clear only the visible round votes? Saved training targets and history remain.'))return;state.votes={};images.forEach(i=>i.rating='');saveSoon();renderGallery();updateOptimizerStatus();};
+ $('clearData').onclick=()=>{if(!confirm('Delete all saved examples, weights and reports from this v4 session? Export first to keep a backup.'))return;if(lbOpen())lbClose();state=fresh();images.forEach(i=>URL.revokeObjectURL(i.url));images=[];saveSoon();controlsFromState();refreshAll();status('New empty session.');};
+ $('undoModel').onclick=()=>{if(!state.undo||optimizerBusy)return;const u=state.undo;state.model=u.model;state.legacyBaseline=u.legacyBaseline;state.round=u.round;state.votes=u.votes;state.importedModelUnverified=u.importedModelUnverified;state.undo=null;for(const i of images)i.rating=state.votes[i.id]?.round===state.round?state.votes[i.id].rating:'';saveSoon();refreshAll();status('Previous global model restored. Saved teaching examples were kept.');};
+ const drop=$('drop');for(const t of ['dragenter','dragover'])drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('over');});for(const t of ['dragleave','drop'])drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('over');});drop.addEventListener('drop',e=>loadFiles(e.dataTransfer.files));
+ window.addEventListener('beforeunload',()=>{saveNow();});
+}
+
+const lb = {
+  index:-1, view:'wipe', split:0.5, peek:false, spaceHeld:false,
+  scale:1, cx:0, cy:0, fit:true, cache:null, job:0, frame:0, busy:false,
+  opener:null, home:null, oldOverflow:'', oldScrollX:0, oldScrollY:0, enteredFullscreen:false, pointers:new Map(), gesture:null,
+};
+const lbDialog = $('lightbox');
+const lbViewport = $('lbViewport');
+
+const MAX_PREVIEW_PIXELS = 16000000;
+const MAX_PREVIEW_SIDE = 8192;
+
+function lbOpen(){ return lbDialog.open && lb.index >= 0 && !!images[lb.index]; }
+function lbItem(){ return images[lb.index]; }
+function lbGeometry(){
+  const rect=lbViewport.getBoundingClientRect();
+  return {width:rect.width,height:rect.height,paneWidth:lb.view==='side'?rect.width/2:rect.width,rect};
+}
+function lbFitScale(){
+  const item=lbItem(), box=lbGeometry();
+  if(!item) return 1;
+  return Math.max(0.00001,Math.min((box.paneWidth-24)/item.width,(box.height-24)/item.height,1/(window.devicePixelRatio||1)));
+}
+function lbClampCenter(){
+  if(!lbOpen()) return;
+  const item=lbItem(),box=lbGeometry();
+  const halfW=box.paneWidth/(2*lb.scale),halfH=box.height/(2*lb.scale);
+  lb.cx=halfW*2>=item.width?item.width/2:clamp(lb.cx,halfW,item.width-halfW);
+  lb.cy=halfH*2>=item.height?item.height/2:clamp(lb.cy,halfH,item.height-halfH);
+}
+function lbFit(){
+  if(!lbOpen()) return;
+  lb.fit=true;lb.scale=lbFitScale();lb.cx=lbItem().width/2;lb.cy=lbItem().height/2;
+  lbDrawSoon();
+}
+function lbZoomLimits(){
+  return [Math.min(lbFitScale()/4,0.01),8/(window.devicePixelRatio||1)];
+}
+function lbImagePoint(clientX,clientY){
+  const {rect,paneWidth}=lbGeometry();
+  let x=clientX-rect.left;
+  if(lb.view==='side' && x>=paneWidth) x-=paneWidth;
+  return {x:lb.cx+(x-paneWidth/2)/lb.scale,y:lb.cy+(clientY-rect.top-rect.height/2)/lb.scale,
+          localX:x,localY:clientY-rect.top};
+}
+function lbZoomTo(scale,clientX,clientY){
+  if(!lbOpen()) return;
+  const box=lbGeometry();
+  if(clientX===undefined){clientX=box.rect.left+box.paneWidth/2;clientY=box.rect.top+box.height/2;}
+  const point=lbImagePoint(clientX,clientY),[min,max]=lbZoomLimits();
+  lb.scale=clamp(scale,min,max);lb.fit=false;
+  lb.cx=point.x-(point.localX-box.paneWidth/2)/lb.scale;
+  lb.cy=point.y-(point.localY-box.height/2)/lb.scale;
+  lbClampCenter();lbDrawSoon();
+}
+function lbActual(){
+  // At 100%, one original source pixel occupies one device pixel.
+  lbZoomTo(1/(window.devicePixelRatio||1));
+}
+function lbSetView(view){
+  lb.view=view;
+  lbDialog.querySelectorAll('[data-lb-view]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.lbView===view)));
+  if(lb.fit) lbFit(); else {lbClampCenter();lbDrawSoon();}
+}
+function lbSetControls(show){
+  $('lbPanel').hidden=!show;
+  $('lbBody').classList.toggle('controls-hidden',!show);
+  $('lbSettings').setAttribute('aria-expanded',String(show));
+  if(lb.fit) lbFit(); else {lbClampCenter();lbDrawSoon();}
+}
+function lbSetPeek(value){lb.peek=value;lbDrawSoon();}
+function lbSetBusy(value,message='Updating corrected preview…'){
+  lb.busy=value;
+  $('lbBusy').hidden=!value;
+  $('lbBusy').textContent=message;
+  lbViewport.setAttribute('aria-busy',String(value));
+  lbDialog.querySelectorAll('[data-lb-rate]').forEach(b=>b.disabled=value||optimizerBusy||!!manualPreview);
+  $('saveTarget').disabled=value||optimizerBusy;$('acceptOriginal').disabled=value||optimizerBusy;
+}
+function lbDiscardCache(){
+  lb.job++;
+  if(lb.cache){lb.cache.original.width=1;lb.cache.corrected.width=1;lb.cache=null;}
+}
+function openLightbox(index,opener=null){
+  if(!images[index]) return;
+  if(!lbDialog.open){
+    lb.opener=opener||document.activeElement;
+    lb.home=true;
+    lb.oldOverflow=document.body.style.overflow;
+    lb.oldScrollX=window.scrollX;lb.oldScrollY=window.scrollY;
+
+    document.body.style.overflow='hidden';
+    lbDialog.showModal();
+    lbSetControls(window.innerWidth>900);
+  }
+  lbShowImage(index);
+  lbViewport.focus({preventScroll:true});updateOptimizerStatus();
+}
+function lbShowImage(index){
+  if(!images[index]) return;
+  lbDiscardCache();lb.index=index;lb.peek=false;lb.spaceHeld=false;manualPreview=null;
+  lb.pointers.clear();lb.gesture=null;
+  const item=lbItem();
+  $('lbName').textContent=item.file.name;$('lbName').title=item.key;
+  $('lbSize').textContent=`${item.width} × ${item.height} · full-size comparison`;
+  $('lbCounter').textContent=`${index+1} / ${images.length}`;
+  $('lbPrev').disabled=index===0;$('lbNext').disabled=index===images.length-1;
+  lbSetBusy(true,'Preparing full-size preview…');lbSyncRating();updateSidebar();lbUpdateMetrics();lbFit();
+  const token=lb.job;
+  requestAnimationFrame(async()=>{
+    if(!lbOpen()||lb.job!==token) return;
+    try{
+      const scale=Math.min(1,MAX_PREVIEW_SIDE/item.width,MAX_PREVIEW_SIDE/item.height,
+        Math.sqrt(MAX_PREVIEW_PIXELS/(item.width*item.height)));
+      const w=Math.max(1,Math.floor(item.width*scale)),h=Math.max(1,Math.floor(item.height*scale));
+      const original=document.createElement('canvas');original.width=w;original.height=h;
+      const ctx=original.getContext('2d',{willReadFrequently:true});
+      if(!ctx) throw new Error('Canvas is unavailable in this browser.');
+      const decoded=await imageFromUrl(item.url);
+      if(!lbOpen()||lb.job!==token)return;
+      ctx.drawImage(decoded,0,0,w,h);
+      const input=ctx.getImageData(0,0,w,h).data;
+      const corrected=document.createElement('canvas');corrected.width=w;corrected.height=h;
+      lb.cache={original,corrected,input,output:ctx.createImageData(w,h),key:null,pendingKey:null,ready:false,
+        width:w,height:h,reduced:scale<1};
+      $('lbSize').textContent=`${item.width} × ${item.height} · `+(scale<1
+        ?`preview limited to ${w} × ${h} (16 MP / 8192 px memory limit)`
+        :'native-resolution preview');
+      lbRequestCorrection();
+    }catch(error){
+      lbSetBusy(true,'Cannot prepare this image: '+error.message);
+      console.warn('Lightbox preparation failed',error);
+    }
+  });
+}
+function lbNavigate(delta){
+  const next=lb.index+delta;
+  if(next>=0&&next<images.length) lbShowImage(next);
+}
+function lbClose(){
+  if(lbDialog.open){lbDialog.close();lbCleanup();}
+}
+function lbCleanup(){
+  if(lb.home===null && lb.index<0) return;
+  if(lb.enteredFullscreen && document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+  lb.enteredFullscreen=false;
+  lbDiscardCache();lb.index=-1;manualPreview=null;lb.peek=false;lb.spaceHeld=false;lb.pointers.clear();lb.gesture=null;
+  lb.home=null;
+  document.body.style.overflow=lb.oldOverflow;
+  window.scrollTo(lb.oldScrollX,lb.oldScrollY);
+  if(lb.opener?.isConnected) lb.opener.focus({preventScroll:true});
+  lb.opener=null;updateAll();
+}
+function lbUpdateMetrics(){
+  if(!lbOpen())return;
+  const item=lbItem(),p=previewTone(item),source=manualPreview?'MANUAL TARGET':modelLabel();
+  $('lbMetrics').textContent=`${source} · gamma ${fmt(E.slider(p.gamma),1)} (exp ${fmt(p.gamma,3)}) · gain ${fmt((p.gain-1)*100,1)}% · mean ${fmt(item.stats.mean)} · contrast σ ${fmt(item.stats.std)} · p95 ${fmt(item.stats.p95)}`;
+}
+function lbSyncRating(){
+  const item=lbItem();
+  lbDialog.querySelectorAll('[data-lb-rate]').forEach(b=>{
+    const active=!!item && item.rating===b.dataset.lbRate;
+    b.classList.toggle('active',active);b.setAttribute('aria-pressed',String(active));
+  });
+}
+function nextUnratedIndex(from){
+  if(!images.length) return -1;
+  for(let step=1;step<=images.length;step++){
+    const i=(from+step)%images.length;
+    if(!images[i].rating) return i;
+  }
+  return -1;
+}
+
+function lbRequestCorrection(){
+  if(!lbOpen()) return;
+  lbUpdateMetrics();
+  const cache=lb.cache;if(!cache) return;
+  const item=lbItem(),gamma=previewTone(item).gamma,gain=previewTone(item).gain;
+  const key=gamma+'|'+gain;
+  if(cache.key===key){
+    if(cache.pendingKey!==null){lb.job++;cache.pendingKey=null;}
+    lbSetBusy(false);lbDrawSoon();return;
+  }
+  if(cache.pendingKey===key) return;
+  cache.pendingKey=key;
+  const token=++lb.job;
+  lbSetBusy(true);
+  // The 256-entry LUT matches Uint8ClampedArray rounding in the original gallery.
+  const lut=new Uint8ClampedArray(256);
+  for(let x=0;x<256;x++) lut[x]=clamp(Math.pow(x/255,gamma)*gain,0,1)*255;
+  const src=cache.input,dst=cache.output.data;
+  const chunk=262144*4;
+  (async()=>{
+    try{
+      // Yield between chunks; a new image or adjustment invalidates this job.
+      for(let start=0;start<src.length;start+=chunk){
+        if(!lbOpen()||lb.job!==token||lb.cache!==cache) return;
+        const end=Math.min(src.length,start+chunk);
+        for(let p=start;p<end;p+=4){
+          dst[p]=lut[src[p]];dst[p+1]=lut[src[p+1]];dst[p+2]=lut[src[p+2]];dst[p+3]=src[p+3];
+        }
+        if(end<src.length) await new Promise(resolve=>setTimeout(resolve,0));
+      }
+      if(!lbOpen()||lb.job!==token||lb.cache!==cache) return;
+      cache.corrected.getContext('2d').putImageData(cache.output,0,0);
+      cache.key=key;cache.pendingKey=null;cache.ready=true;
+      lbSetBusy(false);lbDrawSoon();
+    }catch(error){
+      if(lb.job===token){cache.pendingKey=null;lbSetBusy(true,'Correction failed: '+error.message);}
+      console.warn('Lightbox correction failed',error);
+    }
+  })();
+}
+function lbDrawSoon(){
+  if(!lbOpen()||lb.frame) return;
+  lb.frame=requestAnimationFrame(()=>{lb.frame=0;if(lbOpen()) lbDraw();});
+}
+function lbDraw(){
+  const item=lbItem(),box=lbGeometry();
+  if(!item || box.width<1 || box.height<1) return;
+  const canvas=$('lbCanvas'),dpr=window.devicePixelRatio||1;
+  const width=Math.round(box.width*dpr),height=Math.round(box.height*dpr);
+  if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
+  const ctx=canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,box.width,box.height);
+  ctx.fillStyle='#111315';ctx.fillRect(0,0,box.width,box.height);
+  ctx.imageSmoothingEnabled=lb.scale*dpr<1;ctx.imageSmoothingQuality='high';
+  const original=lb.cache?.original||item.img;
+  const corrected=lb.cache?.ready?lb.cache.corrected:original;
+  function draw(source,paneX,paneWidth){
+    ctx.save();ctx.beginPath();ctx.rect(paneX,0,paneWidth,box.height);ctx.clip();
+    ctx.drawImage(source,paneX+paneWidth/2-lb.cx*lb.scale,box.height/2-lb.cy*lb.scale,
+      item.width*lb.scale,item.height*lb.scale);ctx.restore();
+  }
+  const left=$('lbLeftLabel'),right=$('lbRightLabel'),wipe=$('lbWipe');
+  left.hidden=false;right.hidden=false;wipe.hidden=true;
+  if(lb.view==='side'){
+    draw(original,0,box.paneWidth);draw(lb.peek?original:corrected,box.paneWidth,box.paneWidth);
+    ctx.fillStyle='#444b54';ctx.fillRect(box.paneWidth-0.5,0,1,box.height);
+    left.textContent='Original';right.textContent=lb.peek?'Original · held':(manualPreview?'Manual target':'Model output');
+  }else if(lb.peek||lb.view==='original'){
+    draw(original,0,box.width);left.textContent=lb.peek?'Original · held':'Original';right.hidden=true;
+  }else if(lb.view==='corrected'){
+    draw(corrected,0,box.width);left.hidden=true;right.textContent=manualPreview?'Manual target':'Model output';
+  }else{
+    draw(original,0,box.width);
+    ctx.save();ctx.beginPath();ctx.rect(box.width*lb.split,0,box.width*(1-lb.split),box.height);ctx.clip();
+    draw(corrected,0,box.width);ctx.restore();
+    left.textContent='Original';right.textContent=manualPreview?'Manual target':'Model output';wipe.hidden=false;
+    wipe.style.left=`${lb.split*100}%`;wipe.setAttribute('aria-valuenow',String(Math.round(lb.split*100)));
+  }
+  $('lbZoom').textContent=`${Math.round(lb.scale*dpr*100)}%`;
+  $('lbFit').setAttribute('aria-pressed',String(lb.fit));
+}
+function lbBeginGesture(){
+  const pts=[...lb.pointers.values()];
+  if(pts.length===1){lb.gesture={kind:'pan',x:pts[0].x,y:pts[0].y,cx:lb.cx,cy:lb.cy};}
+  else if(pts.length>=2){
+    const midX=(pts[0].x+pts[1].x)/2,midY=(pts[0].y+pts[1].y)/2;
+    lb.gesture={kind:'pinch',scale:lb.scale,dist:Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y)||1,
+      anchor:lbImagePoint(midX,midY)};
+  }else lb.gesture=null;
+}
+function lbToggleFullscreen(){
+  if(document.fullscreenElement){document.exitFullscreen().catch(()=>{});}
+  else if(document.documentElement.requestFullscreen){
+    // Dialogs cannot themselves be fullscreen elements. Fullscreen the page;
+    // the modal dialog remains in the browser's top layer above it.
+    document.documentElement.requestFullscreen().then(()=>{lb.enteredFullscreen=true;}).catch(()=>{
+      $('lbFullscreen').textContent='Fullscreen unavailable';
+      $('lbFullscreen').title='This browser did not allow fullscreen. The full-window lightbox still works.';
+    });
+  }
+}
+function setupLightbox(){
+  lbDialog.addEventListener('close',()=>{if(!lbDialog.open)lbCleanup();});
+  lbDialog.addEventListener('cancel',e=>{e.preventDefault();lbClose();});
+  $('lbClose').addEventListener('click',lbClose);
+  $('lbPrev').addEventListener('click',()=>lbNavigate(-1));
+  $('lbNext').addEventListener('click',()=>lbNavigate(1));
+  $('lbFit').addEventListener('click',lbFit);
+  $('lbActual').addEventListener('click',lbActual);
+  $('lbZoomIn').addEventListener('click',()=>lbZoomTo(lb.scale*1.25));
+  $('lbZoomOut').addEventListener('click',()=>lbZoomTo(lb.scale/1.25));
+  $('lbSettings').addEventListener('click',()=>lbSetControls($('lbPanel').hidden));
+  $('lbFullscreen').addEventListener('click',lbToggleFullscreen);
+  if(!document.documentElement.requestFullscreen){$('lbFullscreen').disabled=true;}
+  document.addEventListener('fullscreenchange',()=>{
+    if(!document.fullscreenElement) lb.enteredFullscreen=false;
+    $('lbFullscreen').textContent=document.fullscreenElement?'Exit fullscreen':'Fullscreen';
+    if(lb.fit) lbFit();else lbDrawSoon();
+  });
+  lbDialog.querySelectorAll('[data-lb-view]').forEach(b=>b.addEventListener('click',()=>lbSetView(b.dataset.lbView)));
+  lbDialog.querySelectorAll('[data-lb-rate]').forEach(b=>b.addEventListener('click',()=>{
+    if(!lb.busy&&!manualPreview) setImageRating(lb.index,b.dataset.lbRate);
+  }));
+  const peek=$('lbPeek');
+  peek.addEventListener('pointerdown',e=>{e.preventDefault();peek.setPointerCapture(e.pointerId);lbSetPeek(true);});
+  ['pointerup','pointercancel','lostpointercapture'].forEach(type=>peek.addEventListener(type,()=>lbSetPeek(false)));
+  const wipe=$('lbWipe');
+  function moveWipe(e){
+    const rect=lbViewport.getBoundingClientRect();lb.split=clamp((e.clientX-rect.left)/rect.width,0,1);lbDrawSoon();
+  }
+  wipe.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();wipe.setPointerCapture(e.pointerId);moveWipe(e);});
+  wipe.addEventListener('pointermove',e=>{if(wipe.hasPointerCapture(e.pointerId)){e.stopPropagation();moveWipe(e);}});
+  wipe.addEventListener('pointerup',e=>{e.stopPropagation();if(wipe.hasPointerCapture(e.pointerId)) wipe.releasePointerCapture(e.pointerId);});
+  wipe.addEventListener('keydown',e=>{
+    if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){
+      e.preventDefault();e.stopPropagation();
+      lb.split=e.key==='Home'?0:e.key==='End'?1:clamp(lb.split+(e.key==='ArrowRight'?1:-1)*(e.shiftKey?.05:.01),0,1);
+      lbDrawSoon();
+    }
+  });
+  lbViewport.addEventListener('wheel',e=>{
+    e.preventDefault();const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?lbGeometry().height:1);
+    lbZoomTo(lb.scale*Math.exp(clamp(-delta*.002,-.6,.6)),e.clientX,e.clientY);
+  },{passive:false});
+  lbViewport.addEventListener('dblclick',e=>{
+    if(e.target.closest('#lbWipe')) return;
+    if(lb.fit) lbZoomTo(1/(window.devicePixelRatio||1),e.clientX,e.clientY);else lbFit();
+  });
+  lbViewport.addEventListener('pointerdown',e=>{
+    if(e.target.closest('#lbWipe')||e.button>0) return;
+    e.preventDefault();lbViewport.focus({preventScroll:true});
+    lbViewport.setPointerCapture(e.pointerId);lb.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    lbViewport.classList.add('dragging');lbBeginGesture();
+  });
+  lbViewport.addEventListener('pointermove',e=>{
+    if(!lb.pointers.has(e.pointerId)) return;
+    lb.pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});const g=lb.gesture;if(!g) return;
+    if(g.kind==='pan'&&lb.pointers.size===1){
+      if(Math.abs(e.clientX-g.x)+Math.abs(e.clientY-g.y)<2) return;
+      lb.fit=false;lb.cx=g.cx-(e.clientX-g.x)/lb.scale;lb.cy=g.cy-(e.clientY-g.y)/lb.scale;
+    }else if(g.kind==='pinch'&&lb.pointers.size>=2){
+      const [p1,p2]=[...lb.pointers.values()],box=lbGeometry(),[min,max]=lbZoomLimits();
+      lb.fit=false;lb.scale=clamp(g.scale*Math.hypot(p2.x-p1.x,p2.y-p1.y)/g.dist,min,max);
+      const midX=(p1.x+p2.x)/2,midY=(p1.y+p2.y)/2;
+      let localX=midX-box.rect.left;if(lb.view==='side'&&localX>=box.paneWidth) localX-=box.paneWidth;
+      lb.cx=g.anchor.x-(localX-box.paneWidth/2)/lb.scale;
+      lb.cy=g.anchor.y-(midY-box.rect.top-box.height/2)/lb.scale;
+    }
+    lbClampCenter();lbDrawSoon();
+  });
+  function releasePointer(e){
+    lb.pointers.delete(e.pointerId);lbBeginGesture();
+    if(!lb.pointers.size) lbViewport.classList.remove('dragging');
+  }
+  ['pointerup','pointercancel','lostpointercapture'].forEach(type=>lbViewport.addEventListener(type,releasePointer));
+  new ResizeObserver(()=>{if(!lbOpen())return;if(lb.fit)lbFit();else{lbClampCenter();lbDrawSoon();}}).observe(lbViewport);
+  document.addEventListener('keydown',e=>{
+    if(!lbOpen()||$('roundReport').open||optimizerBusy) return;
+    // Keep text, select, and range editing native. The divider owns its arrows.
+    if(e.target.closest('input,select,textarea,[contenteditable="true"]')) return;
+    if(e.target.closest('#lbWipe')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) return;
+    if(e.ctrlKey||e.metaKey||e.altKey) return;
+    const key=e.key.toLowerCase();
+    if(e.code==='Space'){
+      e.preventDefault();e.stopPropagation();lb.spaceHeld=true;lbSetPeek(true);return;
+    }
+    const actions={
+      arrowleft:()=>lbNavigate(-1),arrowright:()=>lbNavigate(1),
+      '0':lbFit,'1':lbActual,'+':()=>lbZoomTo(lb.scale*1.25),'=':()=>lbZoomTo(lb.scale*1.25),
+      '-':()=>lbZoomTo(lb.scale/1.25),'w':()=>lbSetView('wipe'),'s':()=>lbSetView('side'),
+      'o':()=>lbSetView('original'),'c':()=>lbSetView('corrected'),
+      'f':lbToggleFullscreen,'a':()=>lbSetControls($('lbPanel').hidden),
+      '2':()=>!lb.busy&&!manualPreview&&setImageRating(lb.index,'too_dark'),
+      '3':()=>!lb.busy&&!manualPreview&&setImageRating(lb.index,'good'),
+      '4':()=>!lb.busy&&!manualPreview&&setImageRating(lb.index,'too_light'),
+      '5':()=>!lb.busy&&!manualPreview&&setImageRating(lb.index,'skip'),
+    };
+    if(actions[key]){e.preventDefault();if(!e.repeat||['+','=','-'].includes(key))actions[key]();}
+  });
+  document.addEventListener('keyup',e=>{
+    if(e.code==='Space'&&lb.spaceHeld){e.preventDefault();e.stopPropagation();lb.spaceHeld=false;lbSetPeek(false);}
+  });
+  window.addEventListener('blur',()=>{lb.spaceHeld=false;lbSetPeek(false);});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){lb.spaceHeld=false;lbSetPeek(false);}});
+}
+
+// Source-visible test hooks; the predictor itself accepts features and model only.
+window.ToneLabEngine=E;
+window.ToneLabDebug={getState:()=>state,getImages:()=>images,predictItem:i=>modelTone(images[i]),previewItem:i=>previewTone(images[i]),train:trainModel,save:saveNow,loadFiles,importFile,exportSession,exportModel};
+setupLightbox();setupApp();
+(async()=>{await storageInit();controlsFromState();renderGallery();updateOptimizerStatus();status('Ready. Choose images; shared weights and saved examples are restored when available.');})();
+</script></body></html>

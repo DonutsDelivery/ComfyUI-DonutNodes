@@ -16,6 +16,7 @@ from .donut_tone_engine import SCHEMA, ALGORITHM, analyze_rgba, validate_export,
 MODEL_FOLDER = "donut_tone"
 NO_MODEL = "None"
 MAX_MODEL_BYTES = 1_048_576
+BUNDLED_MODEL_DIR = Path(__file__).resolve().parent / "models" / MODEL_FOLDER
 
 
 def _register_folder():
@@ -23,13 +24,19 @@ def _register_folder():
     if MODEL_FOLDER not in folder_paths.folder_names_and_paths:
         folder_paths.add_model_folder_path(MODEL_FOLDER, str(Path(folder_paths.models_dir) / MODEL_FOLDER))
     paths, extensions = folder_paths.folder_names_and_paths[MODEL_FOLDER]
+    paths = list(paths)
+    # Bundled weights are a last-priority, read-only search root. Do not copy
+    # over user checkpoints or replace saved selections, including None.
+    bundled = str(BUNDLED_MODEL_DIR)
+    if BUNDLED_MODEL_DIR.is_dir() and bundled not in paths:
+        paths.append(bundled)
     folder_paths.folder_names_and_paths[MODEL_FOLDER] = (paths, set(extensions) | {".json"})
 
 
 def _model_path(name):
     _register_folder()
     if not isinstance(name, str) or name == NO_MODEL or not name:
-        raise ValueError("Tone Lab is enabled: select a v4 'Export model only' JSON in ComfyUI/models/donut_tone")
+        raise ValueError("Tone Lab is enabled: select the bundled checkpoint or a v4 'Export model only' JSON in ComfyUI/models/donut_tone")
     rel = PurePosixPath(name)
     if rel.is_absolute() or ".." in rel.parts or "\\" in name or ":" in name or rel.suffix.lower() != ".json":
         raise ValueError("Tone Lab model must be a relative JSON filename inside models/donut_tone")
@@ -117,7 +124,7 @@ class DonutToneLab:
         return {"required": {
             "image": ("IMAGE",),
             "enabled": ("BOOLEAN", {"default": False, "tooltip": "Off is exact passthrough; no model is loaded."}),
-            "model_name": (names, {"default": NO_MODEL, "tooltip": "Tone Lab v4 Export model only JSON in models/donut_tone."}),
+            "model_name": (names, {"default": NO_MODEL, "tooltip": "Select bundled donut-tone-v4-r12.json or your Tone Lab v4 Export model only JSON."}),
             "strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": .05,
                                      "tooltip": "1 uses the trained prediction. 0 is exact passthrough. Intermediate values scale log gamma/gain."}),
             "apply_to_edits": ("BOOLEAN", {"default": False,
