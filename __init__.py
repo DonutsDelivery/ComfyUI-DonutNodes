@@ -43,6 +43,7 @@ _NODE_MODULES = (
     "DonutImageAdjust", "DonutImageSave",
     "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",
     "donut_upscale_stage", "donut_prompt_injection_recursive", "donut_grouped_merge", "DonutEditStudio", "donut_reference_mask", "donut_crop_studio", "donut_inpaint", "donut_seedvr2_post",
+    "DonutToneLab",
 )
 _REQUIRED_OVERRIDES = {
     "donut_crop_studio": ("DonutEditStudio", "DonutReferenceStudio"),
