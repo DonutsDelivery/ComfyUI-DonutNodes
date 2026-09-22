@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Donut Tone Lab · Feature Learner</title>
+<meta name="description" content="Offline, global feature-based gamma learner with manual targets and honest validation.">
+<link rel="stylesheet" href="style.css"></head><body>
+<header>
+ <div class="topbar"><div class="brandbox"><div class="eyebrow">DONUT / IMAGE RESEARCH</div><h1>Tone Lab <small>FEATURE LEARNER · V4</small></h1><p>One shared model. Learn from your eyes. Test on new images.</p></div>
+ <label class="button primary">Choose folder<input id="folder" type="file" webkitdirectory multiple></label>
+ <label class="button">Choose images<input id="files" type="file" accept="image/*" multiple></label>
+ <label class="button">Import<input id="importData" type="file" accept=".json,application/json"></label>
+ <button id="exportSession">Export session</button><button id="exportModel">Export model only</button>
+ </div>
+ <div id="storageWarning" role="alert" hidden></div>
+ <div id="onboard" class="notice"><b>No pretrained model is bundled.</b> The first preview is unchanged. Teach a few images with Fine-tune target or quick ratings, then Train. Import a v3 session to recover your earlier judgments after reloading its source folders.</div>
+ <div class="dashboard">
+  <section class="panel"><div class="eyebrow">COLLECTION</div><div class="bigstat" id="dataCount">0 <small>images loaded</small></div><p id="recordCount">0 saved examples · retained across folders</p><p id="splitCount">Stable scene-group split: approximately 80% training / 20% validation.</p><p id="pendingLegacy" hidden></p><div id="fileErrors"></div></section>
+  <section class="panel"><div class="eyebrow">SHARED GLOBAL MODEL</div><div class="bigstat" id="modelName">Untrained</div><p id="modelDescription"></p><p id="modelStatus">Gallery and lightbox show the same model. Targets never silently replace predictions.</p><div class="inline"><button id="undoModel" disabled>Undo model update</button><button id="viewReport" disabled>Last training report</button></div></section>
+  <section class="panel trainpanel"><div class="eyebrow">TRAINING</div><div class="training-grid">
+   <label>Epoch budget<select id="epochs"><option value="200">200 · quick</option><option value="400" selected>400 · balanced</option><option value="800">800 · longer</option></select></label>
+   <label>Regularization<select id="regularization"><option value="0.002">Light · 0.002</option><option value="0.01" selected>Balanced · 0.01</option><option value="0.04">Strong · 0.04</option></select></label>
+   <label>Directional tone step<select id="toneStep"><option value="0.015">Gentle · 0.015</option><option value="0.025" selected>Normal · 0.025</option><option value="0.04">Strong · 0.04</option></select></label>
+   <label>Review batch<select id="roundSize"><option value="10">10 judgments</option><option value="20" selected>20 judgments</option><option value="40">40 judgments</option><option value="0">Entire folder</option></select></label>
+  </div><div class="trainbar"><label class="hint"><input type="checkbox" id="autoAdvance" checked> Next after rating</label><label class="hint"><input type="checkbox" id="autoTrain"> Train at batch end</label><button id="train" class="primary">Train + next round</button><button id="cancelTrain" hidden>Cancel</button></div><progress id="trainProgress" max="1" value="0" hidden></progress></section>
+ </div><div id="status" role="status">Ready. Everything runs locally; images are never uploaded or overwritten.</div>
+</header>
+<div class="gallery-tools"><strong id="roundSummary">Review round 1</strong><select id="galleryFilter" aria-label="Gallery filter"><option value="all">All loaded images</option><option value="unrated">Not reviewed this round</option><option value="train">Training scenes</option><option value="validation">Validation scenes</option><option value="targets">Has saved target</option></select><button id="inspectNext">Inspect next image ↗</button><button id="exportFeatures">Export measurements CSV</button></div>
+<div id="drop">Drop image files here, or choose a folder above. Click either preview to inspect at full size.</div>
+<div id="gallery"><div class="empty">Your next model starts with your examples—not another preset.</div></div>
+<details class="help"><summary>How this learner works · limits · reset tools</summary>
+<p><b>Prediction:</b> sRGB pixels → histogram, exposure, colour and spatial measurements → one globally trained 16 / 8 unit neural network → gamma and brightness. Filenames, scene IDs and ratings are never prediction inputs. A no-change head is learned from exact approvals; its score is not a calibrated confidence probability. Small predicted curves can snap to exact identity.</p>
+<p><b>Feedback:</b> Good saves the first approved model curve as a stable target. Later Good votes do not move it. Original is already right teaches identity. Fine-tune target is explicitly a manual preview; Save target replaces that example’s learning target, not its model output. Directional votes without a target constrain the midtone result; they cannot fully specify two sliders. For an image with a saved target, training keeps fitting that target until you explicitly change or remove it.</p>
+<p><b>Validation:</b> groups, not individual files, are assigned to training or validation. Both variants of a scene must share a group. Validation labels never enter weight updates, feature normalization or epoch selection; they are reported separately. Repeatedly choosing settings after looking at validation makes it a development set, not a final independent test. Hold out another folder for your final check.</p>
+<p><b>Limits:</b> analysis uses a 256-pixel-long-edge, browser-decoded sRGB proxy. Local contrast features depend on that scale. The output is a global RGB power curve (exponent ⅓–3, gain 0.8–1.25), not local exposure editing, contrast recovery or white-balance correction. Measurements cannot establish artistic intent. An untrained model returns the original. Native lightbox rendering uses a 16 MP / 8192-pixel safety limit and labels reduced previews. PNG/JPEG/WebP/AVIF/BMP are accepted when the browser can decode them; animated images are excluded.</p>
+<p><b>Persistence:</b> example features, targets and weights are saved locally, not image pixels. Reopen a folder to view it. Export session is the portable backup; Export model only carries weights and normalization, with no rating history. A local HTML file cannot enumerate sibling images silently.</p>
+<div id="resetTools"><button id="resetControls">Reset training controls</button><button id="resetModel">Reset model to untrained</button><button id="clearRound">Clear current-round votes</button><button id="clearData">Clear all saved examples &amp; model</button></div>
+</details>
+<dialog id="lightbox" aria-labelledby="lbName" aria-describedby="lbKeys">
+  <div class="lb-top">
+    <span class="lb-brand">DONUT / INSPECT</span>
+    <div class="lb-nav">
+      <button id="lbPrev" type="button" title="Previous image (Left arrow)" aria-label="Previous image">←</button>
+      <span id="lbCounter">1 / 1</span>
+      <button id="lbNext" type="button" title="Next image (Right arrow)" aria-label="Next image">→</button>
+    </div>
+    <div class="lb-title"><div id="lbName">Image comparison</div><div id="lbSize"></div></div>
+    <button id="lbClose" type="button" title="Close lightbox (Esc)" aria-label="Close lightbox">Close ×</button>
+  </div>
+  <div class="lb-toolbar">
+    <div class="lb-tabs" role="group" aria-label="Comparison mode">
+      <button type="button" data-lb-view="wipe" aria-pressed="true" title="Drag the divider to compare (W)">Split slider</button>
+      <button type="button" data-lb-view="side" aria-pressed="false" title="Two synchronized views (S)">Side by side</button>
+      <button type="button" data-lb-view="original" aria-pressed="false" title="Show original (O)">Original</button>
+      <button type="button" data-lb-view="corrected" aria-pressed="false" title="Show corrected (C)">Corrected</button>
+    </div>
+    <div class="lb-zoom" role="group" aria-label="Image zoom">
+      <button id="lbFit" type="button" title="Fit image in viewer (0)">Fit</button>
+      <button id="lbActual" type="button" title="One image pixel per display pixel (1)">100%</button>
+      <button id="lbZoomOut" type="button" title="Zoom out (-)" aria-label="Zoom out">−</button>
+      <span id="lbZoom">100%</span>
+      <button id="lbZoomIn" type="button" title="Zoom in (+)" aria-label="Zoom in">+</button>
+    </div>
+    <div class="lb-actions">
+      <button id="lbPeek" type="button" title="Press and hold to see the original. Keyboard: hold Space.">Hold: original</button>
+      <button id="lbSettings" type="button" aria-controls="lbPanel" aria-expanded="true" title="Toggle adjustment controls (Tab button or A)">Targets / stats</button>
+      <button id="lbFullscreen" type="button" title="Toggle fullscreen (F)">Fullscreen</button>
+    </div>
+  </div>
+  <div class="lb-body" id="lbBody">
+    <div id="lbViewport" tabindex="0" aria-label="Image comparison. Scroll to zoom, drag to pan. Hold Space for original. Left and Right navigate.">
+      <canvas id="lbCanvas" aria-label="Original and gamma-corrected image"></canvas>
+      <span id="lbLeftLabel" class="lb-label">Original</span>
+      <span id="lbRightLabel" class="lb-label">Model output</span>
+      <div id="lbWipe" role="slider" tabindex="0" aria-label="Before and after divider" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" aria-orientation="horizontal"></div>
+      <div id="lbBusy" role="status" hidden>Preparing full-size preview…</div>
+    </div>
+    <aside id="lbPanel" aria-label="Target editor and image measurements">
+      <div class="lb-panel-heading">Global model prediction<span id="predictionSource">No image-specific overrides are used.</span></div>
+      <div id="featureSidebar">
+       <div class="mini-panel"><div class="mode-pill" id="previewBadge">MODEL OUTPUT</div><p class="hint" id="modelReadout"></p>
+        <div class="inline"><button id="editTarget" class="primary">Fine-tune target</button><button id="useModel" hidden>Return to model</button></div>
+        <div id="targetEditor" hidden>
+         <p class="target-warning">MANUAL TARGET PREVIEW — not the model’s prediction. Saving teaches the global model; it does not override this image.</p>
+         <label class="target-row">Gamma slider <input type="number" id="manualGammaN" min="-100" max="100" step="0.5" value="0"></label>
+         <input type="range" id="manualGamma" min="-100" max="100" step="0.5" value="0" aria-label="Manual gamma target">
+         <label class="target-row">Brightness gain % <input type="number" id="manualGainN" min="-20" max="25" step="0.1" value="0"></label>
+         <input type="range" id="manualGain" min="-20" max="25" step="0.1" value="0" aria-label="Manual brightness gain target">
+         <button class="primary" id="saveTarget">Save target &amp; next</button>
+         <p class="hint">One combined curve: RGB^exponent × gain. The brightness value is a post-gamma multiplier, not the LocalBooru brightness slider.</p>
+        </div>
+        <div class="inline spaced"><button id="acceptOriginal">Original is already right</button></div>
+        <p class="hint" id="anchorInfo">No approved target.</p><div class="inline"><button id="viewTarget">View saved target</button><button id="removeTarget">Remove target</button></div>
+       </div>
+       <div class="mini-panel"><h3>Data role</h3><div class="target-row"><label for="imageRole">Role for this group</label><select id="imageRole"><option value="train">Training</option><option value="validation">Validation only</option><option value="ignore">Excluded</option></select></div>
+        <input id="sceneGroup" type="text" aria-label="Scene group name"><button id="saveGroup">Set group</button>
+        <p class="hint">Put corrected/original copies and near-duplicates in the same group. A group has one role. Changing a role/group resets trained weights to keep the split clean.</p>
+       </div>
+       <div class="mini-panel"><h3>Measured tone distribution</h3><canvas id="histogram" width="520" height="180"></canvas><div class="hist-legend">Dashed: original · solid: current preview</div><div id="featureSummary"></div>
+        <details><summary>All image measurements</summary><div id="featureValues"></div></details>
+        <details id="sensitivityDetails"><summary>Model sensitivity</summary><p class="hint">Response to a small change in one measurement. Correlated features make this a diagnostic, not a causal explanation.</p><div id="sensitivityValues"></div></details>
+       </div>
+      </div>
+    </aside>
+  </div>
+  <div class="lb-bottom">
+    <div class="round-strip"><span id="lbRoundStatus" role="status">Round 1</span><button id="lbOptimize" class="primary" type="button">Train + next round</button><button id="lbReportButton" type="button" disabled>Changes</button></div>
+    <div id="lbMetrics"></div>
+    <div class="lb-bottom-line">
+      <div id="lbJudge" class="judge">
+        <span class="hint">Model result:</span>
+        <button type="button" class="too-dark" data-lb-rate="too_dark" title="Rate too dark (2)">Too dark</button>
+        <button type="button" class="good" data-lb-rate="good" title="Rate good (3)">Good</button>
+        <button type="button" class="too-light" data-lb-rate="too_light" title="Rate too bright (4)">Too bright</button>
+        <button type="button" class="skip" data-lb-rate="skip" title="Skip image (5)">Skip</button>
+      </div>
+      <span id="lbKeys"><kbd>Space</kbd> hold original · <kbd>←</kbd> <kbd>→</kbd> images · scroll zoom · drag pan · <kbd>0</kbd> fit · <kbd>1</kbd> 100% · <kbd>Esc</kbd> close</span>
+      <span class="lb-small-hint">Pinch to zoom · drag to pan · drag the divider to compare</span>
+    </div>
+  </div>
+</dialog>
+<dialog id="roundReport" aria-labelledby="reportHeading"><div class="report-head"><div><div class="eyebrow">GLOBAL MODEL / TRAINING REPORT</div><h2 id="reportHeading">Training result</h2></div><div class="report-buttons"><button id="reportNext" class="primary">Review next round</button><button id="reportClose">Close ×</button></div></div><p id="reportSummary"></p><p id="reportWarnings" class="report-warning"></p><div class="table-scroll"><table class="small-table"><thead><tr><th>Measure</th><th>Training · before → after</th><th>Validation · before → after</th></tr></thead><tbody id="reportMetrics"></tbody></table></div><p class="hint">These are errors against saved targets and directional bounds, not a human acceptance score. Validation images are not used to fit weights, normalization or select an epoch.</p><h3>Image predictions · one shared model</h3><div class="table-scroll"><table><thead><tr><th>Image</th><th>Role</th><th>Gamma slider</th><th>Gain %</th><th>Midtone Δ /255</th></tr></thead><tbody id="imageChanges"></tbody></table></div></dialog>
+<script src="engine.js"></script>
+<script src="state.js"></script>
+<script src="app.js"></script>
+<script src="lightbox.js"></script>
+</body></html>
