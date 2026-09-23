@@ -10,10 +10,15 @@ The node and its V5 stage remain **Off by default**. This is not a registry rele
 ## Use the included checkpoint
 
 Restart ComfyUI after installing this branch, refresh model lists, and select
-**donut-tone-v4-r12.json** under **Save images → Tone Lab · learned auto tone**.
-Enable the stage and start with Strength 1. The checkpoint is discovered in the
-node pack's `models/donut_tone/`; no manual copying or network download is needed.
-Existing saved choices, including None and disabled, are not replaced.
+**donut-tone-v4-r12.json** or **donut-tone-v4-general-synth.json** under
+**Save images → Tone Lab · learned auto tone**. Enable the stage and start
+with Strength 1. The checkpoints are discovered in the node pack's
+`models/donut_tone/`; no manual copying or network download is needed.
+Existing saved choices, including None and disabled, are not replaced. r12 is
+the original photo-fit model (revision 12); general-synth (revision 1) is the
+gamma-only alternative trained on a ~22k-group synthetic random-offset
+dataset — see the [checkpoint card](../models/donut_tone/README.md) for the
+trade-offs before choosing.
 
 The [checkpoint card](../models/donut_tone/README.md) documents the exact source,
 digests and fitting metadata. The uploaded file reports model revision 12; the

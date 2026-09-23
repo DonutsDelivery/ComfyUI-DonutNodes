@@ -20,8 +20,21 @@ class ParentSampler:
     def INPUT_TYPES(cls):
         return {'required': {'seed':('INT',{}),'steps':('INT',{})},
                 'optional': {'old_flag':('BOOLEAN',{'default':False}), 'grounding_end_px':('INT',{'default':1088})}}
-    def sample(self, model, seed=123, steps=8, mode='simple', edit_mode=False,
-               sda_enabled=False, model_2=None, model_3=None, **nag_options):
+    # Interface double of donut_grounding_schedule.DonutSampler.sample; the
+    # real (required-tail) signature is pinned by test_wrapper_signatures.
+    def sample(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end,
+               halfway_step, sampler_name, scheduler, positive, negative,
+               latent_image, denoise, mode='simple', cfg_curve='linear',
+               add_noise='enable', start_at_step=0, end_at_step=10000,
+               return_with_leftover_noise='disable',
+               randomize_seed_per_model='enable', switch_at_step_1=10,
+               switch_at_step_2=15, model_2=None, model_3=None,
+               edit_mode=False, source_image=None, vae=None, clip=None,
+               edit_prompt='', edit_negative_prompt='', grounding_px=768,
+               edit_model=None, turbo_mode=False, source_image_b=None,
+               edit_inpaint=None, sda_enabled=False, sda_strength=1.0,
+               **nag_options):
+        self.sampled=dict(seed=seed,steps=steps,sampler_name=sampler_name,scheduler=scheduler)
         self.received=(model,seed,steps,mode,edit_mode,sda_enabled,model_2,model_3,nag_options)
         return self.received
 
@@ -57,34 +70,35 @@ class SamplerTests(unittest.TestCase):
         self.sampler=self.module.DonutSampler();self.model=object();self.patched=object()
     def test_off_is_exact_parent_dispatch_without_install(self):
         with patch.object(self.module,'attach_model_guard',side_effect=AssertionError('guard')):
-            result=self.sampler.sample(self.model,nag_enabled=False,nag_alpha=0.)
+            result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,nag_enabled=False,nag_alpha=0.)
         self.assertIs(result[0],self.model);self.assertEqual(result[-1],{'nag_enabled':False,'nag_alpha':0.})
     def test_alpha_zero_is_forwarded_unchanged_and_guard_attached(self):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched) as install:
-            result=self.sampler.sample(self.model,nag_enabled=True,nag_alpha=0.,txtfusion_internal_guard=True)
+            result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,nag_enabled=True,nag_alpha=0.,txtfusion_internal_guard=True)
         install.assert_called_once_with(self.model)
         self.assertIs(result[0],self.patched);self.assertEqual(result[-1]['nag_alpha'],0.)
     def test_nag_disabled_is_supported_without_inventing_guidance(self):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched):
-            result=self.sampler.sample(self.model,nag_enabled=False,nag_alpha=.45,txtfusion_internal_guard=True)
+            result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,nag_enabled=False,nag_alpha=.45,txtfusion_internal_guard=True)
         self.assertFalse(result[-1]['nag_enabled']);self.assertEqual(result[-1]['nag_alpha'],.45)
     def test_edit_sda_advanced_phi_zero_are_not_rejected(self):
         for settings in ({'mode':'advanced'},{'edit_mode':True},{'sda_enabled':True},{'nag_phi':0.}):
             with self.subTest(settings=settings),patch.object(self.module,'attach_model_guard',return_value=self.patched):
-                result=self.sampler.sample(self.model,txtfusion_internal_guard=True,**settings)
+                result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard=True,**settings)
                 self.assertIs(result[0],self.patched)
     def test_multimodel_arguments_are_each_guarded(self):
         other,third=object(),object()
         with patch.object(self.module,'attach_model_guard',side_effect=lambda m:('guarded',m)) as install:
-            result=self.sampler.sample(self.model,mode='multi_model',model_2=other,model_3=third,txtfusion_internal_guard=True)
+            result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,mode='multi_model',model_2=other,model_3=third,txtfusion_internal_guard=True)
         self.assertEqual(install.call_count,3);self.assertEqual(result[6],('guarded',other));self.assertEqual(result[7],('guarded',third))
     def test_sampler_values_and_extra_options_preserved(self):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched):
-            result=self.sampler.sample(self.model,987,8,nag_alpha=.45,scheduler='beta',sampler_name='bleh_preset_0',txtfusion_internal_guard=True)
-        self.assertEqual(result[1:3],(987,8));self.assertEqual(result[-1],{'nag_alpha':.45,'scheduler':'beta','sampler_name':'bleh_preset_0'})
+            result=self.sampler.sample(self.model,987,8,.25,.5,.75,6,'bleh_preset_0','beta',None,None,None,None,nag_alpha=.45,txtfusion_internal_guard=True)
+        self.assertEqual(result[1:3],(987,8));self.assertEqual(result[-1],{'nag_alpha':.45})
+        self.assertEqual(self.sampler.sampled,{'seed':987,'steps':8,'sampler_name':'bleh_preset_0','scheduler':'beta'})
     def test_reference_field_is_explicitly_deprecated_not_silently_loaded(self):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched),self.assertLogs(self.module.LOGGER,level='WARNING') as logs:
-            result=self.sampler.sample(self.model,txtfusion_internal_guard=True,txtfusion_reference_checkpoint='same.safetensors')
+            result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard=True,txtfusion_reference_checkpoint='same.safetensors')
         self.assertIn('not used',logs.output[0]);self.assertNotIn('txtfusion_reference_checkpoint',result[-1])
     def test_schema_positions_preserved(self):
         old=ParentSampler.INPUT_TYPES();new=self.sampler.INPUT_TYPES()
@@ -93,11 +107,11 @@ class SamplerTests(unittest.TestCase):
         self.assertIs(new['optional']['txtfusion_internal_guard'][1]['default'],False)
     def test_false_does_not_remove_upstream_model_guard(self):
         with patch.object(self.module,'attach_model_guard',side_effect=AssertionError('attach')):
-            result=self.sampler.sample(self.patched,txtfusion_internal_guard=False)
+            result=self.sampler.sample(self.patched,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard=False)
         self.assertIs(result[0],self.patched)
     def test_boolean_input_validated(self):
         with self.assertRaisesRegex(ValueError,'boolean'):
-            self.sampler.sample(self.model,txtfusion_internal_guard='false')
+            self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard='false')
 
 
 class FusionTests(unittest.TestCase):

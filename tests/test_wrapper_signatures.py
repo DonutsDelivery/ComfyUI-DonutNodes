@@ -25,8 +25,9 @@ class WrapperSignatureTests(unittest.TestCase):
 
     def test_grounding_preserves_sampler_and_engine_contracts(self):
         for method, file, owner in [('sample', 'donut_krea2_sda.py', 'DonutSampler'),
-                                   ('run_simple', 'DonutKSamplerCFGLinear.py', '_DonutSamplerEngine'),
-                                   ('run_advanced', 'DonutKSamplerCFGLinear.py', '_DonutSamplerEngine')]:
+                                    ('sample', 'donut_txtfusion_guard_sampler.py', 'DonutSampler'),
+                                    ('run_simple', 'DonutKSamplerCFGLinear.py', '_DonutSamplerEngine'),
+                                    ('run_advanced', 'DonutKSamplerCFGLinear.py', '_DonutSamplerEngine')]:
             with self.subTest(method=method):
                 self.assertEqual(signature('donut_grounding_schedule.py', 'DonutSampler', method),
                                  signature(file, owner, method))

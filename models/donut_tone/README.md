@@ -34,6 +34,44 @@ Bundled Git blob: `d83c23f409319fe9494e5dd8145d4141b93b21c0`.
 The byte hashes differ solely because whitespace outside strings was removed;
 all number literals, strings, array order and object values are unchanged.
 
+## Second bundled checkpoint: donut-tone-v4-general-synth.json
+
+A second, independently trained model ships alongside r12 as an alternative.
+Source upload SHA-256 (105,724 bytes):
+
+```
+ff1c1f5c3ca934795352d51d0848179003956bbf4761bdca7404df07131699d5
+```
+
+Bundled minified JSON SHA-256 (69,874 bytes; whitespace-only difference, every
+value unchanged):
+
+```
+64a5288e9f4050291fa3ad136a34123522c1f31ec771b9ae74b441932571d0ef
+```
+
+- Architecture: identical 169 → 16 → 8 → 3; 2,883 weights and biases
+- Stored model revision: **1**
+- Stored fitting metadata: 20,057 training groups, 2,421 validation groups,
+  50 epochs (best 28), regularization 0.0001, tone step 0.0025, seed 50301,
+  generator `train_donut_tone_synth.py`, identity probability 0.18
+- Best validation: slider MAE **12.47957** (±55 slider scale), gain MAE
+  0.106 pp, no-op accuracy 0.813
+
+Training characteristics and honest limits: this checkpoint was fitted on a
+much larger synthetic dataset of random gamma offsets (slider standard
+deviation 18, maximum 55) with 18% identity samples, so it generalizes across
+brightness content better than the photo-fit r12 but is calibrated less
+tightly — its per-image MAE is materially higher and its identity gate is
+less conservative. `gainPercentMax: 0.0` means the gain head was not trained;
+the model corrects gamma only. Its predictions on flat/bright frames differ
+substantially from r12's (e.g. gamma 0.89–1.21 vs r12's 1.33–1.45 on flat
+grays), so A/B the two on real images before standardizing on either.
+
+No training photos, image features or rating records are committed for either
+checkpoint. Selection stays explicit per workflow: pick the filename in the
+Save images panel; defaults and saved selections are never rewritten.
+
 ## Use and limitations
 
 The node discovers this directory after user-configured model roots. Select the
