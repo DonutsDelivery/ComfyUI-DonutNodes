@@ -16,9 +16,11 @@ with Strength 1. The checkpoints are discovered in the node pack's
 `models/donut_tone/`; no manual copying or network download is needed.
 Existing saved choices, including None and disabled, are not replaced. r12 is
 the original curated photo-fit model (revision 12); general-synth (revision 1)
-is the gamma-only alternative fitted on ~22,000 real photographs with wide
-random gamma offsets — see the [checkpoint card](../models/donut_tone/README.md)
-for the trade-offs before choosing.
+is the gamma-only alternative fitted on ~22,000 real photographs from the
+[Unsplash Lite Dataset](https://github.com/unsplash/datasets) with wide random
+gamma offsets — see the
+[checkpoint card](../models/donut_tone/README.md) for the trade-offs,
+attribution and license before choosing.
 
 The [checkpoint card](../models/donut_tone/README.md) documents the exact source,
 digests and fitting metadata. The uploaded file reports model revision 12; the
