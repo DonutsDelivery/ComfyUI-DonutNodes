@@ -50,6 +50,12 @@
 - Registry state at **2026-09-23 01:36 UTC**:
   `GET /nodes/donutnodes/versions/3.0.34` → HTTP 200,
   **NodeVersionStatusPending**, `status_reason` null.
+- Review resolution at **2026-09-23 12:02 UTC**:
+  `GET /nodes/donutnodes/versions/3.0.34` → HTTP 200,
+  **NodeVersionStatusActive**, `status_reason` null. CDN ZIP
+  `https://cdn.comfy.org/donutsdelivery/donutnodes/3.0.34/node.zip` re-hashed
+  at Active: `b6097568…240c0c`, matching the published archive. Release is
+  approved and served.
 
 ## Remaining checks
 
