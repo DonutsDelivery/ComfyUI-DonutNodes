@@ -2,7 +2,7 @@
 
 - Source release commit pushed to `origin/main`: `4858fe3665786902b9a8fe83870d28718729c19f`.
 - Includes Edit Studio checkbox re-render race fix and slot-A clear behavior from `8172a8f`.
-- Restores the fresh-install V5 workflow's public `krea2_turbo_bf16.safetensors` loader selections and `Single model` mode. Existing personal workflow choices are not modified by this release.
+- 3.0.35 unintentionally changed the V5 defaults: it replaced the user's original Krea2 loader choice with the other loader choice and changed `Merge two models` to `Single model`. This removed the intended text-fusion behavior. Corrected in 3.0.36 below.
 - Validation: all 208 Node.js tests passed. Python unittest with the ComfyUI venv ran 323 tests; 9 skipped; the Playwright browser suite could not import because Playwright is unavailable in that environment.
 - Prepared the registry-specific staging directory with `python tools/prepare_registry.py`; verified staged `pyproject.toml` is 3.0.35, V5 defaults are public Krea2/Single model, workflow is present, and registry credentials are absent.
 - Published with comfy-cli 1.20.0. Upload succeeded. CLI emitted the existing E702 semicolon security warning at `donut_txtfusion_guard.py:207`; it did not prevent upload.
