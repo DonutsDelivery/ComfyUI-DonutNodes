@@ -35,7 +35,16 @@ function observePanels() {
             const observer = new MutationObserver(() => refresh());
             // Catalog arrival and row reordering rebuild the original LoRA DOM.
             observer.observe(root,{childList:true,subtree:true});
-            const change = () => queueMicrotask(() => {
+            // Re-render as a macrotask, not a microtask: a native checkbox
+            // fires input and change as two separate dispatches with a
+            // microtask checkpoint between them. A microtask here re-rendered
+            // after input but before the panel's own change handler committed,
+            // writing the stale widget value back into the checkbox and
+            // silently cancelling the user's toggle (Editing could never be
+            // turned off). A task queued here runs after the whole
+            // input → change sequence, when the widget already holds the new
+            // value and render() only repaints the same state.
+            const change = () => setTimeout(() => {
                 for (const {node:entry} of graphEntries(rootGraph())) entry._donutEditStudio?.render();
                 synchronize();
             });

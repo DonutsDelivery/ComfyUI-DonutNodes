@@ -342,7 +342,7 @@ export function installEditStudio(node, definition) {
         const pasteButton = button("Paste", `Paste reference ${key.toUpperCase()} from clipboard`, () => pasteFromButton(key));
         const center = button("Center", `Center the crop for reference ${key.toUpperCase()}`, () => { commitValues({[`crop_${key}_x`]:.5, [`crop_${key}_y`]:.5}); render(); });
         const clear = button("×", `Clear reference ${key.toUpperCase()}`, () => {
-            ++slots[key].uploadEpoch; commitValues({[`crop_data_${key}`]:"", [`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {mask_data:"", inpaint_enabled:false})}); render();
+            ++slots[key].uploadEpoch; commitValues({[`crop_data_${key}`]:"", [`image_${key}`]:"", ...(key === "b" ? {use_reference_b:false} : {mask_data:"", inpaint_enabled:false, enabled:false})}); render();
         }); clear.className = "de-clear";
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
         slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
