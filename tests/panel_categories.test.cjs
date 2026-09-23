@@ -299,13 +299,15 @@ test('shipped SeedVR2 values include ComfyUI frontend seed control and discover 
     assert.equal(JSON.stringify(graph),original);
 });
 
-test('fresh-install workflow uses public Krea2 without changing personal model choices',()=>{
+test('workflow updates preserve the user-selected V5 model and text-fusion mode',()=>{
     const shipped=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v5/DonutWF_v5.json')));
     const nodes=graphEntries(shipped).map(({node})=>node);
     const loaders=nodes.filter(n=>n.type==='UNETLoader');
-    assert.ok(loaders.length>=1);
-    for(const node of loaders) assert.equal(node.widgets_values_named.unet_name,'krea2_turbo_bf16.safetensors');
-    assert.equal(nodes.find(n=>n.type==='DonutModelMergeKrea2').widgets_values_named.model_mode,'Single model');
+    same(loaders.map(node=>node.widgets_values_named.unet_name),[
+        'krea2_turbo_bf16.safetensors',
+        'finepornV4INT8NVFP4BF16_v4.safetensors',
+    ]);
+    assert.equal(nodes.find(n=>n.type==='DonutModelMergeKrea2').widgets_values_named.model_mode,'Merge two models');
     loaders[0].widgets_values_named.unet_name='personal.safetensors';
     loaders[0].widgets_values[0]='personal.safetensors';
     organizeV4Panels(shipped); splitV4FinishingPanels(shipped);

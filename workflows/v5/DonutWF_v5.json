@@ -10150,7 +10150,7 @@
               "ratio_mode": "Grouped",
               "body_ratio": 1,
               "fusion_ratio": 0,
-              "model_mode": "Single model"
+              "model_mode": "Merge two models"
             }
           },
           {
@@ -11255,11 +11255,11 @@
               }
             },
             "widgets_values": [
-              "krea2_turbo_bf16.safetensors",
+              "finepornV4INT8NVFP4BF16_v4.safetensors",
               "default"
             ],
             "widgets_values_named": {
-              "unet_name": "krea2_turbo_bf16.safetensors",
+              "unet_name": "finepornV4INT8NVFP4BF16_v4.safetensors",
               "weight_dtype": "default"
             }
           },
