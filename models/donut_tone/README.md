@@ -52,21 +52,25 @@ value unchanged):
 
 - Architecture: identical 169 → 16 → 8 → 3; 2,883 weights and biases
 - Stored model revision: **1**
-- Stored fitting metadata: 20,057 training groups, 2,421 validation groups,
-  50 epochs (best 28), regularization 0.0001, tone step 0.0025, seed 50301,
-  generator `train_donut_tone_synth.py`, identity probability 0.18
+- Stored fitting metadata: 20,057 training groups and 2,421 validation
+  groups — real high-quality professional photographs (Unsplash) with a
+  randomly drawn gamma offset applied; 50 epochs (best 28), regularization
+  0.0001, tone step 0.0025, seed 50301, generator
+  `train_donut_tone_synth.py`, identity probability 0.18
 - Best validation: slider MAE **12.47957** (±55 slider scale), gain MAE
   0.106 pp, no-op accuracy 0.813
 
-Training characteristics and honest limits: this checkpoint was fitted on a
-much larger synthetic dataset of random gamma offsets (slider standard
-deviation 18, maximum 55) with 18% identity samples, so it generalizes across
-brightness content better than the photo-fit r12 but is calibrated less
-tightly — its per-image MAE is materially higher and its identity gate is
-less conservative. `gainPercentMax: 0.0` means the gain head was not trained;
-the model corrects gamma only. Its predictions on flat/bright frames differ
-substantially from r12's (e.g. gamma 0.89–1.21 vs r12's 1.33–1.45 on flat
-grays), so A/B the two on real images before standardizing on either.
+Training characteristics and honest limits: the photographs are real; the
+tone errors are simulated — random gamma offsets (slider standard deviation
+18, maximum 55) with 18% identity samples. On that distribution an
+always-predict-identity baseline scores roughly 14.4 MAE, so 12.5 is a real
+but modest edge, and the model was never fitted to match human taste. It sees
+far more content variety than r12's 395-photo set, but is calibrated less
+tightly and its identity gate is less conservative. `gainPercentMax: 0.0`
+means the gain head was not trained; the model corrects gamma only. Its
+predictions on flat/bright frames differ substantially from r12's (e.g.
+gamma 0.89–1.21 vs r12's 1.33–1.45 on flat grays), so A/B the two on real
+images before standardizing on either.
 
 No training photos, image features or rating records are committed for either
 checkpoint. Selection stays explicit per workflow: pick the filename in the

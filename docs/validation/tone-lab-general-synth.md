@@ -10,9 +10,10 @@ User-supplied `general_model.json`, minified without changing any value.
 Source upload SHA-256 `ff1c1f5c…1699d5` (105,724 bytes); bundled minified
 SHA-256 `64a5288e…71d0ef` (69,874 bytes). Revision 1, 169→16→8→3, 2,883
 weights, `trained: true`, gain head untrained (`gainPercentMax: 0.0`), fitted
-on 20,057 synthetic training groups / 2,421 validation groups (random gamma
-offsets, sliderStd 18, sliderMax 55, identityProb 0.18), best validation
-slider MAE 12.47957 at epoch 28. No images or rating history are bundled.
+on 20,057 training groups / 2,421 validation groups — real photographs with
+randomly applied gamma offsets (sliderStd 18, sliderMax 55, identityProb
+0.18), best validation slider MAE 12.47957 at epoch 28. No images or rating
+history are bundled.
 
 ## Scanner-flag fix: donut_txtfusion_guard_sampler.py
 

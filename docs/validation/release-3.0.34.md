@@ -5,8 +5,9 @@
 - **Tone Lab alternative checkpoint** `models/donut_tone/donut-tone-v4-general-synth.json`
   (bundled minified SHA-256 `64a5288e…71d0ef`, 69,874 bytes; source upload
   `ff1c1f5c…1699d5`, 105,724 bytes). Revision 1, 169→16→8→3, 2,883 weights,
-  20,057 synthetic training groups / 2,421 validation groups, best validation
-  slider MAE 12.47957, gamma-only (`gainPercentMax: 0.0`). Selectable in the
+  20,057 training groups / 2,421 validation groups — real photographs with
+  randomly applied gamma offsets — best validation slider MAE 12.47957,
+  gamma-only (`gainPercentMax: 0.0`). Selectable in the
   Save images panel alongside `donut-tone-v4-r12.json`; defaults untouched.
 - **Scanner-flag fix** in `donut_txtfusion_guard_sampler.py`: the
   `signature(...).bind(...)` reflection that matched the registry YARA rule
