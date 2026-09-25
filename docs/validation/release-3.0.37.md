@@ -10,11 +10,31 @@
   changed backend modules. The existing E702 warning in
   `donut_txtfusion_guard.py` was cleared by splitting adjacent digest updates
   onto separate lines; the computed digest is unchanged.
+- Source was pushed to GitHub branch `feat/hires-vae-damage-correction` at
+  commit `de5b58c`.
+- Packed and prepared with comfy-cli 1.20.0. The local Registry validator passed
+  with no warnings after the E702 cleanup. The validated packed archive was
+  15,756,704 bytes, SHA-256
+  `a668d4a6de28b753e614762549da3ccc66bb867010cbe629f9f7f956d0d471b5`.
+  The Registry staging check confirmed the new helper and UI, required model
+  assets, generated link catalog, and manual model-files panel; no test or
+  development directories, credentials, downloader backend, or installers
+  were included.
+- Registry upload succeeded. The published CDN ZIP was downloaded and checked
+  at `2026-09-25T15:47:37Z`: 15,758,273 bytes, SHA-256
+  `25d40ffe0632dbe3ae1964d9b733aee99a58c0c7776ca14e64561f52df489b62`.
+  Version 3.0.37, the VAE helper and panel files, model assets, manual panel,
+  and installer link were present; forbidden development and installer files
+  were absent.
+- Exact Registry API check at `2026-09-25T15:47:14Z` returned
+  `NodeVersionStatusPending` for 3.0.37 and an empty `status_reason`.
+  Upload success is confirmed; Registry approval is unverified until the exact
+  version becomes Active.
 - UI end-to-end validation is blocked in this environment: CUA reports no
   available browser, so the changed controls could not be set in the panels or
   queued with ComfyUI's Run button. No audit PNG, metadata/prompt comparison,
   save/reload transition check, or GPU output comparison was produced. The
   running backend's `/object_info` confirms registration of the new decoder and
   updated upscale node, but does not verify panel bindings or generation.
-- Registry package validation, publication, published ZIP inspection, and the
-  exact-version review status are recorded below after they are completed.
+- No distributed workflow JSON changed, so no Civitai workflow JSON upload is
+  required.
