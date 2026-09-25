@@ -204,7 +204,8 @@ def load_reference_states(path, components, *, opener=None):
                     raise ValueError(f"Unsupported/nonfinite reference tensor: {key} ({value.dtype})")
                 # Force independent ownership, including memory-mapped safetensors.
                 value = value.detach().clone()
-                digest.update(key.encode()); digest.update(str(value.dtype).encode())
+                digest.update(key.encode())
+                digest.update(str(value.dtype).encode())
                 digest.update(str(tuple(value.shape)).encode())
                 digest.update(value.view(torch.uint8).numpy().tobytes())
                 state[short] = value
