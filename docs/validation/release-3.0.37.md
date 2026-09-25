@@ -29,7 +29,8 @@
 - Exact Registry API check at `2026-09-25T15:47:14Z` returned
   `NodeVersionStatusPending` for 3.0.37 and an empty `status_reason`.
   Upload success is confirmed; Registry approval is unverified until the exact
-  version becomes Active.
+  version becomes Active. At `2026-09-25T16:00:47Z`, the user declined hourly
+  follow-up checks; no recurring monitor was scheduled.
 - UI end-to-end validation is blocked in this environment: CUA reports no
   available browser, so the changed controls could not be set in the panels or
   queued with ComfyUI's Run button. No audit PNG, metadata/prompt comparison,
