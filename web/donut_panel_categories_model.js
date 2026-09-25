@@ -224,6 +224,95 @@ function consolidateNagGlobals(entries, generate) {
         if (stageWithWidget) base.controls.push({...stageWithWidget, path:[...base.controls[0].path]});
     }
 }
+function baseDecodeEntries(entries, panel) {
+    const anchors = new Set(panel.properties.donut_app_controls.groups
+        .flatMap(group => group.controls || []).map(control => pathKey(control.path)));
+    const samplers = entries.filter(entry => (entry.node.comfyClass || entry.node.type) === 'DonutSampler'
+        && anchors.has(pathKey(entry.path)));
+    return entries.filter(entry => {
+        if (!['VAEDecode', 'DonutVAEDecode'].includes(entry.node.comfyClass || entry.node.type)) return false;
+        const input = entry.node.inputs?.find(input => input.name === 'samples');
+        if (input?.link == null) return false;
+        return samplers.some(sampler => pathKey(sampler.path.slice(0, -1)) === pathKey(entry.path.slice(0, -1))
+            && sampler.node.outputs?.[0]?.type === 'LATENT'
+            && sampler.node.outputs[0].links?.some(link => String(link) === String(input.link)));
+    });
+}
+
+// The stock first decoder has no correction widgets. Upgrade only the decoder
+// directly connected to a V5 generation panel's Donut sampler, retaining IDs,
+// sockets, links and all surrounding nodes. Called on serialized data only.
+export function upgradeV5BaseDecoders(root) {
+    if (root?.extra?.donut_workflow?.release !== 'V5') return [];
+    const entries = graphEntries(root), changed = [];
+    for (const {node:panel} of entries.filter(entry => panelRole(entry.node) === 'generate')) {
+        for (const {node} of baseDecodeEntries(entries, panel)) {
+            if (node.type !== 'VAEDecode' || node.inputs?.length !== 2
+                    || node.inputs[0]?.name !== 'samples' || node.inputs[1]?.name !== 'vae'
+                    || node.outputs?.length !== 1 || node.outputs[0]?.type !== 'IMAGE'
+                    || (node.widgets_values?.length ?? 0) !== 0) continue;
+            node.type = 'DonutVAEDecode';
+            node.properties = {...node.properties, cnr_id:'donutnodes', 'Node name for S&R':'DonutVAEDecode'};
+            delete node.properties.ver; // The saved comfy-core version no longer describes this node.
+            node.widgets_values = [false, 1];
+            node.widgets_values_named = {...node.widgets_values_named, vae_damage_correction:false, vae_damage_strength:1};
+            changed.push(node);
+        }
+    }
+    return changed;
+}
+
+function addVaeDamageControls(entries, panels) {
+    const byPath = new Map(entries.map(entry => [pathKey(entry.path), entry]));
+    for (const panel of panels) {
+        const role = panelRole(panel);
+        if (!['hires', 'generate', 'face'].includes(role)) continue;
+        const groups = panel.properties.donut_app_controls.groups;
+        const stages = new Map();
+        for (const group of groups) for (const control of group.controls || []) {
+            if (!Array.isArray(control.path)) continue;
+            const entry = byPath.get(pathKey(control.path));
+            const type = entry && (entry.node.comfyClass || entry.node.type);
+            if (!(['hires', 'generate'].includes(role) && type === 'DonutTiledUpscale')
+                    && !(['face', 'generate'].includes(role) && type === 'DonutFaceDetailer')) continue;
+            const key = pathKey(entry.path);
+            if (!stages.has(key)) stages.set(key, {entry, group});
+        }
+        if (role === 'generate') for (const entry of baseDecodeEntries(entries, panel)) {
+            if ((entry.node.comfyClass || entry.node.type) === 'DonutVAEDecode') {
+                stages.set(pathKey(entry.path), {entry, group:{title:'Base decode'}});
+            }
+        }
+        for (const [key, {entry, group}] of stages) {
+            if (!hasWidget(entry.node, 'vae_damage_correction') || !hasWidget(entry.node, 'vae_damage_strength')) continue;
+            const existing = new Set(groups.flatMap(item => item.controls || [])
+                .filter(control => pathKey(control.path) === key).map(control => control.widget));
+            const controls = [
+                {widget:'vae_damage_correction', title:'Subtract VAE-predicted damage'},
+                {widget:'vae_damage_strength', title:'Correction strength', weights:{min:0, max:4, step:0.01}},
+            ].filter(control => !existing.has(control.widget))
+                .map(control => ({...control, path:[...entry.path]}));
+            if (!controls.length) continue;
+            const source = group.donut_source_title || group.title || entry.node.title || 'Upscale';
+            const stage = /first/i.test(source) ? 'first' : /second/i.test(source) ? 'second' : null;
+            const type = entry.node.comfyClass || entry.node.type;
+            const face = type === 'DonutFaceDetailer', base = type === 'DonutVAEDecode';
+            groups.push({
+                title:base ? 'Base decode · VAE correction' : face ? 'Face detail · VAE correction'
+                    : stage ? `Donut hires · ${stage} upscale · VAE correction` : `${source} · VAE correction`,
+                advanced:false, donut_category_fixed:true,
+                donut_category_rank:base ? 10.5 : face ? 40.5 : stage === 'first' ? 30.5 : stage === 'second' ? 50.5
+                    : (group.donut_category_rank ?? 30) + .5,
+                ...(type === 'DonutTiledUpscale' ? {visible_when:{path:[...entry.path], widget:'upscale_engine', value:'Donut'}} : {}),
+                description:face ? 'One extra VAE pass per refined face crop, before resizing and mask blending. Strength 1 is standard; higher values strengthen the effect.'
+                    : base ? 'One extra VAE pass after the first decode, before hires. Strength 1 is standard; higher values strengthen the effect.'
+                    : 'One extra VAE pass after this upscale. Strength 1 is the standard subtraction; higher values strengthen the effect.',
+                controls,
+            });
+        }
+    }
+}
+
 export function organizeV4Panels(root) {
     const entries = graphEntries(root);
     const panels = entries.map(entry => entry.node).filter(node => panelRole(node));
@@ -232,6 +321,9 @@ export function organizeV4Panels(root) {
         panel.properties.donut_panel_role = panelRole(panel);
         panel.properties.donut_columns = 'sections';
     }
+    // Bind to the real inner stage widgets; no promoted socket, graph link or
+    // existing widget value is rewritten while organizing the panels.
+    addVaeDamageControls(entries, panels);
     for (const panel of panels.filter(panel => panelRole(panel) === 'loras')) {
         const groups = panel.properties.donut_app_controls.groups;
         const execution = groups.flatMap(group => group.controls || []).find(control => control.widget === 'execution_mode');

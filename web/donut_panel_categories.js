@@ -1,12 +1,13 @@
 import {app} from '../../scripts/app.js';
 import {scheduleLayout} from './donut_layout.js?v=15';
 import {addSeedVR2Controls} from './donut_seedvr2_controls_model.js';
-import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries} from './donut_panel_categories_model.js?v=7';
-import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=2';
+import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries, upgradeV5BaseDecoders} from './donut_panel_categories_model.js?v=9';
+import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=4';
 
 const observed = new Map();
 const hooked = new WeakSet();
 let pending = false;
+let baseDecodeAvailable = false;
 function rootGraph() { return app.rootGraph; }
 function synchronize() {
     syncCategorizedPanels(rootGraph());
@@ -71,7 +72,13 @@ app.registerExtension({
     setup() {
         const style = document.createElement('style'); style.textContent = PANEL_CATEGORY_CSS; document.head.append(style);
     },
+    beforeRegisterNodeDef(_nodeType, definition) {
+        if (definition.name === 'DonutVAEDecode') baseDecodeAvailable = true;
+    },
     beforeConfigureGraph(data) {
+        // A browser refresh alone can load new JS against an old backend.
+        // Keep the stock decoder until the new Python node is registered.
+        if (baseDecodeAvailable) upgradeV5BaseDecoders(data);
         organizeV4Panels(data);
         splitV4FinishingPanels(data);
         arrangeV4ByFrequency(data);

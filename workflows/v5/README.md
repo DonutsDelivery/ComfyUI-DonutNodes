@@ -69,6 +69,37 @@ Numbered cards expose everyday controls, with additional controls under **Advanc
 - **Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.
 - **Save images:** choose the destination, format, quality and filename behavior.
 
+### VAE damage correction
+
+Each of these panels has an independent **Subtract VAE-predicted damage** toggle
+and **Correction strength** slider under **VAE correction**:
+
+| Panel | When correction runs |
+| --- | --- |
+| **03 · Generation setup** | After the first VAE decode, before hires and selected-area compositing. |
+| **04 · First upscale** | After the Donut stage's decoding, tile blending and colour preservation. |
+| **05 · Second upscale** | After the Donut stage's decoding, tile blending and colour preservation. |
+| **06 · Face detail** | On each refined face crop after its final decode, before resizing and mask blending. |
+
+All toggles default Off. Strength 1 matches the one-iteration subtraction effect;
+each slider runs from 0 to 4, including values above 1. Strength 0 skips correction.
+Each enabled stage uses its connected VAE for one additional encode/decode of
+the decoded RGB image or face crop, then applies
+`clip(image + strength * (image - roundtrip))`. It needs no original reference or
+trained restoration model. Higher strengths scale the same correction and can
+amplify artifacts; they do not add iterations. Later enabled stages can change
+the image again. The face detailer corrects once per refined crop, even with
+multiple sampling cycles, and skips correction for skipped or undetected faces.
+
+Update the node code, restart ComfyUI, refresh the browser and load your existing
+V5 workflow. The first decoder connected directly to the generation panel's
+Donut sampler automatically becomes **Donut VAE Decode**, retaining its ID,
+sockets and connections. The panel controls bind to the actual stage widgets
+and save with the workflow. **Keep your existing workflow JSON**; no replacement
+JSON or manual rewiring is required. Custom decoder chains are left as saved;
+**Donut VAE Decode** is also available to add manually. Hires correction applies
+to the Donut engine; SeedVR2 uses its own processing path.
+
 ## Editing and reference guidance
 
 For editing, enable **Editing**, upload/paste/drop image **A** as the base scene, and optionally use image **B** for the subject/identity. Enter the edit instruction and adjust the crop and output sizing. With B connected, face identity comes from B. Image A alone remains supported.

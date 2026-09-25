@@ -1,6 +1,7 @@
 """Lazy engine selection for both existing Donut upscale/finishing stages."""
 from copy import deepcopy
 from . import donut_seedvr2
+from .donut_vae_correction import subtract_vae_damage, vae_damage_input_types
 from .DonutTiledUpscale import NODE_CLASS_MAPPINGS as _nodes
 _Base = _nodes["DonutTiledUpscale"]
 
@@ -16,6 +17,8 @@ class DonutTiledUpscaleStage(_Base):
         result.setdefault("optional", {})["enabled"] = ("BOOLEAN", {"default": True})
         # Append after enabled: old positional widget values retain their meaning.
         result["optional"].update(donut_seedvr2.input_types())
+        # Append after all existing widgets; saved workflows keep their values.
+        result["optional"].update(vae_damage_input_types())
         return result
     FUNCTION = "run_stage"
 
@@ -29,7 +32,8 @@ class DonutTiledUpscaleStage(_Base):
             raise ValueError(f"Unknown upscale engine: {upscale_engine}")
         return [key for key, value in kwargs.items() if key not in donut_seedvr2.DEFAULTS and value is None]
 
-    def run_stage(self, image, enabled=True, upscale_engine="Donut", **kwargs):
+    def run_stage(self, image, enabled=True, upscale_engine="Donut",
+                  vae_damage_correction=False, vae_damage_strength=1.0, **kwargs):
         if not enabled:
             return (image, image)
         if upscale_engine == "SeedVR2":
@@ -42,7 +46,11 @@ class DonutTiledUpscaleStage(_Base):
             raise ValueError(f"Unknown upscale engine: {upscale_engine}")
         self._seedvr2_resources = None
         legacy = {key: value for key, value in kwargs.items() if key not in donut_seedvr2.DEFAULTS}
-        return getattr(_Base, _Base.FUNCTION)(self, image=image, **legacy)
+        output, debug = getattr(_Base, _Base.FUNCTION)(self, image=image, **legacy)
+        if vae_damage_correction and vae_damage_strength > 0:
+            print(f"[DonutTiledUpscale] One-pass VAE damage subtraction, strength {vae_damage_strength:g}")
+            output = subtract_vae_damage(output, legacy["vae"], float(vae_damage_strength))
+        return output, debug
 
 
 NODE_CLASS_MAPPINGS = {"DonutTiledUpscale": DonutTiledUpscaleStage}

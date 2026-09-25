@@ -22,6 +22,11 @@ import nodes
 from nodes import MAX_RESOLUTION
 
 try:
+    from .donut_vae_correction import subtract_vae_damage, vae_damage_input_types
+except ImportError:
+    from donut_vae_correction import subtract_vae_damage, vae_damage_input_types
+
+try:
     from .donut_detailer_core import offload_model_for_auxiliary_stage
 except ImportError:
     from donut_detailer_core import offload_model_for_auxiliary_stage
@@ -225,6 +230,8 @@ class DonutFaceDetailer:
                 "tooltip": "Snap denoise to a valid Turbo scheduler point."}),
             "face_reference_b": ("IMAGE", {"tooltip": "Optional subject/identity image for two-reference edits. Faces are extracted from this image when possible; if it has no detectable face, the detailer falls back to face_reference."}),
             **nag_input_types(),
+            # Append new widgets so saved positional values retain their meaning.
+            **vae_damage_input_types(),
         }}
 
     RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "MASK", "DETAILER_PIPE", "IMAGE")
@@ -242,7 +249,8 @@ class DonutFaceDetailer:
         edit_mode=False, edit_prompt="Enhance facial details while preserving identity.",
         edit_negative_prompt="", grounding_px=768, edit_model=None,
         face_reference_crop=None, cycle=1, wildcard_opt=None,
-        wildcard_concat_mode=None, turbo_mode=False, **nag_options,
+        wildcard_concat_mode=None, turbo_mode=False,
+        vae_damage_correction=False, vae_damage_strength=1.0, **nag_options,
     ):
         h, w = image.shape[1:3]
         bbox_w = bbox[2] - bbox[0]
@@ -389,6 +397,10 @@ class DonutFaceDetailer:
                 refined_image = refined_image.reshape((-1,) + tuple(refined_image.shape[-3:]))
         if detailer_hook is not None and hasattr(detailer_hook, "post_decode"):
             refined_image = detailer_hook.post_decode(refined_image)
+        # One correction after the final decode, before resizing and masked
+        # compositing. A skipped crop never incurs a correction round trip.
+        if not skip_sampling and vae_damage_correction and vae_damage_strength > 0:
+            refined_image = subtract_vae_damage(refined_image, vae, float(vae_damage_strength))
         if edit_mode and any(target_padding):
             refined_image = crop_image_padding(refined_image, target_padding)
         return refined_image, None
@@ -406,7 +418,8 @@ class DonutFaceDetailer:
         edit_prompt="Enhance facial details while preserving identity.",
         edit_negative_prompt="", grounding_px=768, edit_model=None,
         face_reference=None, vary_seed_per_face=False, turbo_mode=False,
-        face_reference_b=None, **nag_options,
+        face_reference_b=None, vae_damage_correction=False,
+        vae_damage_strength=1.0, **nag_options,
     ):
         if turbo_mode:
             supported_steps = steps
@@ -518,7 +531,9 @@ class DonutFaceDetailer:
                     noise_mask_feather, inpaint_model, detailer_hook, scheduler_func_opt,
                     edit_mode, edit_prompt, edit_negative_prompt, grounding_px, edit_model,
                     face_reference_crop, cycle=cycle, wildcard_opt=wildcard_item,
-                    wildcard_concat_mode=wildcard_concat_mode, turbo_mode=turbo_mode, **nag_options)
+                    wildcard_concat_mode=wildcard_concat_mode, turbo_mode=turbo_mode,
+                    vae_damage_correction=vae_damage_correction,
+                    vae_damage_strength=vae_damage_strength, **nag_options)
                 if result is None:
                     continue
                 enhanced_cropped = impact_utils.tensor_resize(result, cropped_image.shape[2], cropped_image.shape[1])
@@ -559,7 +574,8 @@ class DonutFaceDetailer:
         edit_prompt="Enhance facial details while preserving identity.",
         edit_negative_prompt="", grounding_px=768, edit_model=None,
         face_reference=None, vary_seed_per_face=False, turbo_mode=False,
-        face_reference_b=None, **nag_options,
+        face_reference_b=None, vae_damage_correction=False,
+        vae_damage_strength=1.0, **nag_options,
     ):
         _ensure_impact()
         resolution *= resolution
@@ -590,7 +606,8 @@ class DonutFaceDetailer:
                 grounding_px=grounding_px, edit_model=edit_model,
                 face_reference=single_face_reference, face_reference_b=single_face_reference_b,
                 vary_seed_per_face=vary_seed_per_face,
-                turbo_mode=turbo_mode, **nag_options)
+                turbo_mode=turbo_mode, vae_damage_correction=vae_damage_correction,
+                vae_damage_strength=vae_damage_strength, **nag_options)
             result_img = torch.cat((result_img, enhanced_img), dim=0) if result_img is not None else enhanced_img
             result_mask = torch.cat((result_mask, mask), dim=0) if result_mask is not None else mask
             result_cropped_enhanced.extend(cropped_enhanced)
