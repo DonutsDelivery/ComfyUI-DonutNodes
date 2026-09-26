@@ -31,6 +31,11 @@
   Upload success is confirmed; Registry approval is unverified until the exact
   version becomes Active. At `2026-09-25T16:00:47Z`, the user declined hourly
   follow-up checks; no recurring monitor was scheduled.
+- During preparation of 3.0.38, a Registry check at
+  `2026-09-26T09:12:47Z` confirmed **NodeVersionStatusActive** for 3.0.37,
+  with `status_reason: Passed automated checks`. Registry approval of 3.0.37
+  is now confirmed; this was a release-preparation check, not a recurring
+  monitor.
 - UI end-to-end validation is blocked in this environment: CUA reports no
   available browser, so the changed controls could not be set in the panels or
   queued with ComfyUI's Run button. No audit PNG, metadata/prompt comparison,
