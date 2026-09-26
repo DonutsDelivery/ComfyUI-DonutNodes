@@ -11,6 +11,7 @@ style.textContent = `
 `;
 document.head.append(style);
 const cards = new Map();
+const textareaMeasurements = new WeakMap();
 let frame;
 let resizing;
 document.addEventListener("pointerdown", event => {
@@ -36,8 +37,18 @@ document.addEventListener("pointerup", () => {
 }, true);
 export function fitTextarea(input) {
     if (input.hidden || !input.isConnected || !input.offsetWidth || !input.offsetHeight) return;
+    const style = getComputedStyle(input);
+    const value = input.value, width = input.clientWidth;
+    const typography = [style.font, style.lineHeight,
+        style.letterSpacing, style.minHeight, style.paddingTop, style.paddingBottom,
+        style.paddingLeft, style.paddingRight, style.boxSizing].join('|');
+    // Polling must not collapse and re-expand every unchanged prompt twice a
+    // second. Width/font changes still remeasure, including reopening a panel.
+    const previous = textareaMeasurements.get(input);
+    if (previous?.value === value && previous.width === width && previous.typography === typography) return;
     input.style.height = "auto";
-    input.style.height = `${Math.max(parseFloat(getComputedStyle(input).minHeight) || 0, input.scrollHeight + 2)}px`;
+    input.style.height = `${Math.max(parseFloat(style.minHeight) || 0, input.scrollHeight + 2)}px`;
+    textareaMeasurements.set(input, {value, width, typography});
 }
 export function scheduleLayout() {
     if (frame) return;
@@ -127,20 +138,29 @@ export function fitModule(node, dom, root) {
     root.style.minHeight = `${node.properties?.panel_min_height || 0}px`;
     root.style.height = "auto"; root.style.maxHeight = "none"; root.style.overflow = "visible";
     let measuredHeight = node.properties?.panel_content_height || Math.max(100, (node.size?.[1] || 180) - 80);
-    const height = () => {
-        if (root.isConnected && root.offsetWidth > 0 && root.offsetHeight > 0) {
-            measuredHeight = Math.ceil(root.scrollHeight);
-            node.properties.panel_content_height = measuredHeight;
-        }
-        return node.properties?.panel_content_height || measuredHeight;
-    };
+    // The canvas asks for widget sizes while drawing. Keep that path free of
+    // DOM measurement and property writes; actual resizes update the cache.
+    const height = () => node.properties?.panel_content_height || measuredHeight;
     dom.computeSize = () => [width(), height()];
     dom.computeLayoutSize = () => ({minHeight:height(), maxHeight:Infinity, minWidth:width()});
     dom.options.getMinHeight = height;
     dom.options.getMaxHeight = () => Infinity;
     root.addEventListener('input', event => { if (event.target.tagName === 'TEXTAREA') fitTextarea(event.target); });
     root.addEventListener('toggle', () => { root.querySelectorAll('textarea').forEach(fitTextarea); scheduleLayout(); }, true);
-    const observer = new ResizeObserver(scheduleLayout);
+    let measuredWidth;
+    const observer = new ResizeObserver(() => {
+        if (!root.isConnected || !root.offsetWidth || !root.offsetHeight) return;
+        const nextWidth = root.clientWidth;
+        if (nextWidth !== measuredWidth) {
+            measuredWidth = nextWidth;
+            root.querySelectorAll('textarea').forEach(fitTextarea);
+        }
+        measuredHeight = Math.ceil(root.scrollHeight);
+        if (node.properties.panel_content_height !== measuredHeight) {
+            node.properties.panel_content_height = measuredHeight;
+        }
+        scheduleLayout();
+    });
     const watch = () => { cards.set(node, root); observer.observe(root); scheduleLayout(); };
     const added = node.onAdded, removed = node.onRemoved;
     node.onAdded = function() { const result = added?.apply(this, arguments); watch(); return result; };

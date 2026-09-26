@@ -5,6 +5,7 @@ import {LEGACY,INDEPENDENT,parseCrop,cropBox,outputDimensions,fitGeometry,subjec
 import {openReferenceCropEditor} from './donut_reference_crop_editor.js';
 
 const el=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
+const setText=(node,text)=>{if(node.textContent!==text)node.textContent=text;};
 function install(node) {
     if(node._donutReferenceCrops || !node.widgets?.some(w=>w.name==='geometry_mode'))return;
     const edit=!!node._donutEditStudio;
@@ -103,14 +104,16 @@ function install(node) {
         if(!edit){
             overlay=el('canvas');overlay.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';slot.stage.append(overlay);
         }
-        slot.card.append(section);cards.push({key,slot,section,crop,reset,readout,subject,overlay,isBusy:()=>subjectBusy});
+        const item={key,slot,section,crop,reset,readout,subject,overlay,isBusy:()=>subjectBusy,drawState:null};
+        overlay?.addEventListener('contextrestored',()=>{item.drawState=null;refresh();});
+        slot.card.append(section);cards.push(item);
     }
     function refresh(){
         if(disposed)return;
         mode.value=get('geometry_mode')||LEGACY;
         const independent=mode.value===INDEPENDENT;
-        help.textContent=independent&&edit?'Each crop is independent. Follow A uses its crop aspect and the megapixel budget (or native crop-only mode); independent output uses global Preset/Custom sizing.':'Independent crops keep each selection when output size changes. Legacy keeps the old output-linked behavior.';
-        if(edit){const text=root.querySelector('.de-crop-key')?.parentElement?.lastChild;if(text?.nodeType===3)text.textContent=independent?'Red frame = source crop · click to edit':'Red frame = kept area · drag to reposition';}
+        setText(help,independent&&edit?'Each crop is independent. Follow A uses its crop aspect and the megapixel budget (or native crop-only mode); independent output uses global Preset/Custom sizing.':'Independent crops keep each selection when output size changes. Legacy keeps the old output-linked behavior.');
+        if(edit){const text=root.querySelector('.de-crop-key')?.parentElement?.lastChild;if(text?.nodeType===3)setText(text,independent?'Red frame = source crop · click to edit':'Red frame = kept area · drag to reposition');}
         if(outputSelect)outputSelect.value=get('output_canvas')||'Follow A crop';
         if(outputFallback){
             const entries=graphEntries(app.rootGraph||app.graph),own=entries.find(e=>e.node===node);
@@ -124,21 +127,27 @@ function install(node) {
             const size=imageSize(key);section.hidden=!independent;crop.disabled=reset.disabled=!size;
             if(overlay)overlay.hidden=!independent||!size;
             if(subject)subject.disabled=item.isBusy()||!size||!get('mask_b_data');
-            if(!size) {readout.textContent='Load an image to crop.';continue;}
+            if(!size) {setText(readout,'Load an image to crop.');continue;}
             try{
                 const box=selectedBox(key);
-                readout.textContent=`${box[2]-box[0]} × ${box[3]-box[1]} source pixels · independent of output size`;
+                setText(readout,`${box[2]-box[0]} × ${box[3]-box[1]} source pixels · independent of output size`);
                 if(overlay&&independent){
-                    const w=slot.stage.clientWidth||260,h=slot.stage.clientHeight||207;overlay.width=w;overlay.height=h;
+                    if(!overlay.isConnected||!slot.stage.clientWidth||!slot.stage.clientHeight)continue;
+                    const w=slot.stage.clientWidth,h=slot.stage.clientHeight;
+                    const state=JSON.stringify([w,h,size,box]);
+                    if(item.drawState===state&&overlay.width===w&&overlay.height===h)continue;
+                    if(overlay.width!==w)overlay.width=w;
+                    if(overlay.height!==h)overlay.height=h;
                     const ctx=overlay.getContext('2d'),scale=Math.min(w/size[0],h/size[1]),ox=(w-size[0]*scale)/2,oy=(h-size[1]*scale)/2;
                     ctx.clearRect(0,0,w,h);const [x1,y1,x2,y2]=box;
                     ctx.fillStyle='#0008';ctx.fillRect(ox,oy,size[0]*scale,y1*scale);ctx.fillRect(ox,oy+y2*scale,size[0]*scale,(size[1]-y2)*scale);
                     ctx.fillRect(ox,oy+y1*scale,x1*scale,(y2-y1)*scale);ctx.fillRect(ox+x2*scale,oy+y1*scale,(size[0]-x2)*scale,(y2-y1)*scale);
                     ctx.strokeStyle='#ff7580';ctx.lineWidth=2;ctx.strokeRect(ox+x1*scale,oy+y1*scale,(x2-x1)*scale,(y2-y1)*scale);
+                    item.drawState=state;
                 }
-            }catch(error){readout.textContent=error.message;}
+            }catch(error){setText(readout,error.message);}
         }
-        if(!edit){const help=root.querySelector(':scope > p.de-help');if(help)help.textContent=independent?'Uses each selected source crop. Describe what to borrow in the main prompt.':'Uses each full image. Describe what to borrow in the main prompt.';}
+        if(!edit){const help=root.querySelector(':scope > p.de-help');if(help)setText(help,independent?'Uses each selected source crop. Describe what to borrow in the main prompt.':'Uses each full image. Describe what to borrow in the main prompt.');}
     }
     const observer=new IntersectionObserver(entries=>{clearInterval(timer);if(entries.some(e=>e.isIntersecting)){refresh();timer=setInterval(()=>{refresh();if(edit)owner.render?.();},500);}});observer.observe(root);
     const removed=node.onRemoved,added=node.onAdded,configured=node.onConfigure;

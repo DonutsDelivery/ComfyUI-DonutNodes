@@ -3,9 +3,9 @@ import { api } from "../../scripts/api.js";
 import { createLoraToolbar, renderLoraInformation } from "./donut_lora_ui.js";
 import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 
-import { weightControl, vectorControl } from "./donut_weight_controls.js";
+import { weightControl, vectorControl } from "./donut_weight_controls.js?v=2";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
-import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=16";
+import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=17";
 
 const NAG_SHARED_WIDGETS = ["nag_phi","nag_auto_phi","nag_phi_scale","nag_tau","nag_sigma_start","nag_sigma_end","nag_ref_boost","nag_ref_boost_a","nag_fit_mode"];
 const service = createLoraService(api);
@@ -243,7 +243,9 @@ function install(node, appOnly = false) {
         }
         const refresh = () => {
             if (document.activeElement === input) return;
-            if (boolean) input.checked = widget.value;
+            if (boolean) {
+                if (input.checked !== Boolean(widget.value)) input.checked = Boolean(widget.value);
+            }
             else if (composition) {
                 const presetControl = node.properties?.donut_app_controls?.groups
                     ?.flatMap(group => group.controls || [])
@@ -260,11 +262,12 @@ function install(node, appOnly = false) {
                 if (!legacyActive && ["LoRA only", "LoRA + fusion controls"].includes(widget.value)) {
                     widget.value = "Fusion only";
                 }
-                input.value = widget.value === "Fusion + LoRA" || widget.value === "Fusion + UncensorFix weights"
+                const value = widget.value === "Fusion + LoRA" || widget.value === "Fusion + UncensorFix weights"
                     || (legacyActive && ["LoRA only", "LoRA + fusion controls"].includes(widget.value))
                     ? "Fusion + UncensorFix weights" : "Fusion only";
+                if (input.value !== value) input.value = value;
             }
-            else input.value = widget.value ?? "";
+            else if (input.value !== String(widget.value ?? "")) input.value = widget.value ?? "";
             if (input.tagName === "TEXTAREA") fitTextarea(input);
         };
         refresh(); refreshers.push(refresh);
@@ -420,7 +423,7 @@ function install(node, appOnly = false) {
         const list = element("div"), status = element("p"), add = element("button", "Add prompt"), duplicateBase = element("button", "Duplicate Prompt");
         [add, duplicateBase].forEach(button => { button.type = "button"; });
         const indexWidget = target.widgets?.find(widget => widget.name === "prompt_set_index");
-        let last, activeLast;
+        let last, activeLast, toolRefreshers = [];
         const parse = () => {
             const rows = JSON.parse(state.value || "[]");
             if (!Array.isArray(rows)) throw new Error("Prompt sets must be an array.");
@@ -448,7 +451,7 @@ function install(node, appOnly = false) {
             activeLast = active;
         };
         function render() {
-            last = state.value; list.replaceChildren();
+            last = state.value; list.replaceChildren(); toolRefreshers = [];
             let rows;
             try { rows = parse(); } catch (error) { status.textContent = error.message; markActive(1); return; }
             if (!rows.length) list.append(element("p", "No variants yet. Prompt 1 is the connected Prompt; add a blank variant or duplicate it."));
@@ -478,7 +481,7 @@ function install(node, appOnly = false) {
                     const seedNode = resolve(node.properties?.donut_app_controls?.seed_path || []);
                     return seedNode?.widgets?.find(w => w.name === "seed")?.value ?? 0;
                 });
-                box.append(tools.element); refreshers.push(tools.refresh);
+                box.append(tools.element); toolRefreshers.push(tools.refresh);
                 list.append(box);
             });
             list.querySelectorAll("textarea").forEach(fitTextarea);
@@ -504,6 +507,9 @@ function install(node, appOnly = false) {
             const active = activeSet(rows.length + 1);
             if (active !== activeLast) markActive(rows.length + 1);
             if (last !== state.value && !list.contains(document.activeElement)) render();
+            // Rebuilt variants own a fresh callback list. Old callbacks kept
+            // detached prompt DOM alive and continued polling it indefinitely.
+            toolRefreshers.forEach(refresh => refresh());
         });
     }
     function render() {

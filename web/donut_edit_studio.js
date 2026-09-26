@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ASPECT_RATIOS, targetDimensions, cropBox, imageLocation } from "./donut_edit_geometry.js";
 import { promptTools } from "./donut_wildcards.js";
-import { fitModule, fitTextarea } from "./donut_layout.js?v=16";
+import { fitModule, fitTextarea } from "./donut_layout.js?v=17";
 import { drawMask, readMask, maskInverted, openInpaintEditor, readOutpaint, outpaintRect, drawOutpaintBase } from "./donut_inpaint_editor.js?v=outpaint2";
 import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
 
@@ -80,6 +80,7 @@ function element(tag, className, text) {
     if (text !== undefined) value.textContent = text;
     return value;
 }
+function setText(node, text) { if (node.textContent !== text) node.textContent = text; }
 function button(text, label, action) {
     const value = element("button", "", text);
     value.type = "button"; value.title = label; value.setAttribute("aria-label", label);
@@ -517,9 +518,9 @@ export function installEditStudio(node, definition) {
         paintSelection.disabled = !slots.a.image || !inpaintWired;
         inpaintToggle.disabled = !inpaintWired || !slots.a.image;
         inpaintToggle.checked = Boolean(get("inpaint_enabled"));
-        inpaintHelp.textContent = inpaintWired
+        setText(inpaintHelp, inpaintWired
             ? "Paint an area, or enable Outpaint in the editor to place A within the output canvas. Green changes; unselected areas stay from A."
-            : "Load the V5 workflow to connect selected-area editing and preserve the surroundings through finishing.";
+            : "Load the V5 workflow to connect selected-area editing and preserve the surroundings through finishing.");
         featherField.hidden = !get("inpaint_enabled");
         for (const [name, inputs] of controls) for (const input of inputs) {
             const value = get(name);
@@ -537,20 +538,20 @@ export function installEditStudio(node, definition) {
         aspectField.hidden = editing && refMode;
         megapixelField.hidden = editing && mode === "Reference A · crop only";
         for (const key of ["a", "b"]) { loadPreview(key); draw(key); }
-        const [width, height] = outputSize(); dimensions.textContent = `${width} × ${height}`;
-        outputMeta.textContent = `${(width * height / (1024 * 1024)).toFixed(2)} MP · /${get("multiple")} grid`;
-        sizeHelp.textContent = !editing && refMode ? "Editing is off. Generation uses the preset size; reference sizing resumes when enabled."
+        const [width, height] = outputSize(); setText(dimensions, `${width} × ${height}`);
+        setText(outputMeta, `${(width * height / (1024 * 1024)).toFixed(2)} MP · /${get("multiple")} grid`);
+        setText(sizeHelp, !editing && refMode ? "Editing is off. Generation uses the preset size; reference sizing resumes when enabled."
             : mode === "Reference A · crop only" ? "Trims A to the grid without resizing. Images smaller than the grid are enlarged."
             : mode === "Custom" ? "Dimensions snap to the selected grid. The previews show the resulting crop."
-            : "Preserves image proportions, then crops to the selected output shape.";
+            : "Preserves image proportions, then crops to the selected output shape.");
         if (!statusLine.classList.contains("de-error") && !slots.a.uploading && !slots.b.uploading) {
-            statusLine.textContent = !editing ? "Editing off · images are optional; generation controls remain active."
+            setText(statusLine, !editing ? "Editing off · images are optional; generation controls remain active."
                 : !get("image_a") ? "Add a base image to A to start editing."
                 : get("use_reference_b") && !get("image_b") ? "Add the subject image to B, or turn Use B off."
                 : get("inpaint_enabled") && readOutpaint(get("mask_data"),get("image_a")) ? "Outpaint · green fills within the selected output size; A stays protected outside the overlap."
                 : get("inpaint_enabled") ? (readMask(get("mask_data"), get("image_a")).length || maskInverted(get("mask_data"), get("image_a")) ? "Selected-area edit · green changes; unselected areas stay from A." : "Click Paint area to select what should change.")
                 : get("use_reference_b") ? "Two references · A sets the scene; B supplies subject identity."
-                : "One reference · enable B to combine two images.";
+                : "One reference · enable B to combine two images.");
         }
         node.donutApplyCropSizing?.();
     }

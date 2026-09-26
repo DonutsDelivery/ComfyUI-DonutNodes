@@ -102,3 +102,72 @@ root cause or of crash avoidance. Source paths and diffs were reviewed; no tests
 browser reproduction, generation or performance benchmark were run. Reload the
 ComfyUI tab to load the changed JavaScript. Runtime behavior and crash avoidance
 remain unverified.
+
+## Continued crashes after the redraw changes
+
+The user reported continued crashes. Subsequent local inspection found dumps
+at 11:13:35 and 11:17:53 (Europe/Copenhagen) with the same main-process
+`CanvasRenderer` exception, `SIGSEGV / SEGV_ACCERR`, and first scanned
+`libxul.so + 0x3bb529d` frame. Available physical memory was approximately
+9.7 GiB and 10.6 GiB respectively, with no recorded memory-pressure condition
+or OOM allocation annotation. These are scanned frames, not a resolved native
+call stack. The dumps do not prove which frontend revision was loaded.
+
+The inspected kernel interval contains NVIDIA `invalid mmap context` messages,
+including at 11:17:53 and 11:22:13, but no matching OOM-kill, Xid or hardware-error
+entry. Correlation does not establish the driver as the cause.
+
+Installed Firefox is 154.0. The configured Arch repository advertises 155.0.1-1;
+no browser or system package upgrade was performed. Mozilla's
+[155.0.1 release notes](https://www.firefox.com/en-US/firefox/155.0.1/releasenotes/)
+include a CSS blur/backdrop-filter hang fix, which is not an established match
+for these native crashes.
+
+Prepared a separate local application-menu entry, **ComfyUI in Firefox
+(XWayland)**. It launches Firefox with `GDK_BACKEND=x11`,
+`MOZ_ENABLE_WAYLAND=0`, and `--new-instance`, opening the local ComfyUI URL.
+Existing Firefox windows must be closed normally first so the normal profile
+is available. It leaves hardware-acceleration preferences and the ordinary
+Firefox launcher unchanged. This provides an optional way to isolate the
+native Wayland path; it is not a confirmed crash fix. No browser was launched
+or terminated, and no reproduction test was run. This local launcher is not
+part of the DonutNodes distribution.
+
+## Focus on the V4 DOM-panel regression
+
+The user reports that rapid crashes began with the V4 DOM-panel integration,
+after previously stable use of the same windowing setup. That is a useful
+regression boundary. A crash on `CanvasRenderer` identifies the failure site;
+it does not establish Wayland as the triggering change. Further work focuses
+on the panel implementation with the existing GPU/windowing setup retained.
+
+Source inspection of the 3.0.38 frontend found additional problems:
+
+- Every visible app-control panel polls refresh callbacks every 500 ms. Its
+  unchanged textareas called `fitTextarea`, which set height to `auto`, read
+  `scrollHeight` and set the height again on every poll. The layout helper also
+  read DOM dimensions and wrote node properties from widget-size callbacks
+  used by canvas rendering.
+- Every prompt-variant rebuild added its new prompt-tool callbacks to the
+  panel-wide refresher array. That array was cleared only by a whole-panel
+  rebuild, so variant add/remove/reorder operations retained old callbacks and
+  detached DOM. Those callbacks continued running on each poll.
+- Standalone reference-guidance crop overlays still assigned both canvas
+  dimensions and redrew on every 500 ms poll. The 3.0.38 cache covered Edit
+  Studio's preview canvases, but did not cover this separate overlay path.
+- Edit/crop status text and slider bounds/values were written repeatedly even
+  when unchanged, creating avoidable DOM work.
+
+The 3.0.39 follow-up changes cache textarea measurements by value, width and font
+metrics; update panel-height caches from resize observation; retain only the
+current prompt variants' refreshers; cache standalone crop overlays with
+context-restoration invalidation; and skip unchanged text and control writes.
+Layout imports use `?v=17` consistently, including the Registry manual panel.
+
+This is a source-level repair of identified panel defects. No implementation
+tests, browser reproduction, performance recording, generation or crash-free
+run was performed, and no crash trigger has been isolated yet. These follow-up
+changes are not part of the published 3.0.38 ZIP; see
+[the 3.0.39 release record](release-3.0.39.md) for publication status. A hard
+refresh of the locally served ComfyUI tab loads them without restarting the
+backend.

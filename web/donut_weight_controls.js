@@ -20,9 +20,11 @@ export function weightControl(title, get, set, {min = -2, max = 2, step = 0.01, 
     slider.setAttribute("aria-label", `${title} slider`); number.setAttribute("aria-label", title);
     const refresh = () => {
         const value = Number(get());
-        slider.min = String(Math.min(min, value)); slider.max = String(Math.max(max, value));
-        if (document.activeElement !== slider) slider.value = value;
-        if (document.activeElement !== number) number.value = value;
+        const lower = String(Math.min(min, value)), upper = String(Math.max(max, value));
+        if (slider.min !== lower) slider.min = lower;
+        if (slider.max !== upper) slider.max = upper;
+        if (document.activeElement !== slider && Number(slider.value) !== value) slider.value = value;
+        if (document.activeElement !== number && number.value !== String(value)) number.value = value;
     };
     slider.oninput = () => { const value = Number(slider.value); number.value = value; set(value); };
     number.oninput = () => { if (number.value && Number.isFinite(Number(number.value))) { set(Number(number.value)); refresh(); } };
@@ -50,7 +52,8 @@ export function vectorControl(title, get, set, {labels = [], count = 29, min = -
     let previous, controls = [], length;
     function refresh() {
         const value = String(get() ?? "");
-        if (document.activeElement !== text) text.value = value;
+        if (document.activeElement !== text && text.value !== value) text.value = value;
+        if (value === previous) return;
         const values = numericVector(value);
         initialize.hidden = !!values; toolbar.hidden = !values;
         if (!values) { grid.replaceChildren(); controls = []; length = undefined; previous = value; return; }

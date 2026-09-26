@@ -65,3 +65,7 @@ No distributed workflow JSON changed, so no Civitai workflow upload is needed.
   Upload success is confirmed; approval remains unverified until that version
   becomes Active. Hourly follow-up checks were offered per `AGENTS.md`; no
   recurring monitor has been scheduled without an explicit yes.
+- During preparation of 3.0.39, a subsequent exact-version lookup at
+  `2026-09-26T22:16:25Z` confirmed `NodeVersionStatusActive` for 3.0.38, with
+  `status_reason` set to `Passed automated checks`. Registry approval is now
+  confirmed for 3.0.38; this does not verify runtime behavior or crash avoidance.
