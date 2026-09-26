@@ -6,6 +6,7 @@ const LOADERS = {
     DualCLIPLoader: {clip_name1:"text_encoders",clip_name2:"text_encoders"},
     TripleCLIPLoader: {clip_name1:"text_encoders",clip_name2:"text_encoders",clip_name3:"text_encoders"},
     VAELoader: {vae_name:"vae"},
+    DonutVAELoader: {vae_name:"vae"},
     UpscaleModelLoader: {model_name:"upscale_models"},
     UltralyticsDetectorProvider: {model_name:"ultralytics"},
     SAMLoader: {model_name:"sams"},

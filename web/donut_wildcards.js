@@ -1,5 +1,5 @@
 import { api } from "../../scripts/api.js";
-import { fitTextarea, scheduleLayout } from "./donut_layout.js?v=15";
+import { fitTextarea, scheduleLayout } from "./donut_layout.js?v=16";
 const el = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
 let catalog;
 async function request(path, data) {

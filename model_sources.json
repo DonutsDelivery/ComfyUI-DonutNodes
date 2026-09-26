@@ -23,6 +23,14 @@
       "size": 253806246
     },
     {
+      "folder": "vae",
+      "filename": "Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors",
+      "url": "https://huggingface.co/spacepxl/Wan2.1-VAE-upscale2x/resolve/384fb7de682e60bd54b59d6eea810ca9d9993497/Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors",
+      "sha256": "2413554bbec24215185662d009893cf4666b8e777efece2d895e03e1a6b63e06",
+      "size": 507684560,
+      "requires_nodes": ["VAEUtils_PatchWanUpscaleVAE"]
+    },
+    {
       "folder": "loras",
       "filename": "krea2/krea2_identity_edit_v1_2.safetensors",
       "url": "https://huggingface.co/conradlocke/krea2-identity-edit/resolve/89e9e7a09ee2e5c9331e952063d79b1b8a703280/krea2_identity_edit_v1_2.safetensors",

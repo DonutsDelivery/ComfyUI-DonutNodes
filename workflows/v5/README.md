@@ -26,6 +26,10 @@ Manager detects these from the workflow, including the unconnected nodes inside 
 - **Krea2 NAG:** Negative attention guidance
 - **Krea Seed Variance Enhancer:** Seed-dependent conditioning variance
 
+Optional finetuned decoding also requires [**ComfyUI-VAE-Utils**](https://github.com/spacepxl/ComfyUI-VAE-Utils).
+Install it separately when using that feature; existing workflow JSON files do
+not contain its loader node for Manager to detect.
+
 WAS and rgthree's label nodes are no longer needed by this workflow. Existing installations may keep those packs for other workflows; updating Donut does not uninstall them.
 
 ### Models and downloads
@@ -69,6 +73,45 @@ Numbered cards expose everyday controls, with additional controls under **Advanc
 - **Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.
 - **Save images:** choose the destination, format, quality and filename behavior.
 
+### Selecting the VAE
+
+Choose the VAE in **01 · Models → VAE**. This selects both the encoder and
+decoder for base generation, Donut hires, face detail, reference encoding and
+VAE damage correction. The selected checkpoint is loaded once and shared
+through the existing VAE connections.
+
+Install/update **ComfyUI-VAE-Utils**, download
+[`Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors`](https://huggingface.co/spacepxl/Wan2.1-VAE-upscale2x/resolve/384fb7de682e60bd54b59d6eea810ca9d9993497/Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors)
+to `ComfyUI/models/vae/`, and restart ComfyUI. Select that file in **01 · Models
+→ VAE**. Use the native ComfyUI file at the repository root. The model is for
+Wan2.1/Qwen/Krea2 still-image latents. The encoder is unchanged from the original
+VAE; the finetuned decoder produces 2× RGB internally. Donut immediately filters
+and downsamples that RGB to the configured image size. This applies to normal
+and tiled decoding, base generation, hires, face crops and correction passes.
+Choosing this VAE does not enlarge the sampling canvas, previews or final image.
+Regular VAE files continue to use their own encoder and decoder and do not
+require VAE-Utils.
+
+For example, a configured 896×1152 base image stays 896×1152. A hires
+**Rescale factor** of 1.5 samples and returns 1344×1728; its intermediate VAE
+decode is 2688×3456 before reduction. Existing grid alignment can slightly adjust
+requested dimensions. Tiled diffusion uses approximately 1 MP sampling tiles.
+Full-frame diffusion still requires enough VRAM for its configured sampling
+canvas and enabled NAG. SeedVR2 keeps its separate VAE selection.
+
+The [author's model card](https://huggingface.co/spacepxl/Wan2.1-VAE-upscale2x)
+recommends filtering and downsampling when retaining the original resolution.
+Donut uses antialiased bilinear reduction; the author does not prescribe an
+exact filter. The reference workflow itself previews the full 2× output. The
+decoder is trained for perceived detail and realistic texture; exact recovery
+of the original pixels is not guaranteed.
+
+Keep the existing V5 JSON. After updating the node code, restart ComfyUI,
+refresh the browser and reopen the workflow. The Models panel's loader becomes
+**Donut Load VAE** while retaining its selected file, ID, sockets and links.
+The earlier separate Decoder controls are removed; the Models panel owns the
+VAE selection. Correction toggles and strengths remain independent per stage.
+
 ### VAE damage correction
 
 Each of these panels has an independent **Subtract VAE-predicted damage** toggle
@@ -83,10 +126,13 @@ and **Correction strength** slider under **VAE correction**:
 
 All toggles default Off. Strength 1 matches the one-iteration subtraction effect;
 each slider runs from 0 to 4, including values above 1. Strength 0 skips correction.
-Each enabled stage uses its connected VAE for one additional encode/decode of
-the decoded RGB image or face crop, then applies
-`clip(image + strength * (image - roundtrip))`. It needs no original reference or
-trained restoration model. Higher strengths scale the same correction and can
+Each enabled stage uses the selected VAE's encoder and decoder for one
+additional round trip of the decoded RGB image or face crop, then applies
+`clip(image + strength * (image - roundtrip))`. The 2× VAE returns its filtered,
+original-size prediction before subtraction, using the same decode handling as
+every other stage. Correction keeps the current image size and needs no
+original reference or separate restoration model.
+Higher strengths scale the same correction and can
 amplify artifacts; they do not add iterations. Later enabled stages can change
 the image again. The face detailer corrects once per refined crop, even with
 multiple sampling cycles, and skips correction for skipped or undetected faces.

@@ -3,7 +3,7 @@ import { api } from "../../scripts/api.js";
 import { addStagePreviews, previewSourceId, rebindStageSources } from "./donut_preview_stages.js";
 import { graphEntries } from "./donut_panel_categories_model.js";
 import { createProgress } from "./donut_progress.js";
-import { fitModule } from "./donut_layout.js?v=15";
+import { fitModule } from "./donut_layout.js?v=16";
 
 app.registerExtension({
     name: "Donut.LatestPreview",

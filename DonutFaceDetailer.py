@@ -22,8 +22,10 @@ import nodes
 from nodes import MAX_RESOLUTION
 
 try:
+    from . import donut_vae_upscale
     from .donut_vae_correction import subtract_vae_damage, vae_damage_input_types
 except ImportError:
+    import donut_vae_upscale
     from donut_vae_correction import subtract_vae_damage, vae_damage_input_types
 
 try:
@@ -392,6 +394,7 @@ class DonutFaceDetailer:
                     scheduler_func=scheduler_func, sampler_opt=sampler_opt)
             if detailer_hook is not None and hasattr(detailer_hook, "pre_decode"):
                 refined_latent = detailer_hook.pre_decode(refined_latent)
+            vae = donut_vae_upscale.prepare_vae(vae)
             refined_image = vae.decode(refined_latent["samples"])
             if refined_image.ndim == 5:
                 refined_image = refined_image.reshape((-1,) + tuple(refined_image.shape[-3:]))

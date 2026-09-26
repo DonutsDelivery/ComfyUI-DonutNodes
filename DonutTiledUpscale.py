@@ -15,6 +15,11 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 try:
+    from . import donut_vae_upscale
+except ImportError:
+    import donut_vae_upscale
+
+try:
     from .krea2_edit_integration import prepare_krea2_edit, resolve_krea2_edit_model
 except ImportError:
     try:
@@ -128,26 +133,28 @@ def find_all_valid_configs(input_width, input_height, feather_percent, max_tiles
 
     configs = []
 
-    # 1x1 = original size (no tiling)
-    configs.append({
-        'tile_width': input_width,
-        'tile_height': input_height,
-        'overlap_x': 0,
-        'overlap_y': 0,
-        'step_x': input_width,
-        'step_y': input_height,
-        'output_width': input_width,
-        'output_height': input_height,
-        'scale': 1.0,
-        'scale_x': 1.0,
-        'scale_y': 1.0,
-        'nx': 1,
-        'ny': 1,
-        'feather': 0.0,
-        'feather_x': 0.0,
-        'feather_y': 0.0,
-        'aspect_error': 0.0
-    })
+    # A tiled request must not select an unbounded full-frame candidate just
+    # because its scale is an exact match (e.g. an already-upscaled 4MP input).
+    if input_width * input_height <= 1_100_000:
+        configs.append({
+            'tile_width': input_width,
+            'tile_height': input_height,
+            'overlap_x': 0,
+            'overlap_y': 0,
+            'step_x': input_width,
+            'step_y': input_height,
+            'output_width': input_width,
+            'output_height': input_height,
+            'scale': 1.0,
+            'scale_x': 1.0,
+            'scale_y': 1.0,
+            'nx': 1,
+            'ny': 1,
+            'feather': 0.0,
+            'feather_x': 0.0,
+            'feather_y': 0.0,
+            'aspect_error': 0.0
+        })
 
     # Search all grid configurations
     for nx in range(1, max_tiles + 1):
@@ -474,7 +481,7 @@ class DonutTiledUpscale:
                 "sampler_name": (comfy.samplers.KSampler.SAMPLERS,),
                 "scheduler": (comfy.samplers.KSampler.SCHEDULERS,),
                 "denoise": ("FLOAT", {"default": 0.35, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "rescale_factor": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.5, "tooltip": "Upscale factor. Regular mode selects ~1MP tiles; edit mode snaps the full-frame target to a 32-pixel grid."}),
+                "rescale_factor": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.5, "tooltip": "Upscale factor relative to the input image. The selected VAE preserves these dimensions, including the internally 2x VAE. Tiled mode uses ~1MP diffusion tiles; full-frame mode aligns the sampling canvas to 32 pixels."}),
                 "resampling_method": (resampling_methods, {"default": "lanczos"}),
                 "feather": ("FLOAT", {"default": 15.0, "min": 0.0, "max": 50.0, "step": 1.0, "tooltip": "Regular tiled mode only. Feather/blend zone as percentage of tile size."}),
                 "tiled_vae": ("BOOLEAN", {"default": False, "tooltip": "Regular mode only. Edit mode forces one full-frame regular VAE decode."}),
@@ -523,6 +530,7 @@ class DonutTiledUpscale:
                 edit_negative_prompt="", grounding_px=768, edit_model=None, edit_source_image=None,
                 turbo_mode=False, tiled_diffusion=True, edit_source_image_b=None, **nag_options):
 
+        vae = donut_vae_upscale.prepare_vae(vae)
         if nag_options.get("nag_enabled", False):
             cfg = 1.0
         if turbo_mode:

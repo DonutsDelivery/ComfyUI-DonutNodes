@@ -1,13 +1,15 @@
 import {app} from '../../scripts/app.js';
-import {scheduleLayout} from './donut_layout.js?v=15';
+import {scheduleLayout} from './donut_layout.js?v=16';
 import {addSeedVR2Controls} from './donut_seedvr2_controls_model.js';
-import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries, upgradeV5BaseDecoders} from './donut_panel_categories_model.js?v=9';
-import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=4';
+import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries, upgradeV5BaseDecoders, upgradeV5VaeLoaders} from './donut_panel_categories_model.js?v=11';
+import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=6';
 
 const observed = new Map();
 const hooked = new WeakSet();
 let pending = false;
+let controlRefreshTimer;
 let baseDecodeAvailable = false;
+let vaeLoaderAvailable = false;
 function rootGraph() { return app.rootGraph; }
 function synchronize() {
     syncCategorizedPanels(rootGraph());
@@ -27,13 +29,13 @@ function observePanels() {
             if (!root) continue;
             roots.add(root);
             if (observed.has(root)) continue;
-            // Our own re-renders (LoRA row rebuilds, image-size label toggles)
-            // mutate this subtree; each mutation used to run synchronize()
-            // synchronously — a full graph walk per DOM node — and during
-            // heavy panel churn Firefox content processes were crashing in
-            // the compositor. Route observer work through the same batched
-            // refresh so a burst of mutations collapses into one pass.
-            const observer = new MutationObserver(() => refresh());
+            // Polling rewrites text labels even when their value is unchanged.
+            // Only rebuilt elements need category/LoRA adapters. Size changes
+            // are already handled by the layout's ResizeObserver.
+            const observer = new MutationObserver(records => {
+                if (records.some(record => [...record.addedNodes, ...record.removedNodes]
+                    .some(child => child.nodeType === Node.ELEMENT_NODE))) refresh();
+            });
             // Catalog arrival and row reordering rebuild the original LoRA DOM.
             observer.observe(root,{childList:true,subtree:true});
             // Re-render as a macrotask, not a microtask: a native checkbox
@@ -45,10 +47,14 @@ function observePanels() {
             // turned off). A task queued here runs after the whole
             // input → change sequence, when the widget already holds the new
             // value and render() only repaints the same state.
-            const change = () => setTimeout(() => {
-                for (const {node:entry} of graphEntries(rootGraph())) entry._donutEditStudio?.render();
-                synchronize();
-            });
+            const change = () => {
+                if (controlRefreshTimer !== undefined) return;
+                controlRefreshTimer = setTimeout(() => {
+                    controlRefreshTimer = undefined;
+                    for (const {node:entry} of graphEntries(rootGraph())) entry._donutEditStudio?.render();
+                    synchronize();
+                });
+            };
             root.addEventListener('change',change); root.addEventListener('input',change);
             observed.set(root,() => {observer.disconnect(); root.removeEventListener('change',change); root.removeEventListener('input',change);});
         }
@@ -74,11 +80,13 @@ app.registerExtension({
     },
     beforeRegisterNodeDef(_nodeType, definition) {
         if (definition.name === 'DonutVAEDecode') baseDecodeAvailable = true;
+        if (definition.name === 'DonutVAELoader') vaeLoaderAvailable = true;
     },
     beforeConfigureGraph(data) {
         // A browser refresh alone can load new JS against an old backend.
         // Keep the stock decoder until the new Python node is registered.
         if (baseDecodeAvailable) upgradeV5BaseDecoders(data);
+        if (vaeLoaderAvailable) upgradeV5VaeLoaders(data);
         organizeV4Panels(data);
         splitV4FinishingPanels(data);
         arrangeV4ByFrequency(data);

@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ASPECT_RATIOS, targetDimensions, cropBox, imageLocation } from "./donut_edit_geometry.js";
 import { promptTools } from "./donut_wildcards.js";
-import { fitModule, fitTextarea } from "./donut_layout.js?v=15";
+import { fitModule, fitTextarea } from "./donut_layout.js?v=16";
 import { drawMask, readMask, maskInverted, openInpaintEditor, readOutpaint, outpaintRect, drawOutpaintBase } from "./donut_inpaint_editor.js?v=outpaint2";
 import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
 
@@ -219,14 +219,27 @@ export function installEditStudio(node, definition) {
     }
     function draw(key) {
         const slot = slots[key], canvas = slot.canvas, image = slot.image;
+        if (!canvas.isConnected || !canvas.clientWidth || !canvas.clientHeight) return;
         // DOM widgets are scaled with the graph. clientWidth is the unscaled drawing size.
-        const width = canvas.clientWidth || 260, height = canvas.clientHeight || 207, dpr = window.devicePixelRatio || 1;
-        canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
-        const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr); ctx.clearRect(0, 0, width, height);
-        if (!image) return;
+        const width = canvas.clientWidth, height = canvas.clientHeight, dpr = window.devicePixelRatio || 1;
         const placement = key === "a" && get("inpaint_enabled") && readOutpaint(get("mask_data"),get("image_a"));
+        const size = image && placement ? outputSize() : null;
+        const box = image && !placement ? boxFor(key) : null;
+        const state = JSON.stringify([width, height, dpr, get(`image_${key}`), size, box,
+            key === "a" && get("inpaint_enabled") ? get("mask_data") : null]);
+        const pixelWidth = Math.round(width * dpr), pixelHeight = Math.round(height * dpr);
+        if (slot.drawnImage === image && slot.drawState === state
+            && canvas.width === pixelWidth && canvas.height === pixelHeight) return;
+        // Assigning either dimension clears the canvas and reallocates its
+        // backing store, even if the assigned size is unchanged.
+        if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+        if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1; ctx.lineWidth = 1;
+        ctx.clearRect(0, 0, width, height);
+        if (!image) { slot.drawnImage = image; slot.drawState = state; return; }
         if (placement) {
-            const size=outputSize(), fit=Math.min((width-16)/size[0],(height-16)/size[1]);
+            const fit=Math.min((width-16)/size[0],(height-16)/size[1]);
             const w=size[0]*fit,h=size[1]*fit,ox=(width-w)/2,oy=(height-h)/2;
             const preview=document.createElement('canvas');preview.width=Math.max(1,Math.round(w));preview.height=Math.max(1,Math.round(h));
             const previewSize=[preview.width,preview.height], rect=outpaintRect([image.naturalWidth,image.naturalHeight],previewSize,placement), p=preview.getContext('2d');
@@ -235,7 +248,8 @@ export function installEditStudio(node, definition) {
             drawMask(overlay.getContext('2d'),...previewSize,readMask(get('mask_data'),get('image_a')),maskInverted(get('mask_data'),get('image_a')),{rect,overlap:placement.overlap*fit});
             p.globalAlpha=.5;p.drawImage(overlay,0,0);ctx.drawImage(preview,ox,oy,w,h);
             ctx.strokeStyle='#ff6c75';ctx.strokeRect(ox,oy,w,h);
-            slot.layout=null;slot.meta.textContent=`Outpaint · ${size[0]} × ${size[1]} total · adjust in Paint / outpaint`;return;
+            slot.layout=null;slot.meta.textContent=`Outpaint · ${size[0]} × ${size[1]} total · adjust in Paint / outpaint`;
+            slot.drawnImage=image;slot.drawState=state;return;
         }
         const scale = Math.min((width - 16) / image.naturalWidth, (height - 16) / image.naturalHeight);
         const iw = image.naturalWidth * scale, ih = image.naturalHeight * scale;
@@ -248,7 +262,7 @@ export function installEditStudio(node, definition) {
             drawMask(overlay.getContext("2d"), overlay.width, overlay.height, readMask(get("mask_data"), get("image_a")), maskInverted(get("mask_data"), get("image_a")));
             ctx.globalAlpha = .5; ctx.drawImage(overlay, ox, oy, iw, ih); ctx.globalAlpha = 1;
         }
-        const [x1, y1, x2, y2] = boxFor(key), x = ox + x1 * scale, y = oy + y1 * scale, w = (x2 - x1) * scale, h = (y2 - y1) * scale;
+        const [x1, y1, x2, y2] = box, x = ox + x1 * scale, y = oy + y1 * scale, w = (x2 - x1) * scale, h = (y2 - y1) * scale;
         ctx.fillStyle = "rgba(6,10,14,.68)";
         ctx.fillRect(ox, oy, iw, y - oy); ctx.fillRect(ox, y + h, iw, oy + ih - y - h);
         ctx.fillRect(ox, y, x - ox, h); ctx.fillRect(x + w, y, ox + iw - x - w, h);
@@ -260,6 +274,7 @@ export function installEditStudio(node, definition) {
         }
         slot.meta.textContent = `${image.naturalWidth} × ${image.naturalHeight}  →  crop ${x2 - x1} × ${y2 - y1}`;
         slot.meta.title = get(`image_${key}`);
+        slot.drawnImage = image; slot.drawState = state;
     }
     function loadPreview(key) {
         const slot = slots[key], path = String(get(`image_${key}`) || "");
@@ -347,6 +362,7 @@ export function installEditStudio(node, definition) {
         actions.append(uploadButton, pasteButton, center, clear); card.append(head, stage, meta, actions, fileInput); references.append(card);
         slots[key] = {card, stage, canvas, empty, emptyText, meta, image:null, path:null, epoch:0, uploadEpoch:0,
             pasteButton, actions:[uploadButton, pasteButton, clear]};
+        canvas.addEventListener("contextrestored", () => { slots[key].drawState = null; if (!disposed) draw(key); });
         // Select before preview handlers can open a crop dialog and stop bubbling.
         // The full card remains a reliable paste target, including added controls.
         card.addEventListener("pointerdown", event => {

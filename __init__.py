@@ -32,7 +32,7 @@ _NODE_MODULES = (
     "donut_lora_nodes", "DonutSafeApplyLoRAStack", "hot_reload",
     "DonutSDXLTeaCache", "DonutBlockCalibration", "DonutFrequencyAnalysis",
     "DonutSpectralNoiseSharpener", "DonutKSamplerCFGLinear", "donut_krea2_sda", "donut_grounding_schedule", "donut_txtfusion_guard_sampler", "donut_lora_civitai",
-    "donut_vae_correction", "DonutTiledUpscale", "DonutColorPreservingUpscale", "DonutDetailerZIT",
+    "donut_vae_upscale", "donut_vae_correction", "DonutTiledUpscale", "DonutColorPreservingUpscale", "DonutDetailerZIT",
     "ModelMergeZIT", "DonutModelMergeKrea2", "ModelMergeZITBlocks",
     "DonutModelSave", "DonutFaceDetailer", "DonutUniversalDetailer",
     "DonutWeightVectorScale", "DonutGammaCorrection", "DonutAutoGamma",

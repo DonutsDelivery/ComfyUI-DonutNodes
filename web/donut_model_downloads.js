@@ -1,7 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { fitModule } from "./donut_layout.js?v=15";
-import { modelBindings } from "./donut_model_requirements.js";
+import { fitModule } from "./donut_layout.js?v=16";
+import { modelBindings } from "./donut_model_requirements.js?v=3";
 
 async function request(path, data) {
     const response = await api.fetchApi(path, data === undefined ? {} : {

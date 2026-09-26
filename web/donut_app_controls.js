@@ -5,7 +5,7 @@ import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 
 import { weightControl, vectorControl } from "./donut_weight_controls.js";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
-import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=15";
+import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=16";
 
 const NAG_SHARED_WIDGETS = ["nag_phi","nag_auto_phi","nag_phi_scale","nag_tau","nag_sigma_start","nag_sigma_end","nag_ref_boost","nag_ref_boost_a","nag_fit_mode"];
 const service = createLoraService(api);

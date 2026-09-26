@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
-import { fitModule } from "./donut_layout.js?v=15";
-import { modelBindings, manualModelFiles } from "./donut_model_requirements.js";
+import { fitModule } from "./donut_layout.js?v=16";
+import { modelBindings, manualModelFiles } from "./donut_model_requirements.js?v=3";
 // Generated from the packed model_sources.json by tools/prepare_registry.py.
 import { MODEL_CATALOG } from "./donut_registry_catalog.js";
 
@@ -56,7 +56,7 @@ function install(node) {
             }
             if (file.requires_nodes.length) {
                 const requirement = document.createElement("p");
-                requirement.textContent = `Requires native ComfyUI nodes: ${file.requires_nodes.join(", ")}. Update ComfyUI and restart if missing.`;
+                requirement.textContent = `Requires nodes: ${file.requires_nodes.join(", ")}. Install the matching node pack or update ComfyUI, then restart if missing.`;
                 item.append(requirement);
             }
             item.style.overflowWrap = "anywhere";

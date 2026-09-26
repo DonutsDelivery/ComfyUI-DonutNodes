@@ -4,13 +4,17 @@ from copy import deepcopy
 import torch
 from torch.nn import functional as F
 from nodes import VAEDecode
+try:
+    from . import donut_vae_upscale
+except ImportError:
+    import donut_vae_upscale
 
 
 def vae_damage_input_types():
     return {
         "vae_damage_correction": ("BOOLEAN", {
             "default": False,
-            "tooltip": "Subtract estimated VAE damage after decoding. Uses the connected VAE for one extra encode/decode per image or face crop. No restoration model or original reference is needed.",
+            "tooltip": "Subtract estimated VAE damage after decoding, using the selected VAE's encoder and decoder for one extra round trip per image or face crop. The 2x VAE filters back to the current image size before subtraction. No original reference is needed.",
         }),
         "vae_damage_strength": ("FLOAT", {
             "default": 1.0, "min": 0.0, "max": 4.0, "step": 0.01,
@@ -23,12 +27,13 @@ def subtract_vae_damage(image, vae, strength):
     """One RGB correction: clip(y + strength * (y - decode(encode(y))))."""
     if strength <= 0:
         return image
+    vae = donut_vae_upscale.prepare_vae(vae)
     height, width = image.shape[1:3]
     grid = vae.spacial_compression_encode()
     pad_h, pad_w = (-height) % grid, (-width) % grid
     corrected = []
     # Video-capable VAEs can interpret an IMAGE batch as a sequence. Give each
-    # still image its own round trip, using the stage's existing VAE.
+    # still image its own round trip with the selected VAE.
     for sample in image.split(1):
         rgb = sample.float()
         pixels = rgb
@@ -53,9 +58,10 @@ class DonutVAEDecode(VAEDecode):
         return result
 
     CATEGORY = "donut/image"
-    DESCRIPTION = "Decode latents, with optional one-pass VAE damage subtraction on the decoded image."
+    DESCRIPTION = "Decode latents at the configured image size using the selected VAE, with optional VAE damage subtraction. The Wan2.1/Qwen 2x VAE filters its internal 2x output back to this size."
 
     def decode(self, vae, samples, vae_damage_correction=False, vae_damage_strength=1.0):
+        vae = donut_vae_upscale.prepare_vae(vae)
         image, = super().decode(vae, samples)
         if vae_damage_correction and vae_damage_strength > 0:
             image = subtract_vae_damage(image, vae, float(vae_damage_strength))

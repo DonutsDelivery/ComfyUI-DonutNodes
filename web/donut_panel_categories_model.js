@@ -262,6 +262,51 @@ export function upgradeV5BaseDecoders(root) {
     return changed;
 }
 
+// Keep the Models panel's existing VAE selector and every outgoing connection.
+// The loader adds the upstream 2x adapter only when that VAE is selected.
+export function upgradeV5VaeLoaders(root) {
+    if (root?.extra?.donut_workflow?.release !== 'V5') return [];
+    const entries = graphEntries(root), changed = [];
+    const paths = new Set(entries.filter(entry => panelRole(entry.node) === 'models')
+        .flatMap(({node}) => node.properties.donut_app_controls.groups)
+        .flatMap(group => group.controls || [])
+        .filter(control => control.widget === 'vae_name' && Array.isArray(control.path))
+        .map(control => pathKey(control.path)));
+    for (const {node, path} of entries) {
+        if (!paths.has(pathKey(path)) || node.type !== 'VAELoader'
+                || node.inputs?.some(input => input.name !== 'vae_name')
+                || node.outputs?.length !== 1 || node.outputs[0]?.type !== 'VAE'
+                || node.widgets_values?.length !== 1) continue;
+        node.type = 'DonutVAELoader';
+        node.properties = {...node.properties, cnr_id:'donutnodes', 'Node name for S&R':'DonutVAELoader'};
+        delete node.properties.ver;
+        changed.push(node);
+    }
+    return changed;
+}
+
+function removeDecoderOverrides(entries, panels) {
+    const retired = new Set(['vae_decode_mode', 'vae_upscale_name']);
+    const stages = entries.filter(({node}) => ['DonutVAEDecode', 'DonutTiledUpscale', 'DonutFaceDetailer']
+        .includes(node.comfyClass || node.type));
+    const paths = new Set(stages.map(entry => pathKey(entry.path)));
+    for (const {node} of stages) {
+        for (const widget of retired) if (node.widgets_values_named) delete node.widgets_values_named[widget];
+        // The withdrawn controls were appended as the final two widgets.
+        if (Array.isArray(node.widgets_values)
+                && ['Connected VAE', 'Finetuned VAE (same size)', 'Finetuned VAE (2x)'].includes(node.widgets_values.at(-2))
+                && typeof node.widgets_values.at(-1) === 'string') node.widgets_values.splice(-2);
+    }
+    for (const panel of panels) {
+        const config = panel.properties.donut_app_controls;
+        config.groups = config.groups.flatMap(group => {
+            const controls = group.controls?.filter(control => !(retired.has(control.widget) && paths.has(pathKey(control.path))));
+            if (!controls || controls.length === group.controls.length) return [group];
+            return controls.length ? [{...group, controls}] : [];
+        });
+    }
+}
+
 function addVaeDamageControls(entries, panels) {
     const byPath = new Map(entries.map(entry => [pathKey(entry.path), entry]));
     for (const panel of panels) {
@@ -284,19 +329,18 @@ function addVaeDamageControls(entries, panels) {
             }
         }
         for (const [key, {entry, group}] of stages) {
-            if (!hasWidget(entry.node, 'vae_damage_correction') || !hasWidget(entry.node, 'vae_damage_strength')) continue;
             const existing = new Set(groups.flatMap(item => item.controls || [])
                 .filter(control => pathKey(control.path) === key).map(control => control.widget));
-            const controls = [
-                {widget:'vae_damage_correction', title:'Subtract VAE-predicted damage'},
-                {widget:'vae_damage_strength', title:'Correction strength', weights:{min:0, max:4, step:0.01}},
-            ].filter(control => !existing.has(control.widget))
-                .map(control => ({...control, path:[...entry.path]}));
-            if (!controls.length) continue;
             const source = group.donut_source_title || group.title || entry.node.title || 'Upscale';
             const stage = /first/i.test(source) ? 'first' : /second/i.test(source) ? 'second' : null;
             const type = entry.node.comfyClass || entry.node.type;
             const face = type === 'DonutFaceDetailer', base = type === 'DonutVAEDecode';
+            const controls = [
+                {widget:'vae_damage_correction', title:'Subtract VAE-predicted damage'},
+                {widget:'vae_damage_strength', title:'Correction strength', weights:{min:0, max:4, step:0.01}},
+            ].filter(control => hasWidget(entry.node, control.widget) && !existing.has(control.widget))
+                .map(control => ({...control, path:[...entry.path]}));
+            if (!controls.length) continue;
             groups.push({
                 title:base ? 'Base decode · VAE correction' : face ? 'Face detail · VAE correction'
                     : stage ? `Donut hires · ${stage} upscale · VAE correction` : `${source} · VAE correction`,
@@ -304,9 +348,7 @@ function addVaeDamageControls(entries, panels) {
                 donut_category_rank:base ? 10.5 : face ? 40.5 : stage === 'first' ? 30.5 : stage === 'second' ? 50.5
                     : (group.donut_category_rank ?? 30) + .5,
                 ...(type === 'DonutTiledUpscale' ? {visible_when:{path:[...entry.path], widget:'upscale_engine', value:'Donut'}} : {}),
-                description:face ? 'One extra VAE pass per refined face crop, before resizing and mask blending. Strength 1 is standard; higher values strengthen the effect.'
-                    : base ? 'One extra VAE pass after the first decode, before hires. Strength 1 is standard; higher values strengthen the effect.'
-                    : 'One extra VAE pass after this upscale. Strength 1 is the standard subtraction; higher values strengthen the effect.',
+                description:'One extra round trip with the VAE selected in Models. Correction keeps the current image size, including with a 2x VAE. Strength 1 is standard; higher values strengthen the effect.',
                 controls,
             });
         }
@@ -317,6 +359,7 @@ export function organizeV4Panels(root) {
     const entries = graphEntries(root);
     const panels = entries.map(entry => entry.node).filter(node => panelRole(node));
     const originals = new Map(panels.map(panel => [panel, JSON.stringify(panel.properties)]));
+    removeDecoderOverrides(entries, panels);
     for (const panel of panels) {
         panel.properties.donut_panel_role = panelRole(panel);
         panel.properties.donut_columns = 'sections';

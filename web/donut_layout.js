@@ -45,6 +45,7 @@ export function scheduleLayout() {
         frame = undefined;
         const graph = app.rootGraph, layout = graph?.extra?.donut_layout;
         if (!layout) return;
+        let changed = false;
         for (const [node, root] of cards) {
             if (node === resizing?.node || node.graph !== graph || !root.closest('.graph-canvas-container') || !root.offsetWidth || !root.offsetHeight) continue;
             const wrapper = root.closest('[data-node-id]');
@@ -56,7 +57,10 @@ export function scheduleLayout() {
             const contentWidth = Math.max(0, ...banks.map(bank => bank.scrollWidth + padding));
             const width = Math.max(node.properties?.panel_width || node.size?.[0] || node.properties?.panel_min_width || 380, contentWidth + margin);
             const height = node.computeSize()[1];
-            if (Math.abs(node.size[0] - width) > 2 || Math.abs(node.size[1] - height) > 2) node.setSize([width, height]);
+            if (Math.abs(node.size[0] - width) > 2 || Math.abs(node.size[1] - height) > 2) {
+                node.setSize([width, height]);
+                changed = true;
+            }
         }
         const dimensions = node => {
             if (node.flags?.collapsed) return [node.size[0], 40];
@@ -66,13 +70,15 @@ export function scheduleLayout() {
                 return node.properties.panel_layout_size || [node.size[0], node.size[1] + 30];
             }
             const size = [Math.max(node.size[0], wrapper?.offsetWidth || 0), Math.max(node.size[1] + 30, wrapper?.offsetHeight || 0)];
-            if (root) node.properties.panel_layout_size = size;
+            if (root && (node.properties.panel_layout_size?.[0] !== size[0] || node.properties.panel_layout_size?.[1] !== size[1])) {
+                node.properties.panel_layout_size = size;
+            }
             return size;
         };
         let x = layout.origin?.[0] || 0, top = layout.origin?.[1] || 0;
         const header = graph.getNodeById(layout.header);
         if (header) {
-            if (header.pos[0] !== x || header.pos[1] !== top) header.pos = [x, top];
+            if (header.pos[0] !== x || header.pos[1] !== top) { header.pos = [x, top]; changed = true; }
             top += dimensions(header)[1] + (layout.gap_y || 140);
         }
         for (const column of layout.columns) {
@@ -80,12 +86,12 @@ export function scheduleLayout() {
             for (const id of column) {
                 const node = graph.getNodeById(id); if (!node) continue;
                 const [w, h] = dimensions(node);
-                if (Math.abs(node.pos[0] - x) > 1 || Math.abs(node.pos[1] - y) > 1) node.pos = [x, y];
+                if (Math.abs(node.pos[0] - x) > 1 || Math.abs(node.pos[1] - y) > 1) { node.pos = [x, y]; changed = true; }
                 width = Math.max(width, w); y += h + (layout.gap_y || 140);
             }
             x += width + (layout.gap_x || 140);
         }
-        app.canvas?.setDirty(true, true);
+        if (changed) app.canvas?.setDirty(true, true);
     });
 }
 export function fitModule(node, dom, root) {
