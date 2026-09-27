@@ -40,8 +40,9 @@ Reapplying the shared Auto Phi/scale settings synchronizes existing stage values
 - Exact-version review check at `2026-09-27T00:53:18.465563Z` returned
   **Pending** (`NodeVersionStatusPending`), with an empty status reason.
   Registry approval and normal update discovery are therefore unverified.
-- The optional hourly review-check offer was presented under `AGENTS.md`.
-  No recurring monitor has been authorized or scheduled at publication time.
+- The user declined the optional hourly review checks offered under `AGENTS.md`.
+  No recurring monitor is scheduled. Registry approval remains unverified;
+  Pending is the last observed status recorded above.
 
 ## Published package verification
 
