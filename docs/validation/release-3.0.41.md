@@ -40,8 +40,28 @@ uploaded to Civitai.
 
 ## Publication
 
-To be completed after GitHub push, Registry upload and exact-version review.
+- Release commit `caf6780` was pushed atomically to GitHub `main` and
+  `feat/hires-vae-damage-correction`.
+- The Comfy Registry upload succeeded for **3.0.41**. The CLI configuration
+  checks and security checks passed.
+- Exact-version API check at `2026-09-27T14:30:59Z` returned
+  **NodeVersionStatusPending**, with an empty/null `status_reason`. Upload
+  success is confirmed; Registry approval and normal update discovery remain
+  unverified. The user was asked whether they want hourly follow-up checks;
+  no monitor has been scheduled while that answer is pending.
 
 ## Published package verification
 
-To be completed from the staged and downloaded Registry ZIP.
+- `comfy node pack` produced the source archive; `tools/prepare_registry.py`
+  created the Registry staging tree. The publisher's staging-directory fallback
+  was used because the staging tree has no `.git` directory.
+- Downloaded ZIP checked at `2026-09-27T14:30:59Z`: **229 files**,
+  **15,773,280 bytes**, SHA-256
+  `45179bfe08a467ca72dea94b56d3b264fb3bb03a2dc3ed432e0056db203dc809`.
+  Its bytes and all 229 file hashes match the staged ZIP exactly.
+- The package reports version **3.0.41** and includes the new Settings model,
+  Registry manual model-files panel, generated model catalog, and required
+  `assets/uncensorfix.f32` (3,457,232 bytes; SHA-256
+  `f3c817bd957e6d47883346237b5e067697f0b9e1c9909bd06353da455949aacf`).
+  Tests, validation reports, credentials, the automatic downloader backend and
+  standalone installers are absent.
