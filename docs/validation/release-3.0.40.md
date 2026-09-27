@@ -33,5 +33,33 @@ Reapplying the shared Auto Phi/scale settings synchronizes existing stage values
 
 ## Publication
 
-Publication and package verification are in progress. Upload success and exact
-Registry review status will be recorded separately after publication.
+- Release commit: `bc364b1`, pushed to GitHub `main` and
+  `feat/hires-vae-damage-correction`.
+- Comfy Registry upload succeeded for **3.0.40**. Registry creation time:
+  `2026-09-27T00:50:27.965070Z`.
+- Exact-version review check at `2026-09-27T00:53:18.465563Z` returned
+  **Pending** (`NodeVersionStatusPending`), with an empty status reason.
+  Registry approval and normal update discovery are therefore unverified.
+- The optional hourly review-check offer was presented under `AGENTS.md`.
+  No recurring monitor has been authorized or scheduled at publication time.
+
+## Published package verification
+
+The Registry distribution was prepared in a separate staging directory using
+the existing release helper. The CLI's configuration/security validation passed.
+The uploaded CDN ZIP was downloaded and inspected at
+`2026-09-27T00:53:19.090776Z`:
+
+- **228 files**, **15,763,482 bytes**.
+- ZIP SHA-256:
+  `94e8907ae695aca59621e8f870264d594fa3e015bc73cf82532b5c724ac05084`.
+- The archive hash and every file hash match the inspected staging package.
+- Version metadata is **3.0.40**; changed runtime files match the release source.
+- Required `assets/uncensorfix.f32` is present: **3,457,232 bytes**, SHA-256
+  `f3c817bd957e6d47883346237b5e067697f0b9e1c9909bd06353da455949aacf`.
+- The Registry manual model interface and generated catalog are included.
+  Credentials, development/private files, the automatic downloader backend and
+  the separate installer/distribution directory are excluded.
+
+These checks establish package integrity, not Registry approval or runtime
+correctness. Implementation verification limits are recorded above.
