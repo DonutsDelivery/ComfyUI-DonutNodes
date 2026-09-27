@@ -74,7 +74,7 @@ The existing DonutSampler node ID is overridden after the grounding sampler.
 Two OPTIONAL widgets are appended, leaving all inherited widget positions
 unchanged: `txtfusion_internal_guard` and `txtfusion_reference_checkpoint`.
 
-On workflow load, the **Seed & guidance** panel gains an advanced group named
+On workflow load, the **Settings / Configuration** panel gains an advanced group named
 **Experimental · checkpoint txtfusion guard**. Its controls bind to the actual
 inner DonutSampler, not a promoted outer widget. A single owner in the same
 panel/seed family is required; ambiguous A/B graphs are not guessed. Existing

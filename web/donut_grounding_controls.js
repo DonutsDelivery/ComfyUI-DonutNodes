@@ -18,6 +18,50 @@ function hasScheduleWidgets(node) {
     return names.has("grounding_schedule") && names.has("grounding_start_px") && names.has("grounding_end_px");
 }
 
+// Workflows saved while dynamic NAG widgets were temporarily inserted before
+// the legacy TextFusion fields can reload with values in the wrong slots.
+// A bad dropdown marks the whole saved schedule triple as positionally stale;
+// reset that triple from the legacy static alpha. Otherwise retain a valid
+// manual curve and repair only invalid endpoints.
+function repairLegacyNagWidgetValues(node) {
+    const widgets = new Map((node?.widgets || []).map(widget => [widget.name, widget]));
+    const schedule = widgets.get("nag_alpha_schedule");
+    const start = widgets.get("nag_alpha_start");
+    const end = widgets.get("nag_alpha_end");
+    if (!schedule || !start || !end) return false;
+
+    const curves = schedule.options?.values || ["constant", "linear", "ease_in", "ease_out", "ease_in_out"];
+    const staticAlpha = widgets.get("nag_alpha")?.value;
+    const fallbackAlpha = typeof staticAlpha === "number" && Number.isFinite(staticAlpha)
+        && staticAlpha >= 0 && staticAlpha <= 1 ? staticAlpha : 0.25;
+    let changed = false;
+    const set = (widget, value) => {
+        widget.value = value;
+        if (widget.inputEl) widget.inputEl.value = String(value);
+        widget.callback?.(value, app.canvas, node);
+        changed = true;
+    };
+    const invalidCurve = !curves.includes(schedule.value);
+    if (invalidCurve) set(schedule, "constant");
+    for (const widget of [start, end]) {
+        if (invalidCurve || typeof widget.value !== "number" || !Number.isFinite(widget.value)
+                || widget.value < 0 || widget.value > 1) set(widget, fallbackAlpha);
+    }
+    if (changed) node.setDirtyCanvas?.(true, true);
+    return changed;
+}
+
+function repairLoadedSamplerValues(graph) {
+    let changed = false;
+    for (const node of graph?.nodes || []) {
+        if ((node.comfyClass || node.type || node.properties?.["Node name for S&R"]) === "DonutSampler") {
+            changed = repairLegacyNagWidgetValues(node) || changed;
+        }
+        if (node.subgraph) changed = repairLoadedSamplerValues(node.subgraph) || changed;
+    }
+    return changed;
+}
+
 function findGroundedSampler() {
     return visitGraph(app.rootGraph, node => {
         const type = node.comfyClass || node.type || node.properties?.["Node name for S&R"];
@@ -114,6 +158,7 @@ function retryUntilRendered(attempts) {
 app.registerExtension({
     name: "Donut.GroundingScheduleControls",
     afterConfigureGraph() {
+        repairLoadedSamplerValues(app.rootGraph);
         queueMicrotask(() => retryUntilRendered(20));
     },
     nodeCreated(node) {

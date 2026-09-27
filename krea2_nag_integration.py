@@ -117,5 +117,35 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
     return patched
 
 
+def apply_krea2_nag_scheduled(model, negative, nag_options, **patch_options):
+    """Apply the shared dynamic alpha curve to one auxiliary sampling stage.
+
+    The sampler wrapper reads its actual sigma schedule, so partial denoise,
+    Turbo snapping, detailer hooks, and each tiled/cropped run get their own
+    correct executed-step timeline.
+    """
+    options = dict(nag_options)
+    try:
+        from .donut_grounding_schedule import (
+            install_stage_nag_schedule, nag_request_from_options,
+            without_nag_schedule_options,
+        )
+        from .donut_grounding_nag import capture_nag_preparations
+    except ImportError:
+        from donut_grounding_schedule import (
+            install_stage_nag_schedule, nag_request_from_options,
+            without_nag_schedule_options,
+        )
+        from donut_grounding_nag import capture_nag_preparations
+
+    request = nag_request_from_options(options)
+    options = without_nag_schedule_options(options)
+    if request is None:
+        return apply_krea2_nag(model, negative, **options, **patch_options)
+    with capture_nag_preparations():
+        patched = apply_krea2_nag(model, negative, **options, **patch_options)
+        return install_stage_nag_schedule(patched, request)
+
+
 def sampler_negative(negative, turbo_mode):
     return nodes.ConditioningZeroOut().zero_out(negative)[0] if turbo_mode else negative

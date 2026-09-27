@@ -1,13 +1,13 @@
-"""Run-local NAG preparations for scheduled grounding.
+"""Run-local NAG preparations for dynamic grounding and alpha schedules.
 
 Use the installed NAG node's public patch method, not its closure internals.
-Each resolution gets its own immutable negative context. Only the selected
-NAG diffusion wrapper is substituted in per-prediction options; the sampler,
-model weights, reference geometry and unrelated wrappers are left alone.
+Each selected step can own an immutable negative/alpha context. Only the
+selected NAG diffusion wrappers are substituted in per-prediction options; the
+sampler, model weights, reference geometry and unrelated wrappers are preserved.
 """
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 _PREPARATIONS = ContextVar("donut_grounding_nag_preparations", default=None)
@@ -75,6 +75,7 @@ class NAGPreparation:
     node_class: object
     arguments: dict
     explicit_negative: bool
+    shared: dict = field(default_factory=dict, compare=False)
 
     @property
     def changes_negative(self):
@@ -84,8 +85,8 @@ class NAGPreparation:
                 and float(self.arguments["phi"]) != 0.0
                 and float(self.arguments["alpha"]) != 0.0)
 
-    def wrappers_for(self, negative=None):
-        """Return only NAG's wrapper, preserving the original reference inputs."""
+    def wrappers_for(self, negative=None, *, alpha=None, phi=None):
+        """Return only NAG's wrapper with optional run-local guidance values."""
         import comfy.patcher_extension
         try:
             from .krea2_nag_integration import prepare_nag_conditioning
@@ -93,25 +94,60 @@ class NAGPreparation:
             from krea2_nag_integration import prepare_nag_conditioning
 
         patched = self.patched
-        if negative is not None:
+        if negative is not None or alpha is not None or phi is not None:
             arguments = dict(self.arguments)
-            arguments["nag_negative"] = prepare_nag_conditioning(arguments["model"], negative)
+            if negative is not None:
+                arguments["nag_negative"] = prepare_nag_conditioning(arguments["model"], negative)
+            if alpha is not None:
+                arguments["alpha"] = float(alpha)
+            if phi is not None:
+                arguments["phi"] = float(phi)
+
+            # Dynamic alpha creates a new public NAG patch for each distinct
+            # executed step. Share deterministic reference VAE encodes between
+            # those wrappers, including when the base alpha was zero.
+            vae = arguments.get("vae")
+            active = float(arguments.get("alpha", 0.0)) != 0.0 and float(arguments.get("phi", 0.0)) != 0.0
+            if active and vae is not None and not isinstance(vae, _ReferenceVAECache):
+                vae = self.shared.setdefault("reference_vae_cache", _ReferenceVAECache(vae))
+                arguments["vae"] = vae
             patched = self.node_class().patch(**arguments)[0]
+            try:
+                from .donut_nag_txtfusion import install_donut_nag_experiment
+            except ImportError:
+                from donut_nag_txtfusion import install_donut_nag_experiment
+            patched = install_donut_nag_experiment(
+                patched,
+                nag_negative=arguments["nag_negative"],
+                phi=arguments["phi"],
+                tau=arguments["tau"],
+                alpha=arguments["alpha"],
+                sigma_start=arguments["sigma_start"],
+                sigma_end=arguments["sigma_end"],
+            )
         key = _EDIT_KEY if "source_latent" in self.arguments else _NAG_KEY
         table = getattr(patched, "wrappers", {}).get(
             comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL, {},
         )
         wrappers = table.get(key)
-        if not wrappers:
+        try:
+            from .donut_nag_txtfusion import _EXPERIMENT_WRAPPER_KEY
+        except ImportError:
+            from donut_nag_txtfusion import _EXPERIMENT_WRAPPER_KEY
+        experiment = table.get(_EXPERIMENT_WRAPPER_KEY)
+        if not wrappers and not experiment:
             raise RuntimeError(
                 f"The installed Krea2 NAG node did not register {key!r}. "
-                "Update krea2-nag; scheduled grounding cannot select its negative context."
+                "Update krea2-nag; dynamic grounding/NAG cannot select its context."
             )
-        return {key: tuple(wrappers)}
+        replacements = {key: tuple(wrappers)} if wrappers else {}
+        if experiment:
+            replacements[_EXPERIMENT_WRAPPER_KEY] = tuple(experiment)
+        return replacements
 
 
 def record_nag_preparation(patched, node_class, arguments, explicit_negative):
-    """Called by the normal NAG bridge; constant/non-edit runs retain no recipe."""
+    """Called by the normal NAG bridge; capture is scoped to a scheduled run."""
     preparations = _PREPARATIONS.get()
     if preparations is not None:
         preparations[id(patched)] = NAGPreparation(
@@ -131,7 +167,7 @@ def select_nag_options(model_options, replacements):
     """Copy just the option dictionaries we change. Never mutate a shared model.
 
     ComfyUI merges ModelPatcher wrappers into transformer_options before the
-    sampler runs. Replace only the registered NAG key there; keep all other
+    sampler runs. Replace only the selected NAG keys there; keep all other
     wrappers, patches, sigma information and upstream sampler options intact.
     """
     import comfy.patcher_extension

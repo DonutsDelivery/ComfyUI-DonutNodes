@@ -3,6 +3,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
+const sharedSource = fs.readFileSync(new URL("../web/donut_vae_global_controls_model.js", import.meta.url), "utf8")
+  .replace(/export (function|const)/g, "$1");
+const { VAE_SHARED_WIDGETS, prepareVaeCorrectionMigration, vaeCorrectionMirrorWidgets } =
+  vm.runInNewContext(`${sharedSource}\n({VAE_SHARED_WIDGETS,prepareVaeCorrectionMigration,vaeCorrectionMirrorWidgets})`);
+const panelModelSource = fs.readFileSync(new URL("../web/donut_panel_categories_model.js", import.meta.url), "utf8")
+  .replace(/export (function|const)/g, "$1");
+const { NAG_SHARED_WIDGETS } = vm.runInNewContext(`${panelModelSource}\n({NAG_SHARED_WIDGETS})`);
+let activePanels = [];
+const panelImports = { graphEntries: () => activePanels.map(node => ({node})), NAG_SHARED_WIDGETS };
+const vaeImports = { VAE_SHARED_WIDGETS, prepareVaeCorrectionMigration, vaeCorrectionMirrorWidgets };
+
 class Element {
   constructor(tag) {
     this.tagName = tag.toUpperCase(); this.children = []; this.events = {};
@@ -76,7 +87,7 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
     setDirtyCanvas() {}
   }
   const context = vm.createContext({
-    app: { rootGraph, registerExtension(value) { extension = value; } },
+    app: { rootGraph, registerExtension(value) { extension = value; } }, ...panelImports, ...vaeImports,
     api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
     document: { activeElement: null, createElement: tag => new Element(tag) },
     IntersectionObserver: class { observe() {} disconnect() {} },
@@ -144,6 +155,154 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   assert.equal(composition.value, "Fusion only");
 });
 
+test("global NAG alpha schedule migrates saved values on reload and mirrors edits to hires and face", () => {
+  let extension, Panel;
+  activePanels = [];
+  const graphChanges = { before: 0, after: 0 };
+  const graph = { beforeChange() { graphChanges.before++; }, afterChange() { graphChanges.after++; } };
+  const makeNode = (id, type, values) => ({
+    id, type, comfyClass: type, graph, setDirtyCanvas() {},
+    widgets: Object.entries(values).map(([name, value]) => ({
+      name, value, type: name === "nag_alpha_schedule" ? "COMBO" : "FLOAT",
+      options: name === "nag_alpha_schedule"
+        ? { values: ["constant", "linear", "ease_in", "ease_out", "ease_in_out"] }
+        : { min: 0, max: 1 },
+      callback() {},
+    })),
+  });
+  const sampler = makeNode(5, "DonutSampler", {
+    nag_alpha_schedule: "ease_out", nag_alpha_start: 0.12, nag_alpha_end: 0.72,
+    nag_auto_phi: true,
+  });
+  const hires = makeNode(3, "DonutTiledUpscale", {
+    nag_alpha_schedule: "constant", nag_alpha_start: 0.25, nag_alpha_end: 0.25,
+    nag_auto_phi: false,
+  });
+  const face = makeNode(4, "DonutFaceDetailer", {
+    nag_alpha_schedule: "constant", nag_alpha_start: 0.25, nag_alpha_end: 0.25,
+    nag_auto_phi: false,
+  });
+  const nestedGraph = { getNodeById: id => ({ 3: hires, 4: face, 5: sampler }[id]) };
+  const group = { subgraph: nestedGraph, widgets: [], graph, setDirtyCanvas() {} };
+  const rootGraph = { getNodeById: id => id === 1014 ? group : undefined };
+  class LGraphNode {
+    constructor(title) { this.title = title; this.widgets = []; this.properties = {}; this.size = [460, 510]; }
+    addDOMWidget(name, type, element, options) { const widget = { name, type, element, options }; this.widgets.push(widget); return widget; }
+    setDirtyCanvas() {}
+  }
+  const context = vm.createContext({
+    app: { rootGraph, canvas: {}, registerExtension(value) { extension = value; } }, ...panelImports, ...vaeImports,
+    api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
+    document: { activeElement: null, createElement: tag => new Element(tag) },
+    IntersectionObserver: class { observe() {} disconnect() {} },
+    queueMicrotask(callback) { callback(); }, crypto: { randomUUID: () => "test" },
+    createLoraService: () => ({}), decodeRows: () => [], moveRow: () => [],
+    createLoraToolbar: () => new Element("div"), renderLoraInformation: () => ({}),
+    weightControl: (title, get, set) => {
+      const element = new Element("input"); element.setAttribute("aria-label", title);
+      element.events.input = () => set(Number(element.value));
+      return {element, refresh: () => { element.value = get(); }};
+    }, vectorControl: () => ({}), promptTools: () => ({}), wildcardLibrary: () => new Element("div"),
+    fitModule() {}, fitTextarea() {}, scheduleLayout() {},
+  });
+  const source = fs.readFileSync(new URL("../web/donut_app_controls.js", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  vm.runInContext(source, context);
+  extension.registerCustomNodes();
+  const panel = new Panel();
+  panel.properties.donut_app_controls = { seed_path: [900, 1], groups: [{ title: "NAG", controls: [
+    { path: [1014, 5], widget: "nag_alpha_schedule", title: "NAG alpha schedule" },
+    { path: [1014, 5], widget: "nag_alpha_start", title: "Start NAG alpha" },
+    { path: [1014, 5], widget: "nag_alpha_end", title: "End NAG alpha" },
+    { path: [1014, 5], widget: "nag_auto_phi", title: "Auto phi" },
+  ] }] };
+  const stagePanel = { properties: { donut_app_controls: { seed_path: [900, 1], groups: [
+    { title: "First NAG", controls: [{ path: [1014, 3], widget: "nag_enabled" }] },
+    { title: "Face NAG", controls: [{ path: [1014, 4], widget: "nag_enabled" }] },
+  ] } } };
+  activePanels = [panel, stagePanel];
+  panel._donutAppControls.render();
+  assert.equal(hires.widgets.find(widget => widget.name === "nag_alpha_schedule").value, "ease_out");
+  assert.equal(hires.widgets.find(widget => widget.name === "nag_alpha_start").value, 0.12);
+  assert.equal(face.widgets.find(widget => widget.name === "nag_alpha_end").value, 0.72);
+  assert.equal(hires.widgets.find(widget => widget.name === "nag_auto_phi").value, true);
+  assert.equal(face.widgets.find(widget => widget.name === "nag_auto_phi").value, true);
+
+  const curve = findControl(panel._donutAppControls.root, "NAG alpha schedule");
+  curve.value = "linear"; curve.events.change();
+  assert.equal(sampler.widgets.find(widget => widget.name === "nag_alpha_schedule").value, "linear");
+  assert.equal(hires.widgets.find(widget => widget.name === "nag_alpha_schedule").value, "linear");
+  assert.equal(face.widgets.find(widget => widget.name === "nag_alpha_schedule").value, "linear");
+  const autoPhi = findControl(panel._donutAppControls.root, "Auto phi");
+  autoPhi.checked = false; autoPhi.events.change();
+  assert.equal(sampler.widgets.find(widget => widget.name === "nag_auto_phi").value, false);
+  assert.equal(hires.widgets.find(widget => widget.name === "nag_auto_phi").value, false);
+  assert.equal(face.widgets.find(widget => widget.name === "nag_auto_phi").value, false);
+  assert.equal(graphChanges.before, graphChanges.after);
+  activePanels = [];
+});
+
+test("global VAE controls migrate saved base values and update every execution stage", () => {
+  let extension, Panel;
+  const operations = { before: 0, after: 0 };
+  const graph = { beforeChange() { operations.before++; }, afterChange() { operations.after++; } };
+  const makeNode = (id, correction, strength) => ({
+    id, graph, widgets: [
+      { name: "vae_damage_correction", value: correction, type: "BOOLEAN" },
+      { name: "vae_damage_strength", value: strength, options: {} },
+    ], setDirtyCanvas() {},
+  });
+  const source = makeNode(6, true, 0.49);
+  const stages = [makeNode(3, false, 1), makeNode(4, false, 1), makeNode(8, false, 1)];
+  const nestedGraph = { getNodeById: id => [source, ...stages].find(node => node.id === id) };
+  const outer = { subgraph: nestedGraph, widgets: [] };
+  const rootGraph = { getNodeById: id => id === 100 ? outer : undefined };
+  class LGraphNode {
+    constructor(title) { this.title = title; this.widgets = []; this.properties = {}; this.size = [460, 510]; }
+    addDOMWidget(name, type, element, options) { const widget = { name, type, element, options }; this.widgets.push(widget); return widget; }
+    setDirtyCanvas() {}
+  }
+  const context = vm.createContext({
+    app: { rootGraph, registerExtension(value) { extension = value; } }, ...panelImports, ...vaeImports,
+    api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
+    document: { activeElement: null, createElement: tag => new Element(tag) },
+    IntersectionObserver: class { observe() {} disconnect() {} }, queueMicrotask() {},
+    createLoraService: () => ({}), decodeRows: () => [], moveRow: () => [],
+    createLoraToolbar: () => new Element("div"), renderLoraInformation: () => ({}),
+    weightControl: (title, get, set) => {
+      const element = new Element("input"); element.setAttribute("aria-label", title);
+      element.events.input = () => set(Number(element.value));
+      return { element, refresh: () => { element.value = get(); } };
+    }, vectorControl: () => ({}), promptTools: () => ({}), wildcardLibrary: () => new Element("div"),
+    fitModule() {}, fitTextarea() {}, scheduleLayout() {},
+  });
+  const sourceCode = fs.readFileSync(new URL("../web/donut_app_controls.js", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  vm.runInContext(sourceCode, context);
+  extension.registerCustomNodes();
+  const panel = new Panel();
+  panel.properties.donut_app_controls = {
+    vae_correction_initialized: 0,
+    vae_correction_global: { version: 1, source_path: [100, 6], targets: {
+      vae_damage_correction: [[100, 6], [100, 3], [100, 4], [100, 8]],
+      vae_damage_strength: [[100, 6], [100, 3], [100, 4], [100, 8]],
+    } },
+    groups: [{ title: "Global VAE correction", controls: [
+      { path: [100, 6], widget: "vae_damage_correction", title: "Enable VAE correction" },
+      { path: [100, 6], widget: "vae_damage_strength", title: "Correction strength", weights: { min: 0, max: 4, step: 0.01 } },
+    ] }],
+  };
+  panel._donutAppControls.render();
+  assert.equal(panel.properties.donut_app_controls.vae_correction_initialized, 1);
+  assert.ok(stages.every(node => node.widgets[0].value === true && node.widgets[1].value === 0.49));
+  const strength = findControl(panel._donutAppControls.root, "Correction strength");
+  strength.value = "0.62"; strength.events.input();
+  assert.ok(stages.every(node => node.widgets[1].value === 0.62));
+  const toggle = findControl(panel._donutAppControls.root, "Enable VAE correction");
+  toggle.checked = false; toggle.events.change();
+  assert.ok(stages.every(node => node.widgets[0].value === false));
+});
+
 test("App Mode adds a LoRA before its native editor has initialized", () => {
   let extension, Panel;
   const state = { name: "slots_json", value: "[]", callback() {} };
@@ -159,7 +318,7 @@ test("App Mode adds a LoRA before its native editor has initialized", () => {
     setDirtyCanvas() {}
   }
   const context = vm.createContext({
-    app: { rootGraph, registerExtension(value) { extension = value; } },
+    app: { rootGraph, registerExtension(value) { extension = value; } }, ...panelImports, ...vaeImports,
     api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
     document: { activeElement: null, createElement: tag => new Element(tag) },
     IntersectionObserver: class { observe() {} disconnect() {} }, queueMicrotask() {},
@@ -208,7 +367,7 @@ test("prompt variants can duplicate the connected Prompt and an existing row", (
     setDirtyCanvas() {}
   }
   const context = vm.createContext({
-    app: { rootGraph, registerExtension(value) { extension = value; } },
+    app: { rootGraph, registerExtension(value) { extension = value; } }, ...panelImports, ...vaeImports,
     api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
     document: { activeElement: null, createElement: tag => new Element(tag) },
     IntersectionObserver: class { observe() {} disconnect() {} }, queueMicrotask() {},

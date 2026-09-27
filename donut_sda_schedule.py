@@ -15,8 +15,10 @@ import comfy.lora
 import comfy.lora_convert
 import comfy.patcher_extension
 
-SDA_STEPS = 8
-SDA_GATE_STEPS = 2
+# The reference adapter gates the first 2 of its 8 steps. Scale that fraction
+# to the complete schedule actually supplied by ComfyUI.
+SDA_REFERENCE_STEPS = 8
+SDA_REFERENCE_GATE_STEPS = 2
 # Deliberately narrow: these stock solvers have one prediction per interval.
 # Do not add a solver without checking sub-evaluations, churn and step semantics.
 SDA_SAMPLERS = ("euler", "er_sde", "dpmpp_2m")
@@ -24,21 +26,35 @@ SDA_WRAPPER_KEY = "donut_krea2_sda_single_run"
 
 
 def validate_sigmas(sigmas):
-    if not torch.is_tensor(sigmas) or sigmas.ndim != 1 or sigmas.numel() != SDA_STEPS + 1:
-        raise ValueError("SDA requires the complete 8-step sigma schedule (9 sigma values).")
+    if not torch.is_tensor(sigmas) or sigmas.ndim != 1 or sigmas.numel() < 2:
+        raise ValueError("SDA requires a complete sigma schedule with at least one step.")
     values = sigmas.detach().float().cpu()
     if not torch.isfinite(values).all() or values[-1] != 0 or not torch.all(values[:-1] > values[1:]):
         raise ValueError("SDA requires finite, strictly descending sigmas ending at zero.")
     return values.tolist()
 
 
+def sda_gate_step_count(total_steps):
+    """Scale the reference 2/8 gate to a configured schedule's step count.
+
+    The nearest whole-step equivalent is used, with half-step ties rounded up.
+    This preserves the exact reference at 8 steps and gives 3 active steps for
+    a 12-step schedule. Every non-empty schedule has at least one active step.
+    """
+    if type(total_steps) is not int or total_steps < 1:
+        raise ValueError("SDA requires a positive integer step count.")
+    scaled = (total_steps * SDA_REFERENCE_GATE_STEPS + SDA_REFERENCE_STEPS // 2) // SDA_REFERENCE_STEPS
+    return min(total_steps, max(1, scaled))
+
+
 def sda_active(timestep, sigmas):
     """Use raw sampler sigmas, not the model's converted 0..1000 timesteps."""
     schedule = validate_sigmas(sigmas)
+    gate_steps = sda_gate_step_count(len(schedule) - 1)
     t = torch.as_tensor(timestep).detach().float()
     if t.numel() == 0 or not torch.isfinite(t).all():
         raise ValueError("SDA received an empty or non-finite sampling timestep.")
-    active = t > schedule[SDA_GATE_STEPS]
+    active = t > schedule[gate_steps]
     if not bool(torch.all(active == active.flatten()[0])):
         raise ValueError("SDA cannot mix enabled/disabled sigmas within one model batch.")
     return bool(active.flatten()[0])
@@ -160,6 +176,8 @@ class _ScopedSDABypass:
 def _sampling_guard(executor, model_wrap, sigmas, extra_args, callback, noise,
                     latent_image=None, denoise_mask=None, disable_pbar=False):
     schedule = validate_sigmas(sigmas)
+    total_steps = len(schedule) - 1
+    gate_steps = sda_gate_step_count(total_steps)
     sampler = executor.class_obj
     try:
         from .donut_sda_sampler import inspect_sda_sampler
@@ -169,7 +187,12 @@ def _sampling_guard(executor, model_wrap, sigmas, extra_args, callback, noise,
     logging.info("[Donut SDA] Solver: %s; s_noise=%s; max_stage=%s; noise_scaler=%s",
                  route, options.get("s_noise", "default"), options.get("max_stage", "default"),
                  getattr(options.get("noise_scaler"), "__name__", "default"))
-    logging.info("[Donut SDA] Single run: ON steps 1-2, OFF steps 3-8; cutoff sigma=%.7g", schedule[2])
+    if gate_steps < total_steps:
+        gate_description = f"ON steps 1-{gate_steps}, OFF steps {gate_steps + 1}-{total_steps}"
+    else:
+        gate_description = f"ON all {total_steps} steps"
+    logging.info("[Donut SDA] Single run: %s; cutoff sigma=%.7g",
+                 gate_description, schedule[gate_steps])
     # No second sampler invocation: history, stochastic noise state, seed and
     # callbacks are passed through without restart or additional initial noise.
     # In particular, execute Bleh's original wrapper and configured SAMPLER;

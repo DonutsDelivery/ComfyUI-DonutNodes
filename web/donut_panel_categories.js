@@ -1,7 +1,7 @@
 import {app} from '../../scripts/app.js';
 import {scheduleLayout} from './donut_layout.js?v=17';
 import {addSeedVR2Controls} from './donut_seedvr2_controls_model.js';
-import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries, upgradeV5BaseDecoders, upgradeV5VaeLoaders} from './donut_panel_categories_model.js?v=11';
+import {organizeV4Panels, splitV4FinishingPanels, arrangeV4ByFrequency, graphEntries, upgradeV5BaseDecoders, upgradeV5VaeLoaders} from './donut_panel_categories_model.js?v=14';
 import {PANEL_CATEGORY_CSS, syncCategorizedPanels} from './donut_panel_categories_dom.js?v=6';
 
 const observed = new Map();

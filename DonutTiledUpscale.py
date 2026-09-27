@@ -36,9 +36,9 @@ except ImportError:
     from krea2_variance_integration import reapply_edit_variance
 
 try:
-    from .krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+    from .krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
 except ImportError:
-    from krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+    from krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
 
 try:
     from .turbo_sampling import resolve_turbo_sampling
@@ -664,7 +664,7 @@ class DonutTiledUpscale:
             # leftover grain on the upscale after a clean base pass.
             shared_model = shared_negative = None
             if not edit_mode:
-                shared_model = apply_krea2_nag(model, negative, **nag_options)
+                shared_model = apply_krea2_nag_scheduled(model, negative, nag_options)
                 shared_negative = sampler_negative(negative, turbo_mode)
             for record in tile_records:
                 sampling_model = model
@@ -689,8 +689,8 @@ class DonutTiledUpscale:
                     sampling_positive = reapply_edit_variance(sampling_positive, positive)
                 latent = vae_encoder.encode(vae, record.pop("tile_tensor"))[0]
                 if edit_mode:
-                    sampling_model = apply_krea2_nag(
-                        sampling_model, sampling_negative, **nag_options,
+                    sampling_model = apply_krea2_nag_scheduled(
+                        sampling_model, sampling_negative, nag_options,
                         source_latent=_source_latent, vae=vae,
                         source_image=reference_tile, source_image_b=reference_b,
                         target_latent=latent,

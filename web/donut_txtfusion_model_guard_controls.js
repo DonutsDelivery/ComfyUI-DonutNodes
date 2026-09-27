@@ -1,5 +1,5 @@
 import {app} from '../../scripts/app.js';
-import {addModelTxtfusionGuardControls} from './donut_txtfusion_model_guard_controls_model.js?v=1';
+import {addModelTxtfusionGuardControls} from './donut_txtfusion_model_guard_controls_model.js?v=2';
 let pending = false;
 function refresh() {
     if (pending) return;

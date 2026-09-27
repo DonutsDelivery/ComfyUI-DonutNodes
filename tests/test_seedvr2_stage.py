@@ -46,6 +46,20 @@ class StageTests(unittest.TestCase):
         base = types.ModuleType(package.__name__ + ".DonutTiledUpscale")
         base.NODE_CLASS_MAPPINGS = {"DonutTiledUpscale":Base}
         sys.modules[base.__name__] = base
+        vae = types.ModuleType(package.__name__ + ".donut_vae_correction")
+        vae.subtract_vae_damage = lambda image, _vae, _strength: image
+        vae.vae_damage_input_types = lambda: {
+            "vae_damage_correction": ("BOOLEAN", {"default": False}),
+            "vae_damage_strength": ("FLOAT", {"default": 1.0}),
+        }
+        sys.modules[vae.__name__] = vae
+        schedule = types.ModuleType(package.__name__ + ".donut_grounding_schedule")
+        schedule.nag_alpha_schedule_input_types = lambda: {
+            "nag_alpha_schedule": (["constant", "linear"], {"default": "constant"}),
+            "nag_alpha_start": ("FLOAT", {"default": .25}),
+            "nag_alpha_end": ("FLOAT", {"default": .25}),
+        }
+        sys.modules[schedule.__name__] = schedule
         folders = types.ModuleType("folder_paths")
         folders.get_filename_list = lambda folder: []
         sys.modules["folder_paths"] = folders
@@ -61,6 +75,10 @@ class StageTests(unittest.TestCase):
         self.assertEqual(list(schema['optional'])[:3], ['color_reference', 'edit_source_image_b', 'enabled'])
         self.assertEqual(list(schema['optional'])[3], 'upscale_engine')
         self.assertEqual(schema['optional']['upscale_engine'][1]['default'], 'Donut')
+        self.assertEqual(list(schema['optional'])[-5:], [
+            'vae_damage_correction', 'vae_damage_strength',
+            'nag_alpha_schedule', 'nag_alpha_start', 'nag_alpha_end',
+        ])
         self.assertTrue(schema['required']['model'][1]['lazy'])
 
     def test_disabled_stage_is_identity_even_with_missing_models(self):

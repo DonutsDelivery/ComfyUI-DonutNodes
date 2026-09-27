@@ -8,14 +8,18 @@ function load(file, names) {
     const context = vm.createContext({});
     return vm.runInContext(`${source}\n({${names.join(',')}})`,context);
 }
-const {organizeV4Panels,categorizeGroups,graphEntries,SIZE_FIELDS,splitV4FinishingPanels} = load('donut_panel_categories_model.js',['organizeV4Panels','categorizeGroups','graphEntries','SIZE_FIELDS','splitV4FinishingPanels']);
+const {organizeV4Panels,categorizeGroups,graphEntries,SIZE_FIELDS,splitV4FinishingPanels,arrangeV4ByFrequency,NAG_SHARED_WIDGETS} = load('donut_panel_categories_model.js',['organizeV4Panels','categorizeGroups','graphEntries','SIZE_FIELDS','splitV4FinishingPanels','arrangeV4ByFrequency','NAG_SHARED_WIDGETS']);
 const {repairSeedVR2Workflow,POST_WIDGET_ORDER} = load('donut_seedvr2_workflow_repair.js',['repairSeedVR2Workflow','POST_WIDGET_ORDER']);
 const plain = value => JSON.parse(JSON.stringify(value));
 const same = (a,b) => assert.deepEqual(plain(a),plain(b));
 const fields = (path,names) => names.map(widget => ({path,widget,title:widget}));
+const pathSignature = path => JSON.stringify(path.map(String));
 function panel(id,title,groups) {return {id,type:'DonutWorkflowPanel',title,properties:{donut_app_controls:{seed_path:[900,1],groups}}};}
 function fixture() {
     const studio = {id:700,type:'DonutEditStudio',properties:{donut_seed_path:[900,1]},widgets_values_named:{enabled:false,resolution_mode:'Preset',aspect_ratio:'4:3 Standard',megapixels:1,width:1152,height:896,multiple:'64'}};
+    const sampler = {id:5,type:'DonutSampler',widgets_values_named:{nag_enabled:true,nag_alpha_schedule:'ease_in',nag_alpha_start:0.1,nag_alpha_end:0.6},
+        widgets:[{name:'nag_enabled',value:true},{name:'nag_alpha_schedule',value:'ease_in'},
+            {name:'nag_alpha_start',value:0.1},{name:'nag_alpha_end',value:0.6}]};
     const models = panel(1,'01 · Models',[
         {title:'Primary model',controls:fields([900,3],['unet_name','weight_dtype'])},
         {title:'Fusion',controls:fields([800],['tap_strength','compatibility_preset'])},
@@ -50,7 +54,48 @@ function fixture() {
         {title:'Final save',controls:fields([70],['root','filename_delimiter','overwrite_mode','extension','quality','embed_workflow','show_previews'])},
         {title:'Secondary save',controls:fields([71],['filename_prefix'])},
     ]);
-    return {nodes:[models,generate,loras,prompts,guidance,save,studio],links:[[101,1,0,2,0,'MODEL']],extra:{donut_workflow:{release:'V4 Beta'}}};
+    return {nodes:[models,generate,loras,prompts,guidance,save,{id:800,type:'base-generation'},studio],
+        definitions:{subgraphs:[{id:'base-generation',nodes:[sampler]}]},
+        links:[[101,1,0,2,0,'MODEL']],extra:{donut_workflow:{release:'V4 Beta'}}};
+}
+function vaeFixture() {
+    const graph=fixture(), nodes=graph.definitions.subgraphs[0].nodes;
+    const vaeWidgets=(correction,strength)=>[
+        {name:'vae_damage_correction',value:correction},
+        {name:'vae_damage_strength',value:strength},
+    ];
+    nodes[0].outputs=[{type:'LATENT',links:[500]}];
+    nodes.push(
+        {id:6,type:'DonutVAEDecode',inputs:[{name:'samples',link:500}],widgets:vaeWidgets(true,0.49)},
+        {id:3,type:'DonutTiledUpscale',widgets:vaeWidgets(false,1)},
+        {id:4,type:'DonutTiledUpscale',widgets:vaeWidgets(true,0.75)},
+        {id:8,type:'DonutFaceDetailer',widgets:vaeWidgets(false,1.5)},
+    );
+    const first=groups(graph.nodes[1]).find(group=>/First upscale/.test(group.title));
+    const second=groups(graph.nodes[1]).find(group=>/Second upscale/.test(group.title));
+    const main=groups(graph.nodes[1]).find(group=>group.title === 'Generation and finish');
+    main.controls=main.controls.filter(control=>JSON.stringify(control.path)!==JSON.stringify([800,5]));
+    first.controls.push(...fields([800,3],['vae_damage_correction','vae_damage_strength']));
+    second.controls.push(...fields([800,4],['vae_damage_correction','vae_damage_strength']));
+    main.controls.push(...fields([800,8],['vae_damage_correction','vae_damage_strength']));
+    return graph;
+}
+function layoutFixture() {
+    const graph=fixture();
+    const first=panel(21,'04 · First upscale',[]), second=panel(22,'05 · Second upscale',[]);
+    const face=panel(23,'06 · Face detail',[]), post=panel(24,'07 · SeedVR2 upscale',[]);
+    first.properties.donut_finish_stage='first'; second.properties.donut_finish_stage='second';
+    face.properties.donut_finish_stage='face'; post.properties.donut_finish_stage='post';
+    first.properties.donut_panel_role='hires'; second.properties.donut_panel_role='hires';
+    face.properties.donut_panel_role='face'; post.properties.donut_panel_role='post';
+    const edit=graph.nodes.find(node=>node.type==='DonutEditStudio'), reference={id:26,type:'DonutReferenceStudio'};
+    const result={id:27,type:'DonutLatestPreview'};
+    const wildcards=panel(28,'Wildcard library',[{title:'Wildcards',wildcard_library:true,controls:[]}]);
+    graph.nodes.push(first,second,face,post,reference,result,wildcards);
+    graph.extra.donut_layout={panel_order:'setup-finish-iterate-v2',columns:[
+        [1,2],[3],[21,22],[23,24,6],[700,26],[4,28],[5,27],
+    ]};
+    return graph;
 }
 const groups = panel => panel.properties.donut_app_controls.groups;
 const controls = graph => graphEntries(graph).flatMap(({node}) => groupsSafe(node).flatMap(group => group.controls || []));
@@ -65,20 +110,106 @@ test('every existing control and all backend values/links survive regrouping',()
     const after=controls(graph).filter(control=>control.path[0] !== 700).map(signature).sort();
     // The NAG experiment entries are injected aliases of existing Fusion
     // Control widgets (path [800]); they are additions, not moves, so the
-    // surviving set is the pre-organize set plus the two aliases. Shared NAG
+    // surviving set is the pre-organize set plus two experiment aliases and
+    // the three current-backend dynamic-alpha controls. Shared NAG
     // settings deliberately collapse onto the base sampler's bindings:
     // per-stage duplicates of a shared nag widget drop when the base group
     // carries the same widget (that stage keeps only nag_enabled).
     const aliases=[
         '{"path":[800,9],"widget":"nag_batch_txtfusion","title":"Batch equal-length text fusion"}',
         '{"path":[800,9],"widget":"nag_text_energy_compensation","title":"Text-energy compensation"}',
+        '{"path":[800,5],"widget":"nag_alpha_schedule","title":"NAG alpha schedule"}',
+        '{"path":[800,5],"widget":"nag_alpha_start","title":"Start NAG alpha"}',
+        '{"path":[800,5],"widget":"nag_alpha_end","title":"End NAG alpha"}',
     ];
     const expected=[...before,...aliases];
     const stageDuplicates=expected.filter(item=>JSON.parse(item).path[0]===800
         && (JSON.parse(item).path[1]===3 || JSON.parse(item).path[1]===4)
-        && ['nag_phi','nag_tau','nag_auto_phi','nag_phi_scale','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode'].includes(JSON.parse(item).widget));
+        && ['nag_phi','nag_tau','nag_auto_phi','nag_phi_scale','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode','nag_alpha_schedule','nag_alpha_start','nag_alpha_end'].includes(JSON.parse(item).widget));
     same(after,expected.filter(item=>!stageDuplicates.includes(item)).sort());
     same(graph.links,links); same(graph.nodes.at(-1).widgets_values_named,state);
+});
+test('dynamic NAG alpha controls bind once to the base sampler and preserve values',()=>{
+    const graph=fixture(), values=plain(graph.definitions.subgraphs[0].nodes[0].widgets_values_named);
+    organizeV4Panels(graph);
+    const group=groups(graph.nodes[4]).find(group=>group.controls?.some(control=>control.widget === 'nag_alpha_schedule'));
+    for(const [widget,title] of [['nag_alpha_schedule','NAG alpha schedule'],['nag_alpha_start','Start NAG alpha'],['nag_alpha_end','End NAG alpha']]) {
+        const matches=group.controls.filter(control=>control.widget === widget);
+        assert.equal(matches.length,1); assert.equal(matches[0].title,title); same(matches[0].path,[800,5]);
+    }
+    assert.ok(group.controls.some(control=>control.widget === 'alpha'));
+    same(graph.definitions.subgraphs[0].nodes[0].widgets_values_named,values);
+    assert.ok(!groups(graph.nodes[1]).some(group=>group.controls?.some(control=>control.widget === 'nag_alpha_schedule')));
+    assert.ok(!groups(graph.nodes[1]).some(group=>group.title === 'Base sampling · NAG'));
+    assert.ok(NAG_SHARED_WIDGETS.includes('nag_alpha_schedule'));
+    assert.ok(NAG_SHARED_WIDGETS.includes('nag_alpha_start'));
+    assert.ok(NAG_SHARED_WIDGETS.includes('nag_alpha_end'));
+});
+test('the dynamic NAG curve is one global setting mirrored to hires and face stage widgets',()=>{
+    const graph=fixture();
+    const first=panel(8,'04 · First upscale',[{title:'Donut hires · first upscale · NAG',advanced:true,
+        controls:fields([800,3],['nag_enabled','nag_alpha_schedule','nag_alpha_start','nag_alpha_end'])}]);
+    first.properties.donut_panel_role='hires';
+    const face=panel(9,'06 · Face detail',[{title:'Face detail · NAG',advanced:true,
+        controls:fields([800,6],['nag_enabled','nag_alpha_schedule','nag_alpha_start','nag_alpha_end'])}]);
+    face.properties.donut_panel_role='face';
+    graph.nodes.push(first,face);
+    organizeV4Panels(graph);
+    const settings=graph.nodes.find(node=>node.id===5);
+    const global=groups(settings).find(group=>group.donut_nag_alpha_controls);
+    for(const [widget,path] of [['nag_alpha_schedule',[800,5]],['nag_alpha_start',[800,5]],['nag_alpha_end',[800,5]]]) {
+        const controls=global.controls.filter(control=>control.widget===widget);
+        assert.equal(controls.length,1); same(controls[0].path,path);
+    }
+    for(const stage of [first,face]) {
+        const nag=groups(stage).find(group=>/NAG/.test(group.title));
+        same(nag.controls.map(control=>control.widget),['nag_enabled']);
+    }
+});
+test('VAE correction is one global pair bound to base decode and mirrored to all stages',()=>{
+    const graph=vaeFixture(); organizeV4Panels(graph);
+    const settings=graph.nodes[4], global=groups(settings).find(group=>group.donut_vae_correction_global);
+    assert.ok(global);
+    same(global.controls.map(control=>control.widget),['vae_damage_correction','vae_damage_strength']);
+    assert.ok(global.controls.every(control=>pathSignature(control.path) === pathSignature([800,6])));
+    const shared=settings.properties.donut_app_controls.vae_correction_global;
+    const targets=shared.targets.vae_damage_correction.map(path=>path.join('/')).sort();
+    same(targets,['800/3','800/4','800/6','800/8']);
+    const copies=controls(graph).filter(control=>['vae_damage_correction','vae_damage_strength'].includes(control.widget));
+    assert.equal(copies.length,2);
+    assert.ok(!groups(graph.nodes[1]).some(group=>/VAE correction/.test(group.title)));
+    same(graph.definitions.subgraphs[0].nodes.slice(1).map(node=>node.widgets.map(widget=>widget.value)),
+        [[true,0.49],[false,1],[true,0.75],[false,1.5]]);
+});
+test('settings panel replaces Seed & guidance and moves beside Generation on the canonical layout',()=>{
+    const graph=layoutFixture(); organizeV4Panels(graph);
+    const settings=graph.nodes.find(node=>node.properties?.donut_panel_role==='guidance');
+    assert.match(settings.title,/Settings \/ Configuration/);
+    assert.equal(arrangeV4ByFrequency(graph),true);
+    assert.equal(settings.title,'04 · Settings / Configuration');
+    same(graph.extra.donut_layout.columns.slice(0,3),[[1],[3],[2,5]]);
+    assert.equal(graph.extra.donut_layout.panel_order,'setup-finish-iterate-v3');
+    assert.equal(arrangeV4ByFrequency(graph),false);
+});
+test('custom panel placement survives the Settings migration',()=>{
+    const graph=layoutFixture();
+    graph.extra.donut_layout.columns=[[5,4],[1],[3,2],[21,22],[23,24,6],[25,26],[27,28]];
+    const saved=plain(graph.extra.donut_layout.columns);
+    organizeV4Panels(graph);
+    const settings=graph.nodes.find(node=>node.properties?.donut_panel_role==='guidance');
+    assert.match(settings.title,/Settings \/ Configuration/);
+    assert.equal(arrangeV4ByFrequency(graph),false);
+    same(graph.extra.donut_layout.columns,saved);
+});
+test('shipped V5 canonical layout places Settings beside Generation',()=>{
+    const graph=JSON.parse(fs.readFileSync(path.join(__dirname,'../workflows/v5/DonutWF_v5.json')));
+    organizeV4Panels(graph);
+    assert.equal(arrangeV4ByFrequency(graph),true);
+    const settings=graph.nodes.find(node=>node.properties?.donut_panel_role==='guidance');
+    const generate=graph.nodes.find(node=>node.properties?.donut_panel_role==='generate');
+    assert.equal(settings.title,'04 · Settings / Configuration');
+    assert.ok(graph.extra.donut_layout.columns.some(column=>column.includes(settings.id)&&column.includes(generate.id)));
+    assert.equal(graph.extra.donut_layout.panel_order,'setup-finish-iterate-v3');
 });
 test('repeated imports/save/reload are idempotent',()=>{
     const graph=fixture(); organizeV4Panels(graph); const saved=JSON.stringify(graph);
@@ -116,6 +247,9 @@ test('V5 guidance panel exposes both NAG experiment toggles from Fusion Control'
 });
 test('stale injected NAG controls heal to the current anchor path',()=>{
     const graph=fixture(); organizeV4Panels(graph);
+    const base=groups(graph.nodes[4]).find(group=>group.controls?.some(control=>control.widget === 'nag_alpha_schedule'));
+    const dynamic=base.controls.find(control=>control.widget === 'nag_alpha_schedule');
+    dynamic.path=[800];
     // Simulate a workflow saved while the controls were anchored to the
     // promoted outer compatibility_preset path ([800]).
     for(const node of graph.nodes){
@@ -131,6 +265,8 @@ test('stale injected NAG controls heal to the current anchor path',()=>{
         const group=guidance.find(group=>group.controls?.some(control=>control.widget===widget));
         same(group.controls.find(control=>control.widget===widget).path,[800,9]);
     }
+    same(groups(graph.nodes[4]).find(group=>group.controls?.some(control=>control.widget === 'nag_alpha_schedule'))
+        .controls.find(control=>control.widget === 'nag_alpha_schedule').path,[800,5]);
 });
 test('AuraFlow moves from Models to the sampling panel without duplication',()=>{
     const graph=fixture(); organizeV4Panels(graph);
@@ -327,7 +463,11 @@ test('per-stage NAG groups shrink to the enable toggle; shared NAG settings glob
     organizeV4Panels(graph);
     const titles=generate.properties.donut_app_controls.groups.filter(group=>/NAG/.test(group.title)).map(group=>`${group.title}: ${(group.controls||[]).map(c=>c.widget).join(',')}`);
     assert.ok(titles.some(t=>t.startsWith('Donut · first upscale · NAG on/off: nag_enabled')), titles.join('|'));
-    assert.ok(titles.some(t=>/Base sampling · NAG: .*nag_phi/.test(t)), titles.join('|'));
+    const settings=graph.nodes.find(node=>node.id===5);
+    const shared=groups(settings).find(group=>group.donut_base_nag_controls);
+    assert.ok(shared?.controls.some(control=>control.widget==='nag_phi'));
+    assert.ok(shared?.controls.some(control=>control.widget==='nag_tau'));
+    assert.ok(!titles.some(t=>/Base sampling · NAG/.test(t)), titles.join('|'));
     // Stage keeps only its enable toggle; base keeps all shared settings.
     const firstNag=titles.find(t=>t.startsWith('Donut · first upscale'));
     assert.ok(!/nag_phi|nag_tau/.test(firstNag), titles.join('|'));

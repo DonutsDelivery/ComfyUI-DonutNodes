@@ -6,6 +6,7 @@ model-local txtfusion hooks shared with Fusion Control, never by a NAG forward.
 from copy import deepcopy
 import logging
 
+from .donut_grounding_schedule import CURVES as _NAG_ALPHA_CURVES
 from .donut_grounding_schedule import DonutSampler as _Base
 from .donut_txtfusion_model_guard import attach_model_guard
 
@@ -29,6 +30,21 @@ class DonutSampler(_Base):
         optional["txtfusion_reference_checkpoint"] = (["None", *names], {
             "default": "None",
             "tooltip": "Deprecated compatibility field, no file is read. Reference is now captured automatically from the effective checkpoint/merge before adapters, for both native and bypass execution.",
+        })
+        # These are the newest serialized widgets. Keep them after the legacy
+        # sampler-local TextFusion fields so existing workflow values retain
+        # their positions when ComfyUI restores widgets by index.
+        optional["nag_alpha_schedule"] = (list(_NAG_ALPHA_CURVES), {
+            "default": "constant",
+            "tooltip": "Global NAG alpha curve for the base sampler, Donut tiled upscales, and Face Detailer. Each stage spans its own executed steps; constant uses nag_alpha and dynamic curves resolve auto phi per step.",
+        })
+        optional["nag_alpha_start"] = ("FLOAT", {
+            "default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01,
+            "tooltip": "First executed step's NAG alpha across the enabled sampling stages. If auto phi is on, phi is recalculated for this alpha.",
+        })
+        optional["nag_alpha_end"] = ("FLOAT", {
+            "default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01,
+            "tooltip": "Last executed step's NAG alpha across the enabled sampling stages. If auto phi is on, phi is recalculated for this alpha.",
         })
         return schema
 

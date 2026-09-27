@@ -6,7 +6,8 @@ import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 import { weightControl, vectorControl } from "./donut_weight_controls.js?v=2";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
 import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=17";
-import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=11";
+import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=14";
+import {VAE_SHARED_WIDGETS, prepareVaeCorrectionMigration, vaeCorrectionMirrorWidgets} from "./donut_vae_global_controls_model.js?v=1";
 
 const service = createLoraService(api);
 const FUSION_PRESET = (tapMethod, tapProfile, tapNormalization, projectorMethod, fusionMethod) => ({
@@ -102,6 +103,56 @@ function commitWidget(node, widget, value) {
     node.graph.afterChange();
     node.setDirtyCanvas(true, true);
 }
+function initializeGlobalVaeCorrection(panel) {
+    const migration = prepareVaeCorrectionMigration(panel, resolve);
+    if (!migration) return;
+    for (const {node,widget,value} of migration.updates) {
+        node.graph?.beforeChange();
+        widget.value = value;
+        widget.callback?.(value, app.canvas, node);
+        node.graph?.afterChange();
+        node.setDirtyCanvas?.(true, false);
+    }
+    migration.config.vae_correction_initialized = 1;
+}
+function initializeGlobalNagSettings(panel) {
+    // The base sampler owns the shared settings. Saved V5 workflows can still
+    // carry older per-stage copies, so synchronize from that saved source as
+    // soon as the family's controls render.
+    const config = panel.properties?.donut_app_controls;
+    const seedPath = config?.seed_path;
+    if (!Array.isArray(seedPath) || !seedPath.length) return;
+    const family = JSON.stringify(seedPath.map(String));
+    const panels = graphEntries(app.rootGraph || app.graph)
+        .map(entry => entry.node).filter(item => {
+            const path = item.properties?.donut_app_controls?.seed_path;
+            return Array.isArray(path) && JSON.stringify(path.map(String)) === family;
+        });
+    const controls = panels.flatMap(item => item.properties?.donut_app_controls?.groups || [])
+        .flatMap(group => group.controls || []);
+    for (const name of NAG_SHARED_WIDGETS) {
+        const anchor = controls.find(item => item.widget === name && Array.isArray(item.path)
+            && (resolve(item.path)?.comfyClass || resolve(item.path)?.type) === "DonutSampler");
+        const source = anchor && resolve(anchor.path);
+        if (!source) continue;
+        const sourceWidget = source.widgets?.find(widget => widget.name === name);
+        if (!sourceWidget) continue;
+        const seen = new Set([source]);
+        for (const item of controls) {
+            if (item.widget !== name && item.widget !== "nag_enabled") continue;
+            if (!Array.isArray(item.path)) continue;
+            const destination = resolve(item.path);
+            const mirror = destination?.widgets?.find(widget => widget.name === name);
+            if (!mirror || seen.has(destination) || Object.is(mirror.value, sourceWidget.value)) continue;
+            seen.add(destination);
+            destination.graph?.beforeChange();
+            mirror.value = sourceWidget.value;
+            mirror.callback?.(mirror.value, app.canvas, destination);
+            destination.graph?.afterChange();
+            destination.setDirtyCanvas?.(true, false);
+        }
+    }
+}
 function install(node, appOnly = false) {
     if (node._donutAppControls) return;
     const root = element("div");
@@ -140,6 +191,18 @@ function install(node, appOnly = false) {
                 mirror.callback?.(value, app.canvas, destination);
                 destination.graph.afterChange();
                 destination.setDirtyCanvas(true, false);
+            }
+            refreshControls();
+            return;
+        }
+        if (VAE_SHARED_WIDGETS.includes(widget.name)) {
+            const config = node.properties?.donut_app_controls;
+            for (const {node:destination,widget:mirror} of vaeCorrectionMirrorWidgets(config,widget.name,target,resolve)) {
+                destination.graph?.beforeChange();
+                mirror.value = value;
+                mirror.callback?.(value, app.canvas, destination);
+                destination.graph?.afterChange();
+                destination.setDirtyCanvas?.(true, false);
             }
             refreshControls();
             return;
@@ -523,6 +586,8 @@ function install(node, appOnly = false) {
     }
     function render() {
         root.replaceChildren(); refreshers.length = 0;
+        initializeGlobalVaeCorrection(node);
+        initializeGlobalNagSettings(node);
         root.classList.toggle("donut-section-columns", node.properties?.donut_columns === "sections");
         root.style.setProperty("--donut-accent", node.properties?.panel_color || "#b99cff");
         const config = node.properties?.donut_app_controls;

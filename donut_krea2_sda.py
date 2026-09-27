@@ -23,10 +23,6 @@ except ImportError:
 SDA_LORA_NAME = "krea2/krea2_turbo_sda_v1.0_comfy.safetensors"
 SDA_SHA256 = "0fafed045c53c4acd6165eb55da6ec04b24785b1eeed6f1be37b2cdcb66dba2b"
 SDA_FILE_SIZE = 469315664
-SDA_SUPPORTED_STEPS = 8
-SDA_GATE_STEPS = 2
-
-
 def _schedule_module():
     # Disabled SDA must not require a newer ComfyUI hooks/bypass API.
     try:
@@ -73,8 +69,9 @@ def _load_verified_lora(path):
 def _validate_sda_sampling(kwargs, supported_samplers):
     if not kwargs["turbo_mode"]:
         raise ValueError("SDA diversity requires Turbo mode.")
-    if kwargs["steps"] != SDA_SUPPORTED_STEPS:
-        raise ValueError("SDA diversity requires the complete 8-step Krea2 Turbo schedule.")
+    steps = kwargs["steps"]
+    if type(steps) is not int or steps < 1:
+        raise ValueError("SDA diversity requires a positive integer Turbo step count.")
     denoise = float(kwargs["denoise"])
     if not math.isfinite(denoise) or denoise != 1.0:
         raise ValueError("SDA requires full-denoise base generation (denoise=1); disable it for refinement.")
@@ -96,8 +93,8 @@ def _validate_sda_sampling(kwargs, supported_samplers):
     # Simple mode ignores these dormant advanced controls. Do not reject a
     # previously saved simple workflow because its hidden step range is stale.
     if kwargs["mode"] == "advanced":
-        if kwargs["start_at_step"] != 0 or kwargs["end_at_step"] < SDA_SUPPORTED_STEPS:
-            raise ValueError("SDA advanced sampling must cover all 8 steps, starting at step 0.")
+        if kwargs["start_at_step"] != 0 or kwargs["end_at_step"] < steps:
+            raise ValueError(f"SDA advanced sampling must cover all {steps} steps, starting at step 0.")
         if kwargs["add_noise"] != "enable" or kwargs["return_with_leftover_noise"] != "disable":
             raise ValueError("SDA advanced sampling requires initial noise and a fully denoised result.")
     if not kwargs.get("nag_enabled", False):
@@ -130,7 +127,7 @@ class DonutSampler(_BaseDonutSampler):
         # Append only: preserve every previously serialized widget position.
         optional["sda_enabled"] = ("BOOLEAN", {
             "default": False,
-            "tooltip": "Krea2 Turbo SDA: first 2 of 8 steps in ONE uninterrupted run. "
+            "tooltip": "Krea2 Turbo SDA: one uninterrupted run; its reference 2/8 gate scales to the configured step count (12 steps gates the first 3). "
                        "Supports Euler, ER-SDE and DPM++ 2M, including V4's Bleh preset (ODE) + beta. "
                        "Preserves preset options and supports Donut hard-swap merges in Experimental bypass. "
                        "Requires the F16 ComfyUI SDA file; does not auto-download.",
@@ -198,9 +195,15 @@ class DonutSampler(_BaseDonutSampler):
         # Keep the caller's simple/advanced mode, CFG handling, NAG, latent,
         # scheduler, callbacks and seed. There is exactly ONE base sampler call.
         latent, info = super().sample(model=scheduled, **kwargs)
+        gate_steps = schedule.sda_gate_step_count(kwargs["steps"])
+        total_steps = kwargs["steps"]
+        if gate_steps < total_steps:
+            gate_info = f"ON 1-{gate_steps} / OFF {gate_steps + 1}-{total_steps}"
+        else:
+            gate_info = f"ON all {total_steps} steps"
         return latent, (
             f"SDA: verified {SDA_LORA_NAME}; strength={strength:g}; {execution_mode}; "
-            f"single run, ON 1-2 / OFF 3-8\n{info}"
+            f"single run, {gate_info}\n{info}"
         )
 
 

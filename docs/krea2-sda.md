@@ -1,9 +1,12 @@
 # Native Krea2 Turbo SDA — single-run sampling
 
 Enable **SDA diversity** in V4's Generate panel or on the unified DonutSampler.
-Keep **SDA strength = 1**, **Turbo mode on**, **8 steps**, **CFG 1** and
-**denoise = 1**. V4's `bleh_preset_0` / `beta` combination is supported. The existing
-widget names and order are unchanged; no V4 JSON migration is needed.
+Keep **SDA strength = 1**, **Turbo mode on**, **CFG 1** and **denoise = 1**;
+the configured positive step count is used for the complete schedule. The
+reference 2-of-8 gate scales to that count (for example, 12 steps gates steps
+1-3 and leaves steps 4-12 off). V4's `bleh_preset_0` / `beta` combination is
+supported. Existing widget names and order are unchanged; no V4 JSON migration
+is needed.
 
 ## What changed
 
@@ -12,10 +15,13 @@ It carried the latent across the split, but not a stateful solver's local histor
 or stochastic noise-generator state. The replacement keeps the selected
 **simple/advanced mode** and invokes the sampler exactly once.
 
-The adapter is active at the first two entries of that run's actual sigma
-schedule and off from the third entry onward. The boundary is **not** a fixed
-25% diffusion-time threshold or a count of model calls. Both execution paths
-use the same cutoff, derived from `sample_sigmas[2]`.
+The reference adapter is active for the first 2 of 8 steps. For other configured
+counts, SDA scales that gate to the nearest whole-step equivalent of 2/8 (half
+step ties round up), using the actual sigma schedule. For example, a 12-step
+schedule is on for its first 3 entries and off for the remaining 9. The boundary
+is **not** a fixed diffusion-time threshold or a count of model calls. Both
+execution paths use the same cutoff, derived from the corresponding entry in
+`sample_sigmas`.
 
 - **Comfy patches:** a native ComfyUI weight hook, attached to copies of the
   positive/negative conditioning. Upstream hooks and metadata are preserved.
@@ -39,10 +45,11 @@ therefore survive the cutoff. Other solvers, including adaptive solvers and
 multi-evaluation methods such as Heun, are explicitly rejected: their internal
 sub-evaluations must not be mistaken for two completed denoising steps.
 
-The selected scheduler is retained, provided it produces a strictly descending
-8-step schedule ending at zero. A different scheduler is not claimed to reproduce
-the upstream quality measurements. `euler` / `simple` is an optional reference
-comparison, not a required replacement for V4's configured sampler/scheduler.
+The selected scheduler is retained, provided it produces a complete, strictly
+descending schedule ending at zero. The reference quality measurements use an
+8-step schedule; other step counts are accepted but are not claimed to reproduce
+those measurements. `euler` / `simple` is an optional reference comparison, not
+a required replacement for V4's configured sampler/scheduler.
 
 ### V4 default: Bleh preset 0, ER-SDE in ODE mode, beta
 
@@ -102,7 +109,8 @@ SDA reads the same source/plan metadata as the real Donut merge injection:
 - Cleanup runs across both roots, including partial injection failures and
   denoiser exceptions. It does not leave SDA on for subsequent finishing passes.
 
-The same two-of-eight gate and single solver run are retained. The console logs:
+The scaled gate and single solver run are retained. The console logs the active
+and inactive step ranges for the configured schedule:
 
 ```text
 [Donut SDA] Hard-swap routing: <N> primary / <M> retained model2 adapter(s)
@@ -121,8 +129,9 @@ live targets, and compiled/nested sources fail explicitly; no always-on fallback
 or full-model materialization is introduced.
 
 For a GPU A/B test keep the merge, sampler, scheduler, seed and prompt fixed,
-with Turbo on, eight steps and full denoise. Compare SDA off/on without changing
-the merge controls. No V4 JSON migration or different adapter download is needed.
+with Turbo on, the chosen full-schedule step count and full denoise. Compare SDA
+off/on without changing the merge controls. No V4 JSON migration or different
+adapter download is needed.
 
 With SDA **off**, or strength **zero**, the existing sampler is called without
 loading the file, adding hooks, changing modes or importing scheduling support.
@@ -184,8 +193,9 @@ NAG, caches, finishing stages and other optional adapters. Compare identical
 seeds with SDA off/on, then restore features one at a time. Test Experimental
 bypass using the upstream execution-mode control; native SDA inherits it.
 
-The info output includes the verified adapter and `single run, ON 1-2 / OFF 3-8`.
-The console reports the actual cutoff sigma at sampler entry and logs the
+The info output includes the verified adapter and the active/inactive ranges
+for the configured count (for example, `single run, ON 1-3 / OFF 4-12`). The
+console reports the actual cutoff sigma at sampler entry and logs the
 weight-hook/runtime-adapter ON and OFF transitions at model evaluation.
 
 ## Validation

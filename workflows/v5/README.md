@@ -54,31 +54,34 @@ The shipped SeedVR2 post-pass selects `seedvr2_3b_int8_convrot.safetensors` in `
 
 ## What’s in the workflow
 
-Panels run from setup, through finishing and saving, to the controls you iterate on most: editing/references, prompts, and seed/guidance beside the result. The ordering migration runs once when the workflow is opened.
+Panels run from model selection and setup, through finishing and saving, to editing/references, prompts, and Settings / Configuration beside the result. The ordering migration runs once when the workflow is opened.
 
 Numbered cards expose everyday controls, with additional controls under **Advanced**. The source loaders and generation wiring live inside inspectable subgraphs. Graph and App Mode use the same underlying settings.
 
-- **Models:** choose a single model or two-model merge, encoder, VAE and upscaler.
-- **LoRAs & block weights:** search installed filenames using ComfyUI’s native dropdown filter; add, remove, reorder and enable LoRAs; edit strengths and block weights through sliders or numeric fields.
-- **Image setup & editing:** manage editing references, independent crops and selected-area editing.
-- **Prompts:** edit the general/face, scene and negative text with autosizing
+- **01 · Models:** choose a single model or two-model merge, encoder, VAE and upscaler.
+- **02 · LoRAs & block weights:** search installed filenames using ComfyUI’s native dropdown filter; add, remove, reorder and enable LoRAs; edit strengths and block weights through sliders or numeric fields.
+- **03 · Generation setup:** output size, batch and base sampling.
+- **04 · Settings / Configuration:** control the shared seed, NAG strength and schedule, seed variance, TextFusion guard and global VAE correction. This card sits beside Generation setup and stays separate from model loading.
+- **05 · First upscale** and **06 · Second upscale:** separate hires controls and advanced settings.
+- **07 · Face detail:** face refinement, detection and masks.
+- **08 · SeedVR2 upscale:** optional final native upscale, model/VAE selection and advanced sampling.
+- **09 · Save images:** choose the destination, format, quality and filename behavior.
+- **10 · Image setup & editing:** manage editing references, independent crops and selected-area editing.
+- **11 · Prompts:** edit the general/face, scene and negative text with autosizing
   editors and a shared wildcard tool. The connected Prompt card is prompt 1;
   add blank variants or duplicate it, then set **Active prompt** to a fixed
   1-based set or choose **increment** to advance after each generation.
-- **Seed & guidance:** control the shared seed, NAG and seed variance.
-- **03 · Generation setup:** output size, batch and base sampling.
-- **04 · First upscale** and **05 · Second upscale:** separate hires controls and advanced settings.
-- **06 · Face detail:** face refinement, detection and masks.
-- **07 · SeedVR2 upscale:** optional final native upscale, model/VAE selection and advanced sampling.
-- **Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.
-- **Save images:** choose the destination, format, quality and filename behavior.
+- **12 · Latest result:** choose a stage preview or follow the latest output; inspect the final expanded prompt and stage progress.
 
 ### Selecting the VAE
 
 Choose the VAE in **01 · Models → VAE**. This selects both the encoder and
 decoder for base generation, Donut hires, face detail, reference encoding and
-VAE damage correction. The selected checkpoint is loaded once and shared
-through the existing VAE connections.
+VAE correction. The selected checkpoint is loaded once and shared through the
+existing VAE connections. Set **Settings / Configuration → Global VAE
+correction** once to apply its toggle and strength after base decode, Donut
+hires, and face detail. A SeedVR2 replacement bypasses correction for that
+hires stage.
 
 Install/update **ComfyUI-VAE-Utils**, download
 [`Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors`](https://huggingface.co/spacepxl/Wan2.1-VAE-upscale2x/resolve/384fb7de682e60bd54b59d6eea810ca9d9993497/Wan2.1_VAE_upscale2x_imageonly_real_v1.safetensors)
@@ -110,23 +113,24 @@ Keep the existing V5 JSON. After updating the node code, restart ComfyUI,
 refresh the browser and reopen the workflow. The Models panel's loader becomes
 **Donut Load VAE** while retaining its selected file, ID, sockets and links.
 The earlier separate Decoder controls are removed; the Models panel owns the
-VAE selection. Correction toggles and strengths remain independent per stage.
+VAE selection. Configure correction once in Settings / Configuration; old
+per-stage values migrate from the saved base-decode choice on first load.
 
-### VAE damage correction
+### Global VAE correction
 
-Each of these panels has an independent **Subtract VAE-predicted damage** toggle
-and **Correction strength** slider under **VAE correction**:
+Use the shared **Global VAE correction** toggle and **Correction strength**
+slider in **04 · Settings / Configuration**. They apply to these passes:
 
 | Panel | When correction runs |
 | --- | --- |
 | **03 · Generation setup** | After the first VAE decode, before hires and selected-area compositing. |
-| **04 · First upscale** | After the Donut stage's decoding, tile blending and colour preservation. |
-| **05 · Second upscale** | After the Donut stage's decoding, tile blending and colour preservation. |
-| **06 · Face detail** | On each refined face crop after its final decode, before resizing and mask blending. |
+| **05 · First upscale** | After the Donut stage's decoding, tile blending and colour preservation. SeedVR2 replacement bypasses this pass. |
+| **06 · Second upscale** | After the Donut stage's decoding, tile blending and colour preservation. SeedVR2 replacement bypasses this pass. |
+| **07 · Face detail** | On each refined face crop after its final decode, before resizing and mask blending. |
 
-All toggles default Off. Strength 1 matches the one-iteration subtraction effect;
+The global toggle defaults Off. Strength 1 matches the one-iteration subtraction effect;
 each slider runs from 0 to 4, including values above 1. Strength 0 skips correction.
-Each enabled stage uses the selected VAE's encoder and decoder for one
+Each active pass uses the selected VAE's encoder and decoder for one
 additional round trip of the decoded RGB image or face crop, then applies
 `clip(image + strength * (image - roundtrip))`. The 2× VAE returns its filtered,
 original-size prediction before subtraction, using the same decode handling as

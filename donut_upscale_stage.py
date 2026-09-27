@@ -2,6 +2,7 @@
 from copy import deepcopy
 from . import donut_seedvr2
 from .donut_vae_correction import subtract_vae_damage, vae_damage_input_types
+from .donut_grounding_schedule import nag_alpha_schedule_input_types
 from .DonutTiledUpscale import NODE_CLASS_MAPPINGS as _nodes
 _Base = _nodes["DonutTiledUpscale"]
 
@@ -19,6 +20,9 @@ class DonutTiledUpscaleStage(_Base):
         result["optional"].update(donut_seedvr2.input_types())
         # Append after all existing widgets; saved workflows keep their values.
         result["optional"].update(vae_damage_input_types())
+        # The shared alpha curve is appended last so V5's existing stage and
+        # VAE correction widget positions continue to deserialize unchanged.
+        result["optional"].update(nag_alpha_schedule_input_types())
         return result
     FUNCTION = "run_stage"
 

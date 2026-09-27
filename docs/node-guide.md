@@ -200,6 +200,13 @@ the upstream default unclipped linear guidance coefficient
 automatically. Set `nag_auto_phi` off to use `nag_phi` directly. Alpha or scale
 at zero resolves effective phi to zero rather than dividing by zero.
 
+The base DonutSampler also exposes `nag_alpha_schedule`, `nag_alpha_start` and
+`nag_alpha_end`. In `constant` mode it uses the existing `nag_alpha` value; a
+dynamic curve schedules alpha across executed steps. Auto phi is recalculated
+from each scheduled alpha, so the configured `nag_phi_scale` stays in effect.
+This schedule can run together with Edit Mode's dynamic grounding schedule.
+Upscale and face-detail stages retain their own constant NAG settings.
+
 Edit NAG also exposes reference boosts, a boost mask, and fit mode. Reference
 images, VAE, and target latents are supplied internally. Restart ComfyUI and
 refresh the browser to load the new inputs.

@@ -40,7 +40,7 @@ export function panelRole(panel) {
     const title = String(panel.title || '').toLowerCase();
     if (/generate.*finish/.test(title)) return 'generate';
     if (/save images/.test(title)) return 'save';
-    if (/seed.*guidance/.test(title)) return 'guidance';
+    if (/seed.*guidance|settings.*configuration/.test(title)) return 'guidance';
     if (/prompts/.test(title)) return 'prompts';
     if (/loras/.test(title)) return 'loras';
     if (/models/.test(title)) return 'models';
@@ -88,6 +88,9 @@ function classify(role, group, control) {
         if (/^nag_enabled$/.test(w) && /upscale/i.test(title)) {
             const stageRank = /First upscale/i.test(title) ? 30 : 50;
             return bucket(`Donut · ${/First/i.test(title) ? 'first' : 'second'} upscale · NAG on/off`, stageRank, true);
+        }
+        if (/^nag_enabled$/.test(w) && /Face detail/i.test(title)) {
+            return bucket('Face detail · NAG on/off', 43, true);
         }
         if (/^nag_/.test(w) && /upscale|Face detail/i.test(title)) return null; // moved to the shared NAG panel
         if (/SeedVR2.*post/i.test(title)) {
@@ -179,12 +182,102 @@ function moveGroups(source, target, predicate) {
     from.groups = from.groups.filter(group => !predicate(group));
     target.properties.donut_app_controls.groups.push(...moving.map(group => ({...group,donut_category_fixed:false})));
 }
-// Per-stage NAG groups expose only each stage's enable toggle; the shared
-// NAG settings (phi/auto/tau/sigmas/ref) live once on the base sampler's
-// widgets shown inside the guidance panel. Values are bound to the base
-// node explicitly, and a save that still carries stage-level duplicates
-// heals by moving those controls out of the stage panels on load.
-export const NAG_SHARED_WIDGETS = ['nag_phi','nag_auto_phi','nag_phi_scale','nag_tau','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode'];
+// Per-stage NAG groups expose only each stage's enable toggle; shared phi,
+// auto-phi, sigma, reference and alpha-curve settings live once on the base
+// sampler's widgets shown inside Settings / Configuration. The panel mirrors
+// these values to stage widgets so execution and reload keep the global choice.
+export const NAG_SHARED_WIDGETS = ['nag_phi','nag_auto_phi','nag_phi_scale','nag_tau','nag_sigma_start','nag_sigma_end','nag_ref_boost','nag_ref_boost_a','nag_fit_mode','nag_alpha_schedule','nag_alpha_start','nag_alpha_end'];
+const NAG_SCHEDULE_CONTROLS = [
+    ['nag_alpha_schedule', 'NAG alpha schedule'],
+    ['nag_alpha_start', 'Start NAG alpha'],
+    ['nag_alpha_end', 'End NAG alpha'],
+];
+function addNagScheduleControls(entries, generate) {
+    const groups = generate.properties?.donut_app_controls?.groups;
+    const base = groups?.find(group => /Base sampling · NAG$/.test(group.title));
+    const anchor = base?.controls?.find(control => control.widget === 'nag_enabled')?.path;
+    if (!base || !Array.isArray(anchor)) return;
+    const sampler = entries.find(entry => pathKey(entry.path) === pathKey(anchor)
+        && (entry.node.comfyClass || entry.node.type) === 'DonutSampler')?.node;
+    if (!sampler) return;
+
+    const seen = new Set();
+    for (const control of base.controls) {
+        if (!NAG_SCHEDULE_CONTROLS.some(([widget]) => widget === control.widget)) continue;
+        if (seen.has(control.widget)) continue;
+        seen.add(control.widget);
+        control.path = [...anchor];
+        control.title = NAG_SCHEDULE_CONTROLS.find(([widget]) => widget === control.widget)[1];
+    }
+    base.controls = base.controls.filter((control, index, controls) =>
+        !NAG_SCHEDULE_CONTROLS.some(([widget]) => widget === control.widget)
+        || controls.findIndex(item => item.widget === control.widget) === index);
+    for (const [widget, title] of NAG_SCHEDULE_CONTROLS) {
+        if (!hasWidget(sampler, widget) || seen.has(widget)) continue;
+        base.controls.push({path:[...anchor], widget, title});
+    }
+}
+function moveNagScheduleControls(entries, generate, settings) {
+    const generateGroups = generate.properties?.donut_app_controls?.groups || [];
+    const settingsGroups = settings.properties?.donut_app_controls?.groups || [];
+    const bindings = new Map();
+    for (const group of generateGroups) for (const control of group.controls || []) {
+        if (NAG_SCHEDULE_CONTROLS.some(([widget]) => widget === control.widget)
+                && Array.isArray(control.path) && !bindings.has(control.widget)) {
+            bindings.set(control.widget, {...control});
+        }
+    }
+    const baseGroup = generateGroups.find(group => /^Base sampling · NAG$/.test(group.title))
+        || settingsGroups.find(group => group.donut_base_nag_controls === true);
+    const anchor = baseGroup?.controls?.find(control => control.widget === 'nag_enabled')?.path;
+    const sampler = Array.isArray(anchor) ? entries.find(entry => pathKey(entry.path) === pathKey(anchor)
+        && (entry.node.comfyClass || entry.node.type) === 'DonutSampler')?.node : null;
+    for (const [widget,title] of NAG_SCHEDULE_CONTROLS) {
+        if (!bindings.has(widget) && sampler && hasWidget(sampler, widget)) bindings.set(widget,{path:[...anchor],widget,title});
+    }
+    for (const group of generateGroups) {
+        group.controls = (group.controls || []).filter(control => !NAG_SCHEDULE_CONTROLS.some(([widget]) => widget === control.widget));
+    }
+    let target = settingsGroups.find(group => group.donut_nag_alpha_controls === true);
+    if (bindings.size) {
+        if (!target) target = settingsGroups.find(group => group.controls?.some(control => control.widget === 'alpha'));
+        if (!target) {
+            target = {title:'Negative attention guidance · NAG', advanced:false, donut_nag_alpha_controls:true,
+                donut_category_fixed:false, donut_category_rank:10, controls:[]};
+            settingsGroups.push(target);
+        }
+        target.donut_nag_alpha_controls = true;
+        target.title = 'Negative attention guidance · NAG';
+        target.advanced = false;
+        target.donut_category_fixed = false;
+        target.donut_category_rank = 10;
+        const present = new Set(target.controls.map(control => control.widget));
+        for (const [widget,title] of NAG_SCHEDULE_CONTROLS) {
+            const control = bindings.get(widget);
+            if (!control) continue;
+            control.title = title;
+            if (present.has(widget)) {
+                const previous = target.controls.find(item => item.widget === widget);
+                previous.path = control.path; previous.title = title;
+            } else target.controls.push(control);
+        }
+    }
+    for (const group of generateGroups) {
+        if (!/^Base sampling · NAG$/.test(group.title)) continue;
+        const controls = (group.controls || []).filter(control => !NAG_SCHEDULE_CONTROLS.some(([widget]) => widget === control.widget));
+        if (!controls.length) continue;
+        let advanced = settingsGroups.find(item => item.donut_base_nag_controls === true);
+        if (!advanced) {
+            advanced = {title:'Negative attention guidance · NAG',advanced:true,donut_base_nag_controls:true,controls:[]};
+            settingsGroups.push(advanced);
+        }
+        const existing = new Set(advanced.controls.map(control => `${control.widget}/${pathKey(control.path)}`));
+        advanced.controls.push(...controls.filter(control => !existing.has(`${control.widget}/${pathKey(control.path)}`)));
+        group.controls = group.controls.filter(control => !controls.includes(control));
+    }
+    generate.properties.donut_app_controls.groups = generateGroups.filter(group => group.controls.length || !Array.isArray(group.controls));
+    settings.properties.donut_app_controls.groups = settingsGroups;
+}
 function consolidateNagGlobals(entries, generate) {
     const panels = entries.map(entry => entry.node);
     const config = generate.properties.donut_app_controls;
@@ -224,9 +317,10 @@ function consolidateNagGlobals(entries, generate) {
         if (stageWithWidget) base.controls.push({...stageWithWidget, path:[...base.controls[0].path]});
     }
 }
-function baseDecodeEntries(entries, panel) {
-    const anchors = new Set(panel.properties.donut_app_controls.groups
-        .flatMap(group => group.controls || []).map(control => pathKey(control.path)));
+function baseDecodeEntries(entries, panelOrPanels) {
+    const panels = Array.isArray(panelOrPanels) ? panelOrPanels : [panelOrPanels];
+    const anchors = new Set(panels.flatMap(panel => panel.properties.donut_app_controls.groups
+        .flatMap(group => group.controls || []).map(control => pathKey(control.path))));
     const samplers = entries.filter(entry => (entry.node.comfyClass || entry.node.type) === 'DonutSampler'
         && anchors.has(pathKey(entry.path)));
     return entries.filter(entry => {
@@ -307,66 +401,79 @@ function removeDecoderOverrides(entries, panels) {
     }
 }
 
-function addVaeDamageControls(entries, panels) {
+const VAE_CORRECTION_WIDGETS = ['vae_damage_correction','vae_damage_strength'];
+const VAE_GLOBAL_MARK = 'donut_vae_correction_global';
+function addVaeDamageControls(entries, generate, family, settings) {
     const byPath = new Map(entries.map(entry => [pathKey(entry.path), entry]));
-    for (const panel of panels) {
-        const role = panelRole(panel);
-        if (!['hires', 'generate', 'face'].includes(role)) continue;
-        const groups = panel.properties.donut_app_controls.groups;
-        const stages = new Map();
-        for (const group of groups) for (const control of group.controls || []) {
+    const stages = new Map();
+    const stagePanels = family.filter(panel => ['generate','hires','face'].includes(panelRole(panel)));
+    for (const panel of stagePanels) {
+        for (const group of panel.properties.donut_app_controls.groups) for (const control of group.controls || []) {
             if (!Array.isArray(control.path)) continue;
             const entry = byPath.get(pathKey(control.path));
             const type = entry && (entry.node.comfyClass || entry.node.type);
-            if (!(['hires', 'generate'].includes(role) && type === 'DonutTiledUpscale')
-                    && !(['face', 'generate'].includes(role) && type === 'DonutFaceDetailer')) continue;
-            const key = pathKey(entry.path);
-            if (!stages.has(key)) stages.set(key, {entry, group});
-        }
-        if (role === 'generate') for (const entry of baseDecodeEntries(entries, panel)) {
-            if ((entry.node.comfyClass || entry.node.type) === 'DonutVAEDecode') {
-                stages.set(pathKey(entry.path), {entry, group:{title:'Base decode'}});
-            }
-        }
-        for (const [key, {entry, group}] of stages) {
-            const existing = new Set(groups.flatMap(item => item.controls || [])
-                .filter(control => pathKey(control.path) === key).map(control => control.widget));
-            const source = group.donut_source_title || group.title || entry.node.title || 'Upscale';
-            const stage = /first/i.test(source) ? 'first' : /second/i.test(source) ? 'second' : null;
-            const type = entry.node.comfyClass || entry.node.type;
-            const face = type === 'DonutFaceDetailer', base = type === 'DonutVAEDecode';
-            const controls = [
-                {widget:'vae_damage_correction', title:'Subtract VAE-predicted damage'},
-                {widget:'vae_damage_strength', title:'Correction strength', weights:{min:0, max:4, step:0.01}},
-            ].filter(control => hasWidget(entry.node, control.widget) && !existing.has(control.widget))
-                .map(control => ({...control, path:[...entry.path]}));
-            if (!controls.length) continue;
-            groups.push({
-                title:base ? 'Base decode · VAE correction' : face ? 'Face detail · VAE correction'
-                    : stage ? `Donut hires · ${stage} upscale · VAE correction` : `${source} · VAE correction`,
-                advanced:false, donut_category_fixed:true,
-                donut_category_rank:base ? 10.5 : face ? 40.5 : stage === 'first' ? 30.5 : stage === 'second' ? 50.5
-                    : (group.donut_category_rank ?? 30) + .5,
-                ...(type === 'DonutTiledUpscale' ? {visible_when:{path:[...entry.path], widget:'upscale_engine', value:'Donut'}} : {}),
-                description:'One extra round trip with the VAE selected in Models. Correction keeps the current image size, including with a 2x VAE. Strength 1 is standard; higher values strengthen the effect.',
-                controls,
-            });
+            if (!['DonutTiledUpscale','DonutFaceDetailer'].includes(type)) continue;
+            if (!stages.has(pathKey(entry.path))) stages.set(pathKey(entry.path), entry);
         }
     }
+    const decoders = baseDecodeEntries(entries, [generate,settings]).filter(entry =>
+        (entry.node.comfyClass || entry.node.type) === 'DonutVAEDecode');
+    for (const entry of decoders) stages.set(pathKey(entry.path), entry);
+    if (!stages.size) return;
+
+    const stagePaths = new Set(stages.keys());
+    for (const panel of family) {
+        const config = panel.properties.donut_app_controls;
+        config.groups = config.groups.flatMap(group => {
+            if (group[VAE_GLOBAL_MARK]) return [];
+            const controls = group.controls?.filter(control =>
+                !VAE_CORRECTION_WIDGETS.includes(control.widget) || !stagePaths.has(pathKey(control.path)));
+            if (!controls || controls.length === group.controls.length) return [group];
+            return controls.length ? [{...group,controls}] : [];
+        });
+    }
+
+    const available = [...stages.values()].filter(entry => VAE_CORRECTION_WIDGETS.every(widget => hasWidget(entry.node, widget)));
+    if (!available.length) return;
+    const source = decoders.find(entry => available.includes(entry)) || available[0];
+    const sourcePath = [...source.path];
+    const targets = Object.fromEntries(VAE_CORRECTION_WIDGETS.map(widget => [widget,
+        available.map(entry => [...entry.path])]));
+    const settingsGroups = settings.properties.donut_app_controls.groups;
+    const saved = settings.properties.donut_app_controls.vae_correction_global;
+    const sameTargets = VAE_CORRECTION_WIDGETS.every(widget =>
+        JSON.stringify((saved?.targets?.[widget] || []).map(pathKey)) === JSON.stringify(targets[widget].map(pathKey)));
+    const initialized = settings.properties.donut_app_controls.vae_correction_initialized === 1
+        && saved?.version === 1 && pathKey(saved.source_path) === pathKey(sourcePath) && sameTargets;
+    settings.properties.donut_app_controls.vae_correction_global = {version:1,source_path:sourcePath,targets};
+    const present = new Set(settingsGroups.flatMap(group => group.controls || [])
+        .filter(control => VAE_CORRECTION_WIDGETS.includes(control.widget)).map(control => control.widget));
+    const controls = [
+        {widget:'vae_damage_correction',title:'Enable VAE correction'},
+        {widget:'vae_damage_strength',title:'Correction strength',weights:{min:0,max:4,step:0.01}},
+    ].map(control => ({...control,path:sourcePath}));
+    settingsGroups.push({
+        [VAE_GLOBAL_MARK]:true,title:'Global VAE correction',advanced:false,
+        donut_category_fixed:true,donut_category_rank:12,
+        description:'Applies the same correction after base decoding, Donut hires, and face detail. Hires correction runs with the Donut engine; SeedVR2 replacement bypasses that stage. Strength 1 is standard.',
+        controls:controls.filter(control => !present.has(control.widget)),
+    });
+    settings.properties.donut_app_controls.vae_correction_initialized = initialized ? 1 : 0;
 }
 
 export function organizeV4Panels(root) {
     const entries = graphEntries(root);
     const panels = entries.map(entry => entry.node).filter(node => panelRole(node));
-    const originals = new Map(panels.map(panel => [panel, JSON.stringify(panel.properties)]));
+    const originals = new Map(panels.map(panel => [panel, JSON.stringify({title:panel.title,properties:panel.properties})]));
     removeDecoderOverrides(entries, panels);
     for (const panel of panels) {
         panel.properties.donut_panel_role = panelRole(panel);
         panel.properties.donut_columns = 'sections';
+        if (panelRole(panel) === 'guidance' && /seed.*guidance/i.test(panel.title || '')) {
+            const prefix = String(panel.title).match(/^\s*\d+\s*·\s*/)?.[0] || '';
+            panel.title = `${prefix}Settings / Configuration`;
+        }
     }
-    // Bind to the real inner stage widgets; no promoted socket, graph link or
-    // existing widget value is rewritten while organizing the panels.
-    addVaeDamageControls(entries, panels);
     for (const panel of panels.filter(panel => panelRole(panel) === 'loras')) {
         const groups = panel.properties.donut_app_controls.groups;
         const execution = groups.flatMap(group => group.controls || []).find(control => control.widget === 'execution_mode');
@@ -379,6 +486,7 @@ export function organizeV4Panels(root) {
     for (const generate of panels.filter(panel => panelRole(panel) === 'generate')) {
         // Cross-panel ownership requires V4's explicit shared seed path.
         // A custom panel with no family metadata is categorized in place only.
+        addNagScheduleControls(entries, generate);
         consolidateNagGlobals(entries, generate);
         if (!generate.properties.donut_app_controls.seed_path?.length) continue;
         const family = panels.filter(panel => sameFamily(panel, generate));
@@ -387,6 +495,10 @@ export function organizeV4Panels(root) {
         if (models.length === 1) moveGroups(models[0], generate, group => /AuraFlow/.test(group.donut_source_title || group.title));
         const guidance = family.filter(panel => panelRole(panel) === 'guidance');
         const prompts = family.filter(panel => panelRole(panel) === 'prompts');
+        if (guidance.length === 1) {
+            moveNagScheduleControls(entries, generate, guidance[0]);
+            addVaeDamageControls(entries, generate, family, guidance[0]);
+        }
         if (models.length === 1 && guidance.length === 1) {
             const modelGroups = models[0].properties.donut_app_controls.groups;
             const fusionControls = modelGroups.flatMap(group => group.controls || []);
@@ -453,7 +565,7 @@ export function organizeV4Panels(root) {
         const role = panelRole(panel);
         config.groups = categorizeGroups(['hires','face','post'].includes(role) ? 'generate' : role, config.groups);
     }
-    return panels.filter(panel => originals.get(panel) !== JSON.stringify(panel.properties));
+    return panels.filter(panel => originals.get(panel) !== JSON.stringify({title:panel.title,properties:panel.properties}));
 }
 
 // Split only the standard, tagged saved layout. Existing control paths and
@@ -516,7 +628,8 @@ export function splitV4FinishingPanels(root) {
 export function arrangeV4ByFrequency(root) {
     const layout = root?.extra?.donut_layout;
     if (!['V4 Beta','V5'].includes(root?.extra?.donut_workflow?.release) || !Array.isArray(layout?.columns)
-            || layout.panel_order === 'setup-finish-iterate-v2') return false;
+            || layout.panel_order === 'setup-finish-iterate-v3') return false;
+    if (layout.panel_order && layout.panel_order !== 'setup-finish-iterate-v2') return false;
     const nodes = root.nodes || [];
     const unique = predicate => {
         const matches = nodes.filter(predicate);
@@ -531,13 +644,21 @@ export function arrangeV4ByFrequency(root) {
     if (![...Object.values(roles),...Object.values(stages),edit,result].every(Boolean)) return false;
     const reference = unique(node => node.type === 'DonutReferenceStudio');
     const wildcards = unique(node => node.properties?.donut_app_controls?.groups?.some(group => group.wildcard_library));
-    const order = [roles.models,roles.loras,roles.generate,stages.first,stages.second,
-        stages.face,stages.post,roles.save,edit,roles.prompts,roles.guidance,result];
-    const titles = ['Models','LoRAs & block weights','Generation setup','First upscale','Second upscale',
-        'Face detail','SeedVR2 upscale','Save images','Image setup & editing','Prompts','Seed & guidance','Latest result'];
-    order.forEach((node,index) => {node.title = `${String(index+1).padStart(2,'0')} · ${titles[index]}`;});
-    const columns = [[roles.models,roles.generate],[roles.loras],[stages.first,stages.second],
+    const expectedOld = [[roles.models,roles.generate],[roles.loras],[stages.first,stages.second],
         [stages.face,stages.post,roles.save],[edit,reference],[roles.prompts,wildcards],[roles.guidance,result]]
+        .map(column => column.filter(Boolean).map(node => String(node.id)));
+    const expectedIds = new Set(expectedOld.flat());
+    const currentCanonical = layout.columns.map(column => column.map(String).filter(id => expectedIds.has(id)));
+    if (layout.panel_order === 'setup-finish-iterate-v2'
+            && JSON.stringify(currentCanonical) !== JSON.stringify(expectedOld)) return false;
+    if (!layout.panel_order && JSON.stringify(currentCanonical) !== JSON.stringify(expectedOld)) return false;
+    const order = [roles.models,roles.loras,roles.generate,roles.guidance,stages.first,stages.second,
+        stages.face,stages.post,roles.save,edit,roles.prompts,result];
+    const titles = ['Models','LoRAs & block weights','Generation setup','Settings / Configuration','First upscale',
+        'Second upscale','Face detail','SeedVR2 upscale','Save images','Image setup & editing','Prompts','Latest result'];
+    order.forEach((node,index) => {node.title = `${String(index+1).padStart(2,'0')} · ${titles[index]}`;});
+    const columns = [[roles.models],[roles.loras],[roles.generate,roles.guidance],[stages.first,stages.second],
+        [stages.face,stages.post,roles.save],[edit,reference],[roles.prompts,wildcards],[result]]
         .map(column => column.filter(Boolean).map(node => node.id));
     const assigned = new Set(columns.flat().map(String));
     // Keep existing auxiliary nodes reachable, beneath setup rather than
@@ -546,10 +667,10 @@ export function arrangeV4ByFrequency(root) {
         if (!assigned.has(String(id))) {columns[0].push(id); assigned.add(String(id));}
     }
     layout.columns = columns;
-    layout.panel_order = 'setup-finish-iterate-v2';
+    layout.panel_order = 'setup-finish-iterate-v3';
     const inputs = root.extra.linearData?.inputs;
     if (Array.isArray(inputs)) {
-        const rank = new Map([...order.slice(0,9),reference,roles.prompts,wildcards,roles.guidance,result]
+        const rank = new Map([...order.slice(0,10),reference,wildcards,roles.prompts,result]
             .filter(Boolean).map((node,index) => [String(node.id),index]));
         inputs.sort((a,b) => (rank.get(String(a[0])) ?? Infinity) - (rank.get(String(b[0])) ?? Infinity));
     }

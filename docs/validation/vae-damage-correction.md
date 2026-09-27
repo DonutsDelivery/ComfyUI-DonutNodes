@@ -1,9 +1,9 @@
-# VAE damage correction — implementation review
+# Global VAE correction — implementation review
 
 Implemented in `DonutVAEDecode`, the existing registered `DonutTiledUpscale`
 stage, and `DonutFaceDetailer`. The optional `vae_damage_correction` and
 `vae_damage_strength` inputs are appended after previous inputs/widgets.
-Defaults are Off and 1.0; each independent strength slider spans 0–4.
+Backend defaults are Off and 1.0; the shared strength slider spans 0–4.
 
 Source trace: the V5 generation panel's existing control paths identify its
 Donut sampler. The migration follows that sampler's latent output to the directly
@@ -14,10 +14,17 @@ subsequent loads retain saved choices. It skips nonstandard decoder contracts
 and custom chains, and runs only when the backend advertises the new node.
 No global ComfyUI decoder patch is installed. The distributed JSON is unchanged.
 
-The generation, first/second upscale and face panels bind to the actual nested
-stage widgets using the existing panel commit/serialization path. Path/widget
-deduplication prevents repeat organization from adding the same controls. No
-setting is copied into a second store or promoted to an outer input.
+The **Settings / Configuration** panel displays one toggle and one strength
+slider. They bind to the base decoder and mirror edits to both Donut hires
+stages and face detail using the actual nested widget paths. Model loading and
+the VAE selector remain in **Models**. Repeated organization rebuilds the
+mirror paths without adding duplicate controls.
+
+On the first load of a workflow with the previous per-stage controls, the saved
+base-decode toggle and strength seed the global setting and are copied to all
+stage widgets once. Subsequent loads preserve the saved shared values. This
+provides one coherent global choice where the older workflow allowed each
+stage to differ.
 
 All stages share the same float32 `y + strength * (y - decode(encode(y)))`
 correction, clamped to RGB range. Each still image receives its own VAE round
@@ -40,8 +47,9 @@ on the bottom and right, then cropped back without resizing or pixel shifts.
 Off/zero-strength correction adds no VAE work. Disabled upscale stages skip it;
 SeedVR2 replacement also skips it and hides the corresponding panel group.
 
-Validation scope: source inspection only. No unit tests, browser interaction,
-queued generation, PNG metadata comparison, save/reload exercise or GPU quality
-comparison was run. The running ComfyUI process was not restarted. Runtime and
-panel-to-generation behavior remain unverified. No registry publication or
-distributed workflow JSON update was made.
+Panel and migration regression tests are recorded in
+[`settings-panel-global-vae-2026-09-27.md`](settings-panel-global-vae-2026-09-27.md).
+Browser interaction, queued generation, PNG metadata comparison, save/reload
+exercise and GPU quality comparison were unavailable. The running ComfyUI
+process was not restarted. No registry publication or distributed workflow
+JSON update was made.

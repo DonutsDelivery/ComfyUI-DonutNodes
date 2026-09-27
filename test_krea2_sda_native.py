@@ -157,7 +157,9 @@ def parameters(**updates):
     result = dict(seed=42, steps=8, cfg_start=1., cfg_halfway=1., cfg_end=1.,
                   halfway_step=4, sampler_name='euler', scheduler='simple',
                   positive=[[torch.ones(1, 2, 3), {}]], negative=[[torch.zeros(1, 2, 3), {}]],
-                  latent_image={'samples': torch.ones(1, 1)}, denoise=1., turbo_mode=True)
+                  latent_image={'samples': torch.ones(1, 1)}, denoise=1., turbo_mode=True,
+                  mode='simple', add_noise='enable', start_at_step=0, end_at_step=10000,
+                  return_with_leftover_noise='disable', edit_mode=False)
     result.update(updates)
     return result
 
@@ -264,7 +266,8 @@ class SDATests(unittest.TestCase):
         for strength in [float('nan'), float('inf'), -1., 2.1]:
             with self.subTest(strength=strength), self.assertRaises(ValueError):
                 self.sda.DonutSampler().sample(Model(), sda_enabled=True, sda_strength=strength, **parameters())
-        cases = [dict(turbo_mode=False), dict(steps=6), dict(denoise=.99), dict(denoise=float('nan')),
+        cases = [dict(turbo_mode=False), dict(steps=0), dict(steps=True),
+                 dict(denoise=.99), dict(denoise=float('nan')),
                  dict(edit_mode=True), dict(mode='multi_model'), dict(sampler_name='heun'),
                  dict(sampler_name='dpm_adaptive'), dict(sampler_name='dpmpp_sde'), dict(cfg_start=2),
                  dict(mode='advanced', start_at_step=1), dict(mode='advanced', end_at_step=7),
@@ -290,8 +293,26 @@ class SDATests(unittest.TestCase):
         self.assertTrue(self.schedule.sda_active(.4, nonlinear))
         self.assertFalse(self.schedule.sda_active(.01, nonlinear))
 
+    def test_gate_scales_from_reference_fraction_to_configured_schedule(self):
+        for total_steps, expected_active in ((6, 2), (8, 2), (10, 3), (12, 3)):
+            with self.subTest(total_steps=total_steps):
+                sigmas = torch.linspace(1., 0., total_steps + 1)
+                actual = [self.schedule.sda_active(s, sigmas) for s in sigmas[:-1]]
+                self.assertEqual(self.schedule.sda_gate_step_count(total_steps), expected_active)
+                self.assertEqual(actual, [True] * expected_active + [False] * (total_steps - expected_active))
+                self.sda._validate_sda_sampling(parameters(steps=total_steps), self.schedule.SDA_SAMPLERS)
+
+    def test_advanced_sda_must_cover_the_configured_step_count(self):
+        self.sda._validate_sda_sampling(
+            parameters(steps=12, mode='advanced', end_at_step=12), self.schedule.SDA_SAMPLERS,
+        )
+        with self.assertRaisesRegex(ValueError, 'cover all 12 steps'):
+            self.sda._validate_sda_sampling(
+                parameters(steps=12, mode='advanced', end_at_step=11), self.schedule.SDA_SAMPLERS,
+            )
+
     def test_invalid_runtime_schedules_and_mixed_sigmas_rejected(self):
-        for sigmas in [None, SIGMAS[:-1], SIGMAS.repeat(2, 1), torch.zeros(9), SIGMAS.flip(0),
+        for sigmas in [None, torch.tensor([1.]), SIGMAS.repeat(2, 1), torch.zeros(9), SIGMAS.flip(0),
                        SIGMAS.clone().index_fill(0, torch.tensor([4]), float('nan'))]:
             with self.subTest(sigmas=sigmas), self.assertRaises(ValueError):
                 self.schedule.sda_active(1., sigmas)
@@ -299,13 +320,18 @@ class SDATests(unittest.TestCase):
             self.schedule.sda_active(torch.tensor([1., .1]), SIGMAS)
 
     def test_native_hook_turns_off_at_third_sigma_and_resets(self):
-        frames = self.schedule._SDAKeyframes()
-        strengths, changes = [], []
-        for sigma in SIGMAS[:-1]:
-            changes.append(frames.prepare_current_keyframe(float(sigma), {'sample_sigmas': SIGMAS}))
-            strengths.append(frames.strength)
-        self.assertEqual(strengths, [1., 1.] + [0.] * 6)
-        self.assertEqual(changes, [False, False, True] + [False] * 5)
+        for total_steps in (8, 12):
+            with self.subTest(total_steps=total_steps):
+                sigmas = torch.linspace(1., 0., total_steps + 1)
+                gate_steps = self.schedule.sda_gate_step_count(total_steps)
+                frames = self.schedule._SDAKeyframes()
+                strengths, changes = [], []
+                for sigma in sigmas[:-1]:
+                    changes.append(frames.prepare_current_keyframe(float(sigma), {'sample_sigmas': sigmas}))
+                    strengths.append(frames.strength)
+                self.assertEqual(strengths, [1.] * gate_steps + [0.] * (total_steps - gate_steps))
+                self.assertEqual(changes, [False] + [False] * (gate_steps - 1) + [True]
+                                 + [False] * (total_steps - gate_steps - 1))
         frames.reset()
         self.assertEqual(frames.strength, 1.)
         self.assertIsInstance(frames.clone(), self.schedule._SDAKeyframes)
@@ -413,19 +439,24 @@ class SDATests(unittest.TestCase):
                     model.model_options['donut_lora_execution_mode'] = execution
                     dormant = object()
                     for mode in ['simple', 'advanced']:
-                        before = len(BaseSampler.calls)
-                        params = parameters(mode=mode, sampler_name='er_sde', scheduler='bong_tangent', model_2=dormant)
-                        _, info = sampler.sample(model, sda_enabled=True, **params)
-                        self.assertEqual(len(BaseSampler.calls), before + 1)
-                        call = BaseSampler.calls[-1]
-                        self.assertEqual(call['mode'], mode)
-                        self.assertEqual(call['seed'], 42)
-                        self.assertEqual(call['sampler_name'], 'er_sde')
-                        self.assertEqual(call['scheduler'], 'bong_tangent')
-                        self.assertIs(call['latent_image'], params['latent_image'])
-                        self.assertIs(call['model_2'], dormant)
-                        self.assertIn('single run', info)
-                        self.assertFalse(model.wrappers)
+                        for steps in (8, 12):
+                            before = len(BaseSampler.calls)
+                            params = parameters(steps=steps, mode=mode, sampler_name='er_sde',
+                                                scheduler='bong_tangent', model_2=dormant)
+                            _, info = sampler.sample(model, sda_enabled=True, **params)
+                            self.assertEqual(len(BaseSampler.calls), before + 1)
+                            call = BaseSampler.calls[-1]
+                            self.assertEqual(call['mode'], mode)
+                            self.assertEqual(call['steps'], steps)
+                            self.assertEqual(call['seed'], 42)
+                            self.assertEqual(call['sampler_name'], 'er_sde')
+                            self.assertEqual(call['scheduler'], 'bong_tangent')
+                            self.assertIs(call['latent_image'], params['latent_image'])
+                            self.assertIs(call['model_2'], dormant)
+                            self.assertIn('single run', info)
+                            if steps == 12:
+                                self.assertIn('ON 1-3 / OFF 4-12', info)
+                            self.assertFalse(model.wrappers)
                 self.assertEqual(self.utils.load_torch_file.call_count, 2, 'one CPU load per sampler, not per seed/mode')
 
     def test_schedule_guard_passes_same_objects_to_one_stateful_run(self):
@@ -455,6 +486,24 @@ class SDATests(unittest.TestCase):
         self.assertEqual(active, [True, True] + [False] * 6)
         self.assertEqual(old_states[2], 3., 'history crosses the SDA boundary')
         self.assertEqual(result, 2.015625)
+
+    def test_schedule_guard_accepts_configured_12_step_schedule(self):
+        calls, active = [], []
+        sigmas = torch.linspace(1., 0., 13)
+        def sample_er_sde():
+            pass
+        self.kernels.sample_er_sde = sample_er_sde
+        class Executor:
+            class_obj = types.SimpleNamespace(sampler_function=sample_er_sde, extra_options={})
+            def __call__(self, *args):
+                calls.append(args)
+                active.extend(self.schedule.sda_active(s, args[1]) for s in args[1][:-1])
+                return 'same run'
+        Executor.schedule = self.schedule
+        args = (object(), sigmas, {}, None, torch.ones(1), torch.zeros(1), None, False)
+        self.assertEqual(self.schedule._sampling_guard(Executor(), *args), 'same run')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(active, [True, True, True] + [False] * 9)
 
     def test_runtime_guard_rejects_custom_solver_or_churn(self):
         delegate = Mock()

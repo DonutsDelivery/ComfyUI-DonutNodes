@@ -66,9 +66,14 @@ except ImportError:
     from krea2_variance_integration import reapply_edit_variance
 
 try:
-    from .krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+    from .krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
 except ImportError:
-    from krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
+    from krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
+
+try:
+    from .donut_grounding_schedule import nag_alpha_schedule_input_types as _nag_alpha_schedule_input_types
+except ImportError:
+    from donut_grounding_schedule import nag_alpha_schedule_input_types as _nag_alpha_schedule_input_types
 
 try:
     from .turbo_sampling import resolve_turbo_sampling
@@ -236,6 +241,7 @@ class DonutFaceDetailer:
             **nag_input_types(),
             # Append new widgets so saved positional values retain their meaning.
             **vae_damage_input_types(),
+            **_nag_alpha_schedule_input_types(),
         }}
 
     RETURN_TYPES = ("IMAGE", "IMAGE", "IMAGE", "MASK", "DETAILER_PIPE", "IMAGE")
@@ -348,8 +354,8 @@ class DonutFaceDetailer:
             if noise_mask is not None:
                 latent_image["noise_mask"] = noise_mask.reshape((-1, 1, noise_mask.shape[-2], noise_mask.shape[-1]))
 
-        sampling_model = apply_krea2_nag(
-            sampling_model, sampling_negative, **nag_options,
+        sampling_model = apply_krea2_nag_scheduled(
+            sampling_model, sampling_negative, nag_options,
             source_latent=source_latent, vae=vae,
             source_image=face_reference_crop if edit_mode else None,
             target_latent=latent_image,

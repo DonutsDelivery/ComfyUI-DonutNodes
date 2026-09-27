@@ -63,9 +63,12 @@ active throughout; reducing semantic grounding does not disable those paths.
 - NAG is supported, including zero `nag_phi` or `nag_alpha`, with no requirement
   to disable the NAG toggle. Raw/Turbo, one/two reference inputs, fit/crop mode,
   reference boosts and their mask, and the inpaint target keep their existing
-  paths. See the NAG details below.
+  paths. The base DonutSampler, both Donut tiled-upscale stages, and Face
+  Detailer use the same global NAG settings and alpha curve. Their individual
+  `nag_enabled` switches remain independent. The SeedVR2 replacement engine
+  does not run Krea2 NAG.
 - `multi_model` still needs a shared cross-phase schedule and remains unsupported
-  for genuinely changing grounding. Other/multi-evaluation/adaptive solvers,
+  for dynamic grounding or NAG alpha. Other/multi-evaluation/adaptive solvers,
   Euler churn and Bleh sigma overrides retain their existing guards. Normal
   constant grounding retains its existing compatibility. This NAG fix does not
   claim that every third-party sampler/patch combination has been validated.
@@ -98,6 +101,38 @@ public patch API; no closure inspection, global patch or shared negative-context
 mutation is used. Per-prediction option copies replace only the NAG diffusion
 wrapper key, leaving other wrappers and settings intact.
 
+## Dynamic NAG alpha
+
+The base **DonutSampler** adds `nag_alpha_schedule`, `nag_alpha_start` and
+`nag_alpha_end`. `constant` leaves the existing `nag_alpha` path untouched.
+Selecting `linear`, `ease_in`, `ease_out` or `ease_in_out` interpolates alpha
+over the sampler's executed steps. The curve uses the end value for a one-step
+run; advanced mode stretches it across only the executed range. The existing
+NAG sigma start/end window still applies on top of this per-step alpha.
+
+When `nag_auto_phi` is enabled, Donut resolves phi from each scheduled alpha as
+`nag_phi_scale / alpha` before preparing that step's NAG wrapper. Zero alpha or
+zero scale resolves phi to zero. With auto phi off, the manual phi remains fixed
+while alpha changes. The schedule also works in ordinary text-to-image NAG and
+can run alongside dynamic edit grounding: each executed step selects its
+matching grounding conditioning and NAG wrapper together. It supports the same
+simple/advanced solver and Bleh preset paths described above; multi-model mode
+is rejected because its phases do not share one step index. Turning NAG off
+makes any stored alpha schedule inactive.
+
+The Settings / Configuration panel mirrors the same curve, endpoints, auto-phi
+choice and other shared NAG values to both tiled-upscale nodes and Face Detailer.
+Auxiliary stages read their actual sigma schedule and span their own executed
+steps. Partial denoise and Turbo snapping therefore change the number of curve
+points to match that stage's real run. Tiled upscaling applies the curve to each
+tile; Face Detailer applies it to each crop and cycle. Each stage's NAG enable
+switch remains independent. Saved workflows with stale stage copies synchronize
+from the base sampler's saved global values when the panel loads.
+
+Wrappers are prepared before denoising through the installed public NAG patch
+API. Identical reference VAE encodes are shared within the run. Constant mode
+does not create dynamic wrappers or alter saved alpha/phi values.
+
 ## Validation
 
 Run the focused CPU/stub tests and frontend graph-binding tests:
@@ -105,6 +140,7 @@ Run the focused CPU/stub tests and frontend graph-binding tests:
 ```sh
 python -m unittest test_donut_grounding_schedule.py test_donut_grounding_nag.py -v
 node test_donut_grounding_controls.mjs
+node --test tests/panel_categories.test.cjs
 python -m py_compile donut_grounding_schedule.py donut_grounding_nag.py krea2_nag_integration.py
 ```
 
@@ -115,8 +151,14 @@ Turbo, CFG 1 and CFG > 1, one/two references, an inpaint mask, and the installed
 V4 Bleh preset. Confirm constant mode matches the previous implementation and
 that a subsequent constant run is unaffected by a scheduled run or cancellation.
 For NAG, repeat with phi 0, alpha 0 and active guidance, with/without an explicit
-negative override. Check reference boosts, fit/crop and inpainting, and verify
-no repeated VAE encode occurs during a correctly primed sampling run. Measure
-runtime/VRAM and compare against constant grounding. The focused tests use CPU
-tensors and Comfy/NAG doubles, not Krea2 weights; they do not establish GPU
-integration or improved likeness.
+negative override. Also queue a three-step run from the actual Generate panel
+with NAG enabled, alpha schedule `linear` from 0.1 to 0.5, auto phi on and scale
+1.5; the expected per-step alphas are 0.1/0.3/0.5 and effective phis are
+15/5/3. Combine it with a 512-to-1088 grounding schedule and confirm each NAG
+negative stays paired with its positive. Save a PNG with workflow metadata,
+compare panel values with embedded workflow and execution prompt, reload it, and
+confirm those choices persist. Check reference boosts, fit/crop and inpainting,
+and verify no repeated VAE encode occurs during a correctly primed sampling
+run. Measure runtime/VRAM and compare against constant grounding. The focused
+tests use CPU tensors and Comfy/NAG doubles, not Krea2 weights; they do not
+establish GPU integration or improved likeness.

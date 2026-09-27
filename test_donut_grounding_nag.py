@@ -76,6 +76,8 @@ class NAGTests(unittest.TestCase):
                 negative = arguments["nag_negative"][0][0]
                 def forward():
                     return negative
+                forward.alpha = arguments["alpha"]
+                forward.phi = arguments["phi"]
                 key = NAG_KEY if "source_latent" in arguments else support._NAG_KEY
                 model.add_wrapper_with_key(DIFFUSION, key, forward)
                 return (model,)
@@ -135,10 +137,11 @@ class NAGTests(unittest.TestCase):
         model = self.bridge.apply_krea2_nag(self.model, raw_negative, **arguments)
         self.prepared = model
         return grounding._prepare_conditions(
-            request(image=self.image_a, image_b=self.image_b, turbo=turbo), model,
-            conditioning(512), self.bridge.sampler_negative(raw_negative, turbo), values)
+            request(image=self.image_a, image_b=self.image_b, turbo=turbo), None, model,
+            conditioning(512), self.bridge.sampler_negative(raw_negative, turbo), values, None)
 
-    def exercise(self, model, positive, negative, values, fail=False):
+    def exercise(self, model, positive, negative, values, fail=False, nag_alphas=None,
+                 with_params=False):
         original = {"positive": [dict(m, tensor=t) for t, m in positive],
                     "negative": [dict(m, tensor=t) for t, m in negative]}
         guider = types.SimpleNamespace(conds=original, _step_index=0, cfg_values=[1.] * len(values))
@@ -150,13 +153,19 @@ class NAGTests(unittest.TestCase):
             class_obj = guider
             def __call__(self, x, timestep, selected_options, seed):
                 selected_wrappers = selected_options["transformer_options"]["wrappers"][DIFFUSION]
-                seen.append((guider.conds["positive"][0]["tensor"], selected_wrappers[NAG_KEY][0]()))
+                selected_nag = selected_wrappers[NAG_KEY][0]
+                entry = (guider.conds["positive"][0]["tensor"], selected_nag())
+                if with_params:
+                    entry += (selected_nag.alpha, selected_nag.phi)
+                seen.append(entry)
                 assert selected_wrappers["other"] is model.wrappers[DIFFUSION]["other"]
                 assert selected_options["transformer_options"]["patches"] is options["transformer_options"]["patches"]
                 if fail:
                     raise RuntimeError("denoiser interrupted")
                 return x
         selector = model.wrappers["predict"][grounding._WRAPPER_KEY][0]
+        if nag_alphas is not None:
+            self.assertEqual(selector.nag_alphas, tuple(nag_alphas))
         for index in range(len(values)):
             guider._step_index = index
             try:
@@ -165,6 +174,141 @@ class NAGTests(unittest.TestCase):
                 self.assertIs(guider.conds, original)
                 self.assertIs(options["transformer_options"]["wrappers"][DIFFUSION][NAG_KEY], original_nag)
         return seen
+
+    def test_dynamic_alpha_selects_step_wrapper_and_resolves_auto_phi(self):
+        values = (512, 768, 1088)
+        alphas = grounding.nag_alpha_values(.1, .5, len(values), "linear")
+        nag_request = grounding._NagRequest("linear", .1, .5, True, 4.0, 1.5)
+        with support.capture_nag_preparations():
+            _, pos, neg = self.prepare(values=values)
+            model, pos, neg = grounding._prepare_conditions(
+                request(), nag_request, self.prepared, pos, neg, values, alphas,
+            )
+            seen = self.exercise(model, pos, neg, values, nag_alphas=alphas, with_params=True)
+
+        self.assertEqual([float(p.flatten()[0]) for p, _, _, _ in seen], list(values))
+        self.assertEqual([float(n.flatten()[0]) for _, n, _, _ in seen], [-2. * v for v in values])
+        self.assertEqual([alpha for _, _, alpha, _ in seen], list(alphas))
+        for observed, expected in zip((phi for _, _, _, phi in seen), (15., 5., 3.)):
+            self.assertAlmostEqual(observed, expected)
+        scheduled_calls = self.calls[-3:]
+        self.assertEqual([call["alpha"] for call in scheduled_calls], list(alphas))
+        for call, phi in zip(scheduled_calls, (15., 5., 3.)):
+            self.assertAlmostEqual(call["phi"], phi)
+
+    def test_dynamic_alpha_fails_if_no_nag_recipe_was_captured(self):
+        request = grounding._NagRequest("linear", .1, .5, True, 4.0, 1.0)
+        with support.capture_nag_preparations(enabled=False):
+            with self.assertRaisesRegex(RuntimeError, "alpha was not silently left static"):
+                grounding._prepare_conditions(
+                    None, request, self.model, conditioning(512), conditioning(512, -1),
+                    None, (.1, .5),
+                )
+
+    def test_dynamic_alpha_supports_regular_text_to_image_nag(self):
+        alphas = grounding.nag_alpha_values(.1, .5, 3, "linear")
+        nag_request = grounding._NagRequest("linear", .1, .5, True, 4.0, 1.5)
+        raw_negative = conditioning(512, -1)
+        positive = conditioning(512)
+        with support.capture_nag_preparations():
+            base = self.bridge.apply_krea2_nag(
+                self.model, raw_negative, nag_enabled=True, nag_phi=4.0,
+                nag_alpha=.25, nag_auto_phi=True, nag_phi_scale=1.5,
+            )
+            model, _, _ = grounding._prepare_conditions(
+                None, nag_request, base, positive, raw_negative, None, alphas,
+            )
+            original = {"positive": positive, "negative": raw_negative}
+            guider = types.SimpleNamespace(conds=original, _step_index=0, cfg_values=[1.] * len(alphas))
+            options = {"transformer_options": {"wrappers": model.wrappers}}
+            selector = model.wrappers["predict"][grounding._WRAPPER_KEY][0]
+            seen = []
+
+            class Executor:
+                class_obj = guider
+                def __call__(self, x, timestep, selected_options, seed):
+                    wrapper = selected_options["transformer_options"]["wrappers"][DIFFUSION][support._NAG_KEY][0]
+                    seen.append((wrapper.alpha, wrapper.phi))
+                    return x
+
+            for index in range(len(alphas)):
+                guider._step_index = index
+                selector(Executor(), "x", "sigma", options, 42)
+                self.assertIs(guider.conds, original)
+        self.assertEqual([alpha for alpha, _ in seen], list(alphas))
+        for (_, phi), expected in zip(seen, (15., 5., 3.)):
+            self.assertAlmostEqual(phi, expected)
+
+    def test_dynamic_nag_can_select_donut_textfusion_wrapper(self):
+        key = "donut_nag_text_energy_experiment"
+        wrapper = object()
+        recipe = support.NAGPreparation(
+            types.SimpleNamespace(wrappers={DIFFUSION: {key: [wrapper]}}),
+            None, {}, True,
+        )
+        self.assertEqual(recipe.wrappers_for(), {key: (wrapper,)})
+
+    def test_auxiliary_stage_uses_its_executed_steps_and_auto_phi(self):
+        options = dict(
+            nag_enabled=True, nag_phi=4.0, nag_alpha=.25, nag_auto_phi=True,
+            nag_phi_scale=1.5, nag_alpha_schedule="linear",
+            nag_alpha_start=.1, nag_alpha_end=.5,
+        )
+        raw_negative = conditioning(512, -1)
+        with patch.dict(sys.modules, {
+            "donut_grounding_schedule": grounding,
+            "donut_grounding_nag": support,
+        }):
+            stage_model = self.bridge.apply_krea2_nag_scheduled(
+                self.model, raw_negative, options,
+            )
+
+        selector = stage_model.wrappers["predict"][grounding._STAGE_NAG_WRAPPER_KEY][0]
+        sampler_wrapper = stage_model.wrappers["sample"][grounding._STAGE_NAG_WRAPPER_KEY][0]
+        options_for_prediction = {"transformer_options": {"wrappers": stage_model.wrappers}}
+        seen = []
+
+        class PredictionExecutor:
+            class_obj = object()
+            def __call__(self, x, timestep, selected_options, seed):
+                diffusion = selected_options["transformer_options"]["wrappers"][DIFFUSION]
+                wrapper = diffusion[support._NAG_KEY][0]
+                seen.append((wrapper.alpha, wrapper.phi))
+                return x
+
+        prediction = PredictionExecutor()
+
+        class SampleExecutor:
+            class_obj = object()
+            def __call__(self, model_wrap, sigmas, extra_args, callback, noise,
+                         latent_image=None, denoise_mask=None, disable_pbar=False):
+                for sigma in sigmas[:-1]:
+                    selector(prediction, "latent", torch.tensor([float(sigma)]),
+                             options_for_prediction, 42)
+                return "sampled"
+
+        inspector = types.ModuleType("donut_sda_sampler")
+        inspector.inspect_sda_sampler = lambda sampler, supported: None
+        with patch.dict(sys.modules, {"donut_sda_sampler": inspector}):
+            result = sampler_wrapper(
+                SampleExecutor(), "model", torch.tensor([1.0, .6, .2, 0.0]),
+                {}, None, "noise",
+            )
+            # Upscale tiles reuse one stage model and the guard reuses prepared
+            # wrappers instead of rebuilding NAG for every tile.
+            sampler_wrapper(
+                SampleExecutor(), "model", torch.tensor([1.0, .6, .2, 0.0]),
+                {}, None, "noise",
+            )
+        self.assertEqual(result, "sampled")
+        for observed, expected in zip((alpha for alpha, _ in seen), [.1, .3, .5] * 2):
+            self.assertAlmostEqual(observed, expected)
+        for (_, phi), expected in zip(seen, [15.0, 5.0, 3.0] * 2):
+            self.assertAlmostEqual(phi, expected)
+        self.assertEqual(len(self.calls), 4)  # base patch plus three scheduled alpha variants
+        self.assertNotIn("nag_alpha_schedule", self.calls[0])
+        self.assertNotIn("nag_alpha_start", self.calls[0])
+        self.assertNotIn("nag_alpha_end", self.calls[0])
 
     def test_turbo_switches_unzeroed_nag_negative_with_positive(self):
         values = (512, 512, 768, 1088)

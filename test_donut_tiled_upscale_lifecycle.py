@@ -32,10 +32,15 @@ class FakeVAEDecode:
         return (torch.zeros(1, 4, 4, 3),)
 
 
+class FakeVAELoader:
+    pass
+
+
 fake_nodes = types.ModuleType("nodes")
 fake_nodes.VAEEncode = FakeVAEEncode
 fake_nodes.VAEDecode = FakeVAEDecode
 fake_nodes.VAEDecodeTiled = FakeVAEDecode
+fake_nodes.VAELoader = FakeVAELoader
 
 fake_management = types.ModuleType("comfy.model_management")
 fake_management.OOM_EXCEPTION = RuntimeError
@@ -98,6 +103,7 @@ fake_krea.prepare_krea2_edit = lambda *args, **kwargs: (_ for _ in ()).throw(
 
 fake_nag = types.ModuleType("krea2_nag_integration")
 fake_nag.apply_krea2_nag = lambda model, negative, **kwargs: model
+fake_nag.apply_krea2_nag_scheduled = lambda model, negative, nag_options, **kwargs: model
 fake_nag.nag_input_types = lambda: {}
 fake_nag.sampler_negative = lambda negative, turbo_mode: negative
 
@@ -194,7 +200,7 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
                 patch.object(module, "create_debug_image", return_value=Image.new("RGB", (64, 32))), \
                 patch.object(FakeVAEDecode, "decode", return_value=(torch.zeros(1, 32, 64, 3),)), \
                 patch.object(module, "prepare_krea2_edit", return_value=("edit", "pos", "edit neg", refs, image)), \
-                patch.object(module, "apply_krea2_nag", return_value="nag") as apply, \
+                patch.object(module, "apply_krea2_nag_scheduled", return_value="nag") as apply, \
                 patch.object(module, "sampler_negative", return_value="zero") as zero, \
                 patch.object(fake_sample, "sample", side_effect=lambda *args, **kw: args[8]) as sample:
             module.DonutTiledUpscale().upscale(
@@ -202,9 +208,13 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
                 1, 8, 7, "euler", "simple", 1., 1, "nearest", 0, False,
                 edit_mode=True, clip=object(), edit_source_image=image,
                 edit_source_image_b=subject, nag_enabled=True, turbo_mode=True,
+                nag_alpha_schedule="linear", nag_alpha_start=.1, nag_alpha_end=.9,
             )
         self.assertEqual(apply.call_count, 2)
         for call in apply.call_args_list:
+            self.assertEqual(call.args[2]["nag_alpha_schedule"], "linear")
+            self.assertEqual(call.args[2]["nag_alpha_start"], .1)
+            self.assertEqual(call.args[2]["nag_alpha_end"], .9)
             self.assertEqual(call.args[1], "edit neg")
             self.assertIs(call.kwargs["source_latent"], refs)
             self.assertTrue(torch.equal(call.kwargs["source_image_b"], subject))
@@ -309,21 +319,23 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
         })
         setattr(module, "create_debug_image", lambda *args, **kwargs: Image.new("RGB", (4, 4)))
         try:
-            module.DonutTiledUpscale().upscale(
-                image=torch.zeros(1, 4, 4, 3),
-                upscale_model=types.SimpleNamespace(scale=1.0), model=object(),
-                positive=object(), negative=[[torch.ones(1, 2, 4), {}]], vae=object(), seed=100,
-                steps=8, cfg=1.0, sampler_name="euler", scheduler="simple",
-                denoise=0.20, rescale_factor=1.0, resampling_method="nearest",
-                feather=0.0, tiled_vae=False, turbo_mode=True,
-            )
+            for supported_steps, requested_denoise, expected_steps, expected_denoise in (
+                    (8, 0.20, 2, 0.25), (12, 1.0, 12, 1.0)):
+                events.clear()
+                module.DonutTiledUpscale().upscale(
+                    image=torch.zeros(1, 4, 4, 3),
+                    upscale_model=types.SimpleNamespace(scale=1.0), model=object(),
+                    positive=object(), negative=[[torch.ones(1, 2, 4), {}]], vae=object(), seed=100,
+                    steps=supported_steps, cfg=1.0, sampler_name="euler", scheduler="simple",
+                    denoise=requested_denoise, rescale_factor=1.0, resampling_method="nearest",
+                    feather=0.0, tiled_vae=False, turbo_mode=True,
+                )
+                sample_events = [event for event in events if event[0] == "sample"]
+                self.assertEqual(sample_events, [("sample", 101, expected_steps, expected_denoise)])
         finally:
             setattr(module, "upscale_with_model", original_upscale)
             setattr(module, "find_best_tiling", original_find)
             setattr(module, "create_debug_image", original_debug)
-
-        sample_events = [event for event in events if event[0] == "sample"]
-        self.assertEqual(sample_events, [("sample", 101, 2, 0.25)])
 
     def test_disabled_diffusion_tiling_runs_one_full_resolution_pass(self):
         original_upscale = module.upscale_with_model

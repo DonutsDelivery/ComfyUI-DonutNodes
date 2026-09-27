@@ -15,7 +15,8 @@ class BaseSampler:
     def INPUT_TYPES(cls):
         return {"required": {"model": ("MODEL",)},
                 "optional": {"grounding_px": ("INT", {"default": 768}),
-                             "sda_enabled": ("BOOLEAN", {"default": False})}}
+                             "sda_enabled": ("BOOLEAN", {"default": False}),
+                             "sda_strength": ("FLOAT", {"default": 1.0})}}
 
     def sample(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end, halfway_step, sampler_name, scheduler, positive, negative, latent_image, denoise, mode='simple', cfg_curve='linear', add_noise='enable', start_at_step=0, end_at_step=10000, return_with_leftover_noise='disable', randomize_seed_per_model='enable', switch_at_step_1=10, switch_at_step_2=15, model_2=None, model_3=None, edit_mode=False, source_image=None, vae=None, clip=None, edit_prompt='', edit_negative_prompt='', grounding_px=768, edit_model=None, turbo_mode=False, source_image_b=None, edit_inpaint=None, sda_enabled=False, sda_strength=1.0, **nag_options):
         self.received = locals().copy()
@@ -79,6 +80,20 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(grounding.grounding_values(512, 1088, 8, "ease_in"),
                          (512, 512, 576, 640, 704, 832, 960, 1088))
 
+    def test_nag_alpha_curves_keep_exact_endpoints(self):
+        self.assertEqual(tuple(round(value, 2) for value in grounding.nag_alpha_values(.1, .9, 5, "linear")),
+                         (.1, .3, .5, .7, .9))
+        self.assertEqual(tuple(round(value, 2) for value in grounding.nag_alpha_values(.1, .9, 5, "ease_in")),
+                         (.1, .15, .3, .55, .9))
+        self.assertEqual(grounding.nag_alpha_values(.9, .1, 1, "linear"), (.1,))
+
+    def test_bad_nag_alpha_schedule(self):
+        for start, end in ((-0.1, .5), (.5, 1.1), (float("nan"), .5), (True, .5)):
+            with self.subTest(start=start, end=end), self.assertRaises(ValueError):
+                grounding.nag_alpha_values(start, end, 5, "linear")
+        with self.assertRaises(ValueError):
+            grounding.nag_alpha_values(.1, .5, 5, "constant")
+
     def test_zero_and_single_step(self):
         self.assertEqual(grounding.grounding_values(512, 1088, 0, "linear"), ())
         self.assertEqual(grounding.grounding_values(512, 1088, 1, "linear"), (1088,))
@@ -111,8 +126,8 @@ class NodeTests(unittest.TestCase):
     def test_widgets_append_without_mutating_parent(self):
         old = BaseSampler.INPUT_TYPES()
         new = grounding.DonutSampler.INPUT_TYPES()
-        self.assertEqual(list(new["optional"])[:2], list(old["optional"]))
-        self.assertEqual(list(new["optional"])[2:],
+        self.assertEqual(list(new["optional"])[:len(old["optional"])], list(old["optional"]))
+        self.assertEqual(list(new["optional"])[len(old["optional"]):],
                          ["grounding_schedule", "grounding_start_px", "grounding_end_px"])
         self.assertEqual(new["optional"]["grounding_schedule"][1]["default"], "constant")
         self.assertEqual(BaseSampler.INPUT_TYPES(), old)
@@ -123,6 +138,68 @@ class NodeTests(unittest.TestCase):
                          (model, "base result"))
         self.assertEqual(node.received["grounding_px"], 777)
         self.assertEqual(node.received["nag_options"], {})
+
+    def test_dynamic_nag_only_uses_executed_steps_and_auto_phi_request(self):
+        node = grounding.DonutSampler()
+        node.dispatch = True
+        seen = {}
+        def prepare(req, nag_req, model, positive, negative, values, alpha_values):
+            seen.update(request=nag_req, grounding=values, alphas=alpha_values)
+            return model, positive, negative
+        with patch.object(grounding, "_prepare_conditions", side_effect=prepare):
+            _, info = sample(node, "model", steps=5, nag_enabled=True,
+                                  nag_alpha_schedule="ease_in", nag_alpha_start=.1,
+                                  nag_alpha_end=.9, nag_auto_phi=True, nag_phi_scale=1.5)
+        self.assertEqual(seen["grounding"], None)
+        self.assertEqual(tuple(round(value, 2) for value in seen["alphas"]),
+                         (.1, .15, .3, .55, .9))
+        self.assertTrue(seen["request"].auto_phi)
+        self.assertEqual(seen["request"].phi_scale, 1.5)
+        self.assertIn("NAG alpha ease_in (5 steps)", info)
+        self.assertIn("auto phi", info)
+
+    def test_grounding_and_nag_schedules_share_the_executed_step_domain(self):
+        node = grounding.DonutSampler()
+        node.dispatch = True
+        seen = {}
+        def prepare(req, nag_req, model, positive, negative, values, alpha_values):
+            seen.update(request=req, nag_request=nag_req, grounding=values, alphas=alpha_values)
+            return model, positive, negative
+        with patch.object(grounding, "_prepare_conditions", side_effect=prepare):
+            sample(node, "model", steps=3, edit_mode=True, nag_enabled=True,
+                   grounding_schedule="linear", grounding_start_px=512,
+                   grounding_end_px=1088, nag_alpha_schedule="linear",
+                   nag_alpha_start=.1, nag_alpha_end=.5)
+        self.assertEqual(seen["grounding"], (512, 832, 1088))
+        self.assertEqual(tuple(round(value, 2) for value in seen["alphas"]), (.1, .3, .5))
+        self.assertEqual(seen["request"].start, 512)
+        self.assertEqual(seen["nag_request"].start, .1)
+
+    def test_advanced_nag_curve_spans_only_executed_range(self):
+        node = grounding.DonutSampler()
+        node.dispatch = True
+        seen = {}
+        def prepare(req, nag_req, model, positive, negative, values, alpha_values):
+            seen.update(grounding=values, alphas=alpha_values)
+            return model, positive, negative
+        with patch.object(grounding, "_prepare_conditions", side_effect=prepare):
+            sample(node, "model", steps=20, mode="advanced", start_at_step=5,
+                   end_at_step=8, nag_enabled=True, nag_alpha_schedule="linear",
+                   nag_alpha_start=.1, nag_alpha_end=.5)
+        self.assertIsNone(seen["grounding"])
+        self.assertEqual(tuple(round(value, 2) for value in seen["alphas"]), (.1, .3, .5))
+
+    def test_dynamic_nag_is_ignored_when_nag_is_disabled(self):
+        node = grounding.DonutSampler()
+        sample(node, "model", nag_enabled=False, nag_alpha_schedule="linear",
+               nag_alpha_start=100, nag_alpha_end=-5)
+        self.assertIsNone(grounding._NAG_REQUEST.get())
+        self.assertEqual(node.received["nag_options"], {"nag_enabled": False})
+
+    def test_dynamic_nag_rejects_multimodel_sampling(self):
+        with self.assertRaisesRegex(ValueError, "multi_model"):
+            sample(grounding.DonutSampler(), "model", nag_enabled=True,
+                   nag_alpha_schedule="linear", mode="multi_model")
 
     def test_non_edit_ignores_dynamic_controls(self):
         node = grounding.DonutSampler()
@@ -180,7 +257,7 @@ class NodeTests(unittest.TestCase):
     def test_inpaint_and_two_references_reach_preparation(self):
         node = grounding.DonutSampler()
         node.dispatch = True
-        def prepare(req, model, positive, negative, values):
+        def prepare(req, nag_req, model, positive, negative, values, alpha_values):
             self.assertEqual(req.image, "masked-base")
             self.assertEqual(req.image_b, "subject")
             self.assertEqual(req.original_positive, "original-positive")
@@ -195,7 +272,7 @@ class NodeTests(unittest.TestCase):
     def test_advanced_spans_executed_steps(self):
         node = grounding.DonutSampler()
         node.dispatch = True
-        def prepare(req, model, positive, negative, values):
+        def prepare(req, nag_req, model, positive, negative, values, alpha_values):
             self.assertEqual(values, (512, 832, 1088))
             return model, positive, negative
         with patch.object(grounding, "_prepare_conditions", side_effect=prepare):
@@ -334,7 +411,8 @@ class PreparationTests(unittest.TestCase):
         pos, neg = [["initial-pos", {"original": True}]], [["initial-neg", {}]]
         with patch.dict(sys.modules, modules):
             cloned, positives, negatives = grounding._prepare_conditions(
-                request(image_b="image-b", turbo=True), model, pos, neg, (512, 512, 768, 1088),
+                request(image_b="image-b", turbo=True), None, model, pos, neg,
+                (512, 512, 768, 1088), None,
             )
         self.assertIsNot(cloned, model)
         self.assertEqual(model.wrappers, [])

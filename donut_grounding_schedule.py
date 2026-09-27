@@ -1,9 +1,9 @@
-"""Step-scheduled Krea2 semantic grounding in one uninterrupted DonutSampler run.
+"""Step-scheduled Krea2 grounding and NAG alpha in one DonutSampler run.
 
 The base sampler still owns Edit Studio preparation, appearance tokens, masks,
-Turbo resolution and CFG. Only the prepared semantic conditioning is varied.
-Every distinct grounding resolution is encoded before denoising, not interpolated
-between differently shaped text embeddings or encoded inside a model forward.
+Turbo resolution and CFG. Prepared semantic conditioning and NAG wrappers are
+selected together by executed-step index. No text embeddings of different
+lengths are interpolated or encoded inside a model forward.
 """
 from contextvars import ContextVar
 from copy import deepcopy
@@ -31,6 +31,10 @@ SUPPORTED_SAMPLERS = ("euler", "er_sde", "dpmpp_2m")
 _TAG = "donut_grounding_px"
 _WRAPPER_KEY = "donut_grounding_schedule"
 _REQUEST = ContextVar("donut_grounding_request", default=None)
+_NAG_REQUEST = ContextVar("donut_nag_schedule_request", default=None)
+_ACTIVE_STAGE_NAG = ContextVar("donut_stage_nag_schedule", default=None)
+_STAGE_NAG_WRAPPER_KEY = "donut_stage_nag_alpha_schedule"
+NAG_ALPHA_WIDGETS = ("nag_alpha_schedule", "nag_alpha_start", "nag_alpha_end")
 
 
 def _pixel_value(value):
@@ -64,16 +68,46 @@ def grounding_values(start, end, count, curve):
     values = []
     for index in range(count):
         t = index / (count - 1)
-        if curve == "ease_in":
-            t *= t
-        elif curve == "ease_out":
-            t = 1 - (1 - t) ** 2
-        elif curve == "ease_in_out":
-            t = 2 * t * t if t < 0.5 else 1 - 2 * (1 - t) ** 2
+        t = _curve_position(t, curve)
         px = math.floor((start + (end - start) * t) / 64 + 0.5) * 64
         values.append(min(max(start, end), max(min(start, end), px)))
     values[0], values[-1] = start, end
     return tuple(values)
+
+
+def _curve_position(t, curve):
+    if curve == "ease_in":
+        return t * t
+    if curve == "ease_out":
+        return 1 - (1 - t) ** 2
+    if curve == "ease_in_out":
+        return 2 * t * t if t < 0.5 else 1 - 2 * (1 - t) ** 2
+    return t
+
+
+def nag_alpha_values(start, end, count, curve):
+    """Return one finite NAG blend alpha per executed step."""
+    if isinstance(start, bool) or isinstance(end, bool):
+        raise ValueError("NAG alpha schedule values must be between 0 and 1.")
+    try:
+        start, end = float(start), float(end)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("NAG alpha schedule values must be finite numbers between 0 and 1.") from exc
+    if (not math.isfinite(start) or not math.isfinite(end)
+            or not 0.0 <= start <= 1.0 or not 0.0 <= end <= 1.0):
+        raise ValueError("NAG alpha schedule values must be finite numbers between 0 and 1.")
+    count = operator.index(count)
+    if count < 0:
+        raise ValueError("NAG alpha schedule step count cannot be negative.")
+    if curve not in CURVES[1:]:
+        raise ValueError(f"Unknown dynamic NAG alpha curve: {curve!r}")
+    if count == 0:
+        return ()
+    if count == 1:
+        return (end,)
+    values = tuple(start + (end - start) * _curve_position(index / (count - 1), curve)
+                   for index in range(count))
+    return (start, *values[1:-1], end)
 
 
 @dataclass(frozen=True)
@@ -90,6 +124,53 @@ class _Request:
     turbo: bool
 
 
+@dataclass(frozen=True)
+class _NagRequest:
+    curve: str
+    start: float
+    end: float
+    auto_phi: bool
+    manual_phi: float
+    phi_scale: float
+
+
+def nag_alpha_schedule_input_types():
+    """Append-only settings shared by auxiliary NAG sampling stages."""
+    return {
+        "nag_alpha_schedule": (list(CURVES), {
+            "default": "constant",
+            "tooltip": "NAG alpha over this stage's executed denoising steps. The global Settings / Configuration panel mirrors the same curve to every NAG stage; each stage spans its own effective step range.",
+        }),
+        "nag_alpha_start": ("FLOAT", {
+            "default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01,
+            "tooltip": "First executed step's NAG alpha for the shared dynamic schedule.",
+        }),
+        "nag_alpha_end": ("FLOAT", {
+            "default": 0.25, "min": 0.0, "max": 1.0, "step": 0.01,
+            "tooltip": "Last executed step's NAG alpha for the shared dynamic schedule.",
+        }),
+    }
+
+
+def nag_request_from_options(options):
+    """Read the shared alpha schedule from one stage's NAG keyword inputs."""
+    curve = options.get("nag_alpha_schedule", "constant")
+    if not options.get("nag_enabled", False) or curve == "constant":
+        return None
+    start = options.get("nag_alpha_start", 0.25)
+    end = options.get("nag_alpha_end", 0.25)
+    nag_alpha_values(start, end, 2, curve)  # validate even before a sampler is built
+    return _NagRequest(
+        curve, float(start), float(end), bool(options.get("nag_auto_phi", False)),
+        float(options.get("nag_phi", 4.0)), float(options.get("nag_phi_scale", 1.0)),
+    )
+
+
+def without_nag_schedule_options(options):
+    """Drop schedule-only widgets before forwarding NAG options upstream."""
+    return {key: value for key, value in options.items() if key not in NAG_ALPHA_WIDGETS}
+
+
 def _tag(conditioning, px):
     if conditioning is None:
         return None
@@ -97,35 +178,43 @@ def _tag(conditioning, px):
 
 
 class _SelectGrounding:
-    """Select fully preprocessed conditions at the same step as dynamic CFG.
+    """Select grounding and NAG variants at the same step as dynamic CFG.
 
     This is a model-local PREDICT_NOISE wrapper, not a global sampler patch.
     The supported single-evaluation solvers share the base guider's completed-
     step semantics. Original conditions are restored even when sampling raises.
     """
-    def __init__(self, values, nag_wrappers=None):
-        self.values = tuple(values)
+    def __init__(self, values=None, nag_wrappers=None, nag_alphas=None):
+        self.values = None if values is None else tuple(values)
         self.nag_wrappers = nag_wrappers
+        self.nag_alphas = None if nag_alphas is None else tuple(nag_alphas)
 
     def __call__(self, executor, x, timestep, model_options=None, seed=None):
         guider = executor.class_obj
         index = getattr(guider, "_step_index", None)
         cfg_values = getattr(guider, "cfg_values", ())
-        if (not isinstance(index, int) or not 0 <= index < len(self.values)
-                or len(cfg_values) != len(self.values)):
-            raise RuntimeError("Scheduled grounding requires DonutSampler's step-aware CFG guider.")
-        px = self.values[index]
+        count = len(self.values) if self.values is not None else len(self.nag_alphas or ())
+        if (not isinstance(index, int) or not 0 <= index < count
+                or len(cfg_values) != count):
+            raise RuntimeError("Scheduled grounding/NAG requires DonutSampler's step-aware CFG guider.")
+        px = self.values[index] if self.values is not None else None
+        alpha = self.nag_alphas[index] if self.nag_alphas is not None else None
         original = guider.conds
-        selected = {}
-        for key, conditions in original.items():
-            if conditions is None:
-                selected[key] = None
-                continue
-            selected[key] = [c for c in conditions if _TAG not in c or c[_TAG] == px]
-            if conditions and not selected[key]:
-                raise RuntimeError(f"Scheduled grounding has no {key} conditioning for {px} px.")
+        selected = original
+        if self.values is not None:
+            selected = {}
+            for key, conditions in original.items():
+                if conditions is None:
+                    selected[key] = None
+                    continue
+                selected[key] = [c for c in conditions if _TAG not in c or c[_TAG] == px]
+                if conditions and not selected[key]:
+                    raise RuntimeError(f"Scheduled grounding has no {key} conditioning for {px} px.")
         if self.nag_wrappers is not None:
-            model_options = select_nag_options(model_options, self.nag_wrappers[px])
+            key = (px, alpha)
+            if key not in self.nag_wrappers:
+                raise RuntimeError(f"Scheduled NAG has no prepared wrapper for step {index + 1}.")
+            model_options = select_nag_options(model_options, self.nag_wrappers[key])
         guider.conds = selected
         try:
             return executor(x, timestep, model_options, seed)
@@ -137,13 +226,18 @@ class _SamplingGuard:
     def __init__(self, count):
         self.count = count
 
-    def __call__(self, executor, model_wrap, sigmas, extra_args, callback, noise,
-                 latent_image=None, denoise_mask=None, disable_pbar=False):
+    @staticmethod
+    def validate_sigmas(sigmas, count=None):
         schedule = [float(value) for value in sigmas]
-        if (len(schedule) != self.count + 1
+        if ((count is not None and len(schedule) != count + 1)
                 or any(not math.isfinite(value) or value < 0 for value in schedule)
                 or any(a <= b for a, b in zip(schedule, schedule[1:]))):
-            raise ValueError("Scheduled grounding received a different or invalid sigma schedule.")
+            raise ValueError("Scheduled grounding/NAG received a different or invalid sigma schedule.")
+        return tuple(schedule)
+
+    @staticmethod
+    def validate(sampler, sigmas, count=None):
+        schedule = _SamplingGuard.validate_sigmas(sigmas, count)
         # Reuse the read-only solver/preset inspector, NOT SDA's LoRA or 8-step
         # gate. This preserves the live Bleh preset and all of its solver options.
         try:
@@ -151,66 +245,204 @@ class _SamplingGuard:
         except ImportError:
             from donut_sda_sampler import inspect_sda_sampler
         try:
-            inspect_sda_sampler(executor.class_obj, SUPPORTED_SAMPLERS)
+            inspect_sda_sampler(sampler, SUPPORTED_SAMPLERS)
         except ValueError as exc:
-            raise ValueError(str(exc).replace("SDA", "Scheduled grounding")) from exc
+            raise ValueError(str(exc).replace("SDA", "Scheduled grounding/NAG")) from exc
+        return tuple(schedule)
+
+    def __call__(self, executor, model_wrap, sigmas, extra_args, callback, noise,
+                 latent_image=None, denoise_mask=None, disable_pbar=False):
+        schedule = self.validate_sigmas(sigmas, self.count)
+        self.validate(executor.class_obj, schedule, self.count)
         return executor(model_wrap, sigmas, extra_args, callback, noise,
                         latent_image, denoise_mask, disable_pbar)
 
 
-def _prepare_conditions(request, model, positive, negative, values):
-    import nodes
-    import comfy.patcher_extension
+def _sigma_values(sigmas):
+    if hasattr(sigmas, "detach"):
+        sigmas = sigmas.detach().to("cpu").reshape(-1).tolist()
+    else:
+        sigmas = list(sigmas)
+    return tuple(float(value) for value in sigmas)
+
+
+def _prediction_sigma_index(timestep, sigmas):
+    """Map a PREDICT_NOISE sigma to its executed denoising step."""
     try:
-        from .krea2_edit_integration import scale_image_to_megapixels
-        from .krea2_variance_integration import reapply_edit_variance
-        from .krea2_nag_integration import sampler_negative
-    except ImportError:
-        from krea2_edit_integration import scale_image_to_megapixels
-        from krea2_variance_integration import reapply_edit_variance
-        from krea2_nag_integration import sampler_negative
+        values = _sigma_values(timestep)
+    except (TypeError, ValueError):
+        values = (float(timestep),)
+    if not values or any(not math.isfinite(value) for value in values):
+        raise RuntimeError("Dynamic stage NAG received an invalid denoising sigma.")
+    sigma = values[0]
+    if any(not math.isclose(value, sigma, rel_tol=1e-6, abs_tol=1e-7) for value in values[1:]):
+        raise RuntimeError("Dynamic stage NAG received different sigmas in one prediction batch.")
+    candidates = sigmas[:-1]
+    if not candidates:
+        raise RuntimeError("Dynamic stage NAG received no executed sigma steps.")
+    index = min(range(len(candidates)), key=lambda item: abs(candidates[item] - sigma))
+    if not math.isclose(candidates[index], sigma, rel_tol=1e-5, abs_tol=1e-7):
+        raise RuntimeError("Dynamic stage NAG could not match the prediction sigma to an executed step.")
+    return index
+
+
+class _SelectStageNAGAlpha:
+    def __call__(self, executor, x, timestep, model_options=None, seed=None):
+        active = _ACTIVE_STAGE_NAG.get()
+        if active is None:
+            raise RuntimeError("Dynamic stage NAG ran outside its guarded sampler invocation.")
+        index = _prediction_sigma_index(timestep, active.sigmas)
+        alpha = active.alphas[index]
+        replacements = active.wrappers.get(alpha)
+        if replacements is None:
+            raise RuntimeError(f"Dynamic stage NAG has no prepared wrapper for step {index + 1}.")
+        return executor(x, timestep, select_nag_options(model_options, replacements), seed)
+
+
+@dataclass(frozen=True)
+class _ActiveStageNAG:
+    sigmas: tuple
+    alphas: tuple
+    wrappers: dict
+
+
+class _ScheduleStageNAG:
+    """Schedule NAG from the actual sigma list used by an auxiliary stage."""
+    def __init__(self, preparation, request):
+        self.preparation = preparation
+        self.request = request
+        self.wrapper_cache = {}
+
+    def __call__(self, executor, model_wrap, sigmas, extra_args, callback, noise,
+                 latent_image=None, denoise_mask=None, disable_pbar=False):
+        schedule = _SamplingGuard.validate_sigmas(sigmas)
+        _SamplingGuard.validate(executor.class_obj, schedule)
+        count = len(schedule) - 1
+        alphas = nag_alpha_values(self.request.start, self.request.end, count, self.request.curve)
+        cache_key = schedule
+        wrappers = self.wrapper_cache.get(cache_key)
+        if wrappers is None:
+            try:
+                from .krea2_nag_integration import resolve_nag_phi
+            except ImportError:
+                from krea2_nag_integration import resolve_nag_phi
+            wrappers = {}
+            for alpha in dict.fromkeys(alphas):
+                phi = (resolve_nag_phi(self.request.manual_phi, alpha, True, self.request.phi_scale)
+                       if self.request.auto_phi else self.request.manual_phi)
+                wrappers[alpha] = self.preparation.wrappers_for(alpha=alpha, phi=phi)
+            self.wrapper_cache[cache_key] = wrappers
+        token = _ACTIVE_STAGE_NAG.set(_ActiveStageNAG(schedule, alphas, wrappers))
+        try:
+            return executor(model_wrap, sigmas, extra_args, callback, noise,
+                            latent_image, denoise_mask, disable_pbar)
+        finally:
+            _ACTIVE_STAGE_NAG.reset(token)
+
+
+def install_stage_nag_schedule(model, request):
+    """Attach per-step alpha selection to an already prepared stage NAG model."""
+    if request is None:
+        return model
+    preparation = get_nag_preparation(model)
+    if preparation is None:
+        raise RuntimeError("Dynamic NAG alpha could not capture the installed NAG preparation; alpha was not silently left static.")
+    import comfy.patcher_extension
+    wrappers = comfy.patcher_extension.WrappersMP
+    if not all(hasattr(wrappers, name) for name in ("PREDICT_NOISE", "SAMPLER_SAMPLE")):
+        raise RuntimeError("Update ComfyUI to use scheduled stage NAG wrappers.")
+    patched = model.clone()
+    patched.add_wrapper_with_key(wrappers.PREDICT_NOISE, _STAGE_NAG_WRAPPER_KEY,
+                                 _SelectStageNAGAlpha())
+    patched.add_wrapper_with_key(wrappers.SAMPLER_SAMPLE, _STAGE_NAG_WRAPPER_KEY,
+                                 _ScheduleStageNAG(preparation, request))
+    return patched
+
+
+def _prepare_conditions(request, nag_request, model, positive, negative, values, nag_alphas):
+    import comfy.patcher_extension
+
+    if request is not None:
+        import nodes
+        try:
+            from .krea2_edit_integration import scale_image_to_megapixels
+            from .krea2_variance_integration import reapply_edit_variance
+            from .krea2_nag_integration import sampler_negative
+        except ImportError:
+            from krea2_edit_integration import scale_image_to_megapixels
+            from krea2_variance_integration import reapply_edit_variance
+            from krea2_nag_integration import sampler_negative
 
     wrappers = comfy.patcher_extension.WrappersMP
     if not all(hasattr(wrappers, name) for name in ("PREDICT_NOISE", "SAMPLER_SAMPLE")):
-        raise RuntimeError("Update ComfyUI to use scheduled grounding wrappers.")
-    encoder = nodes.NODE_CLASS_MAPPINGS["Krea2EditGroundedEncode"]()
-    image = scale_image_to_megapixels(request.image)
-    options = {}
-    if request.image_b is not None:
-        options["image_b"] = scale_image_to_megapixels(request.image_b)
+        raise RuntimeError("Update ComfyUI to use scheduled grounding/NAG wrappers.")
 
-    # The base Edit Mode path already encoded start and applied variance/Turbo
-    # metadata. Reuse it, and encode each other resolution once per polarity.
-    cache = {request.start: (positive, negative)}
+    cache = {}
+    raw_negatives = {}
+    if request is not None:
+        encoder = nodes.NODE_CLASS_MAPPINGS["Krea2EditGroundedEncode"]()
+        image = scale_image_to_megapixels(request.image)
+        options = {}
+        if request.image_b is not None:
+            options["image_b"] = scale_image_to_megapixels(request.image_b)
+
+        # The base Edit Mode path already encoded start and applied variance/Turbo
+        # metadata. Reuse it, and encode each other resolution once per polarity.
+        cache[request.start] = (positive, negative)
+        for px in dict.fromkeys(values):
+            if px not in cache:
+                pos = encoder.encode(request.clip, request.prompt, image=image,
+                                     grounding_px=px, **options)[0]
+                raw_negative = encoder.encode(request.clip, request.negative_prompt, image=image,
+                                              grounding_px=px, **options)[0]
+                pos = reapply_edit_variance(pos, request.original_positive)
+                raw_negatives[px] = raw_negative
+                cache[px] = (pos, sampler_negative(raw_negative, request.turbo))
+
     nag = get_nag_preparation(model)
-    nag_wrappers = {} if nag is not None and nag.changes_negative else None
-    all_positive, all_negative = [], []
-    for px in dict.fromkeys(values):
-        if px not in cache:
-            pos = encoder.encode(request.clip, request.prompt, image=image,
-                                 grounding_px=px, **options)[0]
-            neg = encoder.encode(request.clip, request.negative_prompt, image=image,
-                                 grounding_px=px, **options)[0]
-            pos = reapply_edit_variance(pos, request.original_positive)
-            # NAG must see the unzeroed negative; Turbo's sampler negative is
-            # still zeroed independently. Build the matching forward BEFORE sampling.
-            if nag_wrappers is not None:
-                nag_wrappers[px] = nag.wrappers_for(neg)
-            neg = sampler_negative(neg, request.turbo)
-            cache[px] = pos, neg
-        elif nag_wrappers is not None:
-            # The base bridge already captured the start-resolution NAG negative
-            # before sampler_negative zeroed the ordinary Turbo conditioning.
-            nag_wrappers[px] = nag.wrappers_for()
-        pos, neg = cache[px]
-        all_positive.extend(_tag(pos, px))
-        if neg is not None:
-            all_negative.extend(_tag(neg, px))
+    vary_alpha = nag_alphas is not None
+    if vary_alpha and nag is None:
+        raise RuntimeError("Dynamic NAG alpha could not capture the installed NAG preparation; alpha was not silently left static.")
+    vary_negative = (request is not None and nag is not None and not nag.explicit_negative
+                     and (nag.changes_negative or vary_alpha))
+    select_nag = nag is not None and (vary_alpha or vary_negative)
+    nag_wrappers = {} if select_nag else None
 
+    if select_nag:
+        pairs = (tuple(dict.fromkeys(zip(values, nag_alphas or (None,) * len(values))))
+                 if values is not None else tuple((None, alpha) for alpha in dict.fromkeys(nag_alphas)))
+        try:
+            from .krea2_nag_integration import resolve_nag_phi
+        except ImportError:
+            from krea2_nag_integration import resolve_nag_phi
+        for px, alpha in pairs:
+            raw_negative = raw_negatives.get(px) if px is not None else None
+            if vary_alpha:
+                phi = (resolve_nag_phi(nag_request.manual_phi, alpha, True, nag_request.phi_scale)
+                       if nag_request.auto_phi else nag_request.manual_phi)
+            else:
+                alpha = None
+                phi = None
+            nag_wrappers[(px, alpha)] = nag.wrappers_for(raw_negative, alpha=alpha, phi=phi)
+
+    all_positive, all_negative = [], []
+    if request is not None:
+        for px in dict.fromkeys(values):
+            pos, neg = cache[px]
+            all_positive.extend(_tag(pos, px))
+            if neg is not None:
+                all_negative.extend(_tag(neg, px))
+
+    count = len(values) if values is not None else len(nag_alphas)
     patched = model.clone()
-    patched.add_wrapper_with_key(wrappers.PREDICT_NOISE, _WRAPPER_KEY, _SelectGrounding(values, nag_wrappers))
-    patched.add_wrapper_with_key(wrappers.SAMPLER_SAMPLE, _WRAPPER_KEY, _SamplingGuard(len(values)))
-    return patched, all_positive, all_negative if negative is not None else None
+    patched.add_wrapper_with_key(
+        wrappers.PREDICT_NOISE, _WRAPPER_KEY,
+        _SelectGrounding(values, nag_wrappers, nag_alphas),
+    )
+    patched.add_wrapper_with_key(wrappers.SAMPLER_SAMPLE, _WRAPPER_KEY, _SamplingGuard(count))
+    return patched, (all_positive if request is not None else positive), (
+        all_negative if negative is not None else None
+    ) if request is not None else negative
 
 
 class DonutSampler(_BaseDonutSampler):
@@ -285,6 +517,9 @@ class DonutSampler(_BaseDonutSampler):
         grounding_schedule="constant",
         grounding_start_px=512,
         grounding_end_px=1088,
+        nag_alpha_schedule="constant",
+        nag_alpha_start=0.25,
+        nag_alpha_end=0.25,
         **nag_options,
     ):
         inputs = dict(
@@ -330,55 +565,85 @@ class DonutSampler(_BaseDonutSampler):
         parent = super().sample
         # Even a nested, unrelated run must not inherit another run's request.
         token = _REQUEST.set(None)
+        nag_token = _NAG_REQUEST.set(None)
         try:
-            if grounding_schedule == "constant":
+            grounding_request = None
+            if grounding_schedule != "constant" and inputs.get("edit_mode", False):
+                start, end = _pixel_value(grounding_start_px), _pixel_value(grounding_end_px)
+                grounding_values(start, end, 2, grounding_schedule)  # validate curve
+                inputs["grounding_px"] = start
+                if start != end:
+                    if start == 0 or end == 0:
+                        raise ValueError("Zero grounding px means native/unlimited resolution, not no grounding. "
+                                         "Use positive start/end values for a changing schedule.")
+                    inpaint = inputs.get("edit_inpaint")
+                    image = inpaint["image"] if inpaint is not None else inputs.get("source_image")
+                    grounding_request = _Request(
+                        start, end, grounding_schedule, inputs.get("clip"), image,
+                        inputs.get("source_image_b"), inputs.get("edit_prompt", ""),
+                        inputs.get("edit_negative_prompt", ""), inputs["positive"],
+                        inputs.get("turbo_mode", False),
+                    )
+                    _REQUEST.set(grounding_request)
+
+            nag_request = None
+            if inputs.get("nag_enabled", False) and nag_alpha_schedule != "constant":
+                nag_alpha_values(nag_alpha_start, nag_alpha_end, 2, nag_alpha_schedule)
+                nag_request = _NagRequest(
+                    nag_alpha_schedule, float(nag_alpha_start), float(nag_alpha_end),
+                    bool(inputs.get("nag_auto_phi", False)),
+                    float(inputs.get("nag_phi", 4.0)),
+                    float(inputs.get("nag_phi_scale", 1.0)),
+                )
+                _NAG_REQUEST.set(nag_request)
+
+            if grounding_request is None and nag_request is None:
                 return parent(**inputs)
-            if not inputs.get("edit_mode", False):
-                return parent(**inputs)
-            start, end = _pixel_value(grounding_start_px), _pixel_value(grounding_end_px)
-            grounding_values(start, end, 2, grounding_schedule)  # validate curve
-            inputs["grounding_px"] = start
-            if start == end:
-                return parent(**inputs)
-            if start == 0 or end == 0:
-                raise ValueError("Zero grounding px means native/unlimited resolution, not no grounding. "
-                                 "Use positive start/end values for a changing schedule.")
             if inputs.get("mode", "simple") not in ("simple", "advanced"):
-                raise ValueError("Scheduled grounding currently supports simple/advanced Edit Mode, not multi_model.")
+                raise ValueError("Dynamic grounding/NAG schedules support simple or advanced sampling, not multi_model.")
             name = inputs["sampler_name"]
             if name not in SUPPORTED_SAMPLERS and not re.fullmatch(r"bleh_preset_[0-9]+", name):
-                raise ValueError("Scheduled grounding supports Euler, ER-SDE and DPM++ 2M (including verified Bleh presets).")
-            inpaint = inputs.get("edit_inpaint")
-            image = inpaint["image"] if inpaint is not None else inputs.get("source_image")
-            request = _Request(start, end, grounding_schedule, inputs.get("clip"), image,
-                               inputs.get("source_image_b"), inputs.get("edit_prompt", ""),
-                               inputs.get("edit_negative_prompt", ""), inputs["positive"],
-                               inputs.get("turbo_mode", False))
-            _REQUEST.set(request)
+                raise ValueError("Dynamic grounding/NAG schedules support Euler, ER-SDE and DPM++ 2M, including verified Bleh presets.")
             with capture_nag_preparations():
                 return parent(**inputs)
         finally:
             _REQUEST.reset(token)
+            _NAG_REQUEST.reset(nag_token)
 
     def _scheduled_run(self, parent, inputs, advanced=False):
         request = _REQUEST.get()
-        if request is None:
+        nag_request = _NAG_REQUEST.get()
+        if request is None and nag_request is None:
             return parent(**inputs)
         count = inputs["steps"]
         if advanced:
             count = max(0, min(count, inputs["end_at_step"]) - inputs["start_at_step"])
-        values = grounding_values(request.start, request.end, count, request.curve)
-        if not values:
+        values = (grounding_values(request.start, request.end, count, request.curve)
+                  if request is not None else None)
+        alpha_values = (nag_alpha_values(nag_request.start, nag_request.end, count, nag_request.curve)
+                        if nag_request is not None else None)
+        if count == 0 or (values is not None and not values) or (alpha_values is not None and not alpha_values):
             return parent(**inputs)
         inputs["model"], inputs["positive"], inputs["negative"] = _prepare_conditions(
-            request, inputs["model"], inputs["positive"], inputs["negative"], values,
+            request, nag_request, inputs["model"], inputs["positive"], inputs["negative"],
+            values, alpha_values,
         )
         latent, info = parent(**inputs)
-        shown = [str(value) for value in values]
-        if len(shown) > 16:
-            shown = shown[:8] + ["..."] + shown[-4:]
-        return latent, (f"Grounding {request.curve} ({len(values)} steps): "
-                        f"{' -> '.join(shown)} px; {len(set(values))} resolutions\n{info}")
+        summaries = []
+        if values is not None:
+            shown = [str(value) for value in values]
+            if len(shown) > 16:
+                shown = shown[:8] + ["..."] + shown[-4:]
+            summaries.append(f"Grounding {request.curve} ({len(values)} steps): "
+                             f"{' -> '.join(shown)} px; {len(set(values))} resolutions")
+        if alpha_values is not None:
+            shown = [f"{value:.3g}" for value in alpha_values]
+            if len(shown) > 16:
+                shown = shown[:8] + ["..."] + shown[-4:]
+            phi_mode = "auto phi" if nag_request.auto_phi else "manual phi"
+            summaries.append(f"NAG alpha {nag_request.curve} ({len(alpha_values)} steps): "
+                             f"{' -> '.join(shown)}; {phi_mode}")
+        return latent, ("\n".join(summaries) + f"\n{info}")
 
     def run_simple(
         self,

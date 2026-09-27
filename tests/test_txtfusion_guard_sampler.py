@@ -19,7 +19,12 @@ class ParentSampler:
     @classmethod
     def INPUT_TYPES(cls):
         return {'required': {'seed':('INT',{}),'steps':('INT',{})},
-                'optional': {'old_flag':('BOOLEAN',{'default':False}), 'grounding_end_px':('INT',{'default':1088})}}
+                'optional': {
+                    'old_flag':('BOOLEAN',{'default':False}),
+                    'grounding_schedule':(['constant','linear'],{'default':'constant'}),
+                    'grounding_start_px':('INT',{'default':512}),
+                    'grounding_end_px':('INT',{'default':1088}),
+                }}
     # Interface double of donut_grounding_schedule.DonutSampler.sample; the
     # real (required-tail) signature is pinned by test_wrapper_signatures.
     def sample(self, model, seed, steps, cfg_start, cfg_halfway, cfg_end,
@@ -54,6 +59,7 @@ def load_module(filename):
     name='_model_guard_node_tests'
     package=types.ModuleType(name);package.__path__=[str(ROOT)]
     parent=types.ModuleType(name+'.donut_grounding_schedule');parent.DonutSampler=ParentSampler
+    parent.CURVES=('constant','linear','ease_in','ease_out','ease_in_out')
     fusion=types.ModuleType(name+'.donut_krea2_fusion_experiments');fusion.DonutKrea2FusionControl=ParentFusion
     folder=types.ModuleType('folder_paths');folder.get_filename_list=lambda key:['same.safetensors','not.bin']
     overrides={name:package,parent.__name__:parent,fusion.__name__:fusion,
@@ -92,9 +98,11 @@ class SamplerTests(unittest.TestCase):
             result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,mode='multi_model',model_2=other,model_3=third,txtfusion_internal_guard=True)
         self.assertEqual(install.call_count,3);self.assertEqual(result[6],('guarded',other));self.assertEqual(result[7],('guarded',third))
     def test_sampler_values_and_extra_options_preserved(self):
+        dynamic_nag=dict(nag_enabled=True,nag_alpha=.45,nag_auto_phi=True,
+                         nag_alpha_schedule='linear',nag_alpha_start=.1,nag_alpha_end=.8)
         with patch.object(self.module,'attach_model_guard',return_value=self.patched):
-            result=self.sampler.sample(self.model,987,8,.25,.5,.75,6,'bleh_preset_0','beta',None,None,None,None,nag_alpha=.45,txtfusion_internal_guard=True)
-        self.assertEqual(result[1:3],(987,8));self.assertEqual(result[-1],{'nag_alpha':.45})
+            result=self.sampler.sample(self.model,987,8,.25,.5,.75,6,'bleh_preset_0','beta',None,None,None,None,txtfusion_internal_guard=True,**dynamic_nag)
+        self.assertEqual(result[1:3],(987,8));self.assertEqual(result[-1],dynamic_nag)
         self.assertEqual(self.sampler.sampled,{'seed':987,'steps':8,'sampler_name':'bleh_preset_0','scheduler':'beta'})
     def test_reference_field_is_explicitly_deprecated_not_silently_loaded(self):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched),self.assertLogs(self.module.LOGGER,level='WARNING') as logs:
@@ -103,8 +111,20 @@ class SamplerTests(unittest.TestCase):
     def test_schema_positions_preserved(self):
         old=ParentSampler.INPUT_TYPES();new=self.sampler.INPUT_TYPES()
         self.assertEqual(old['required'],new['required'])
-        self.assertEqual(list(new['optional']),[*old['optional'],'txtfusion_internal_guard','txtfusion_reference_checkpoint'])
+        expected=[*old['optional'],'txtfusion_internal_guard','txtfusion_reference_checkpoint',
+                  'nag_alpha_schedule','nag_alpha_start','nag_alpha_end']
+        self.assertEqual(list(new['optional']),expected)
         self.assertIs(new['optional']['txtfusion_internal_guard'][1]['default'],False)
+        self.assertEqual(list(new['optional'])[-3:],
+                         ['nag_alpha_schedule','nag_alpha_start','nag_alpha_end'])
+
+        # ComfyUI can restore these saved workflow values positionally. Legacy
+        # TextFusion values must still land on their original controls; the
+        # three new schedule fields receive defaults after the saved list ends.
+        saved_values=[False,'linear',576,1088,False,'reference.safetensors']
+        restored=dict(zip(list(new['optional']),saved_values))
+        self.assertIs(restored['txtfusion_internal_guard'],False)
+        self.assertEqual(restored['txtfusion_reference_checkpoint'],'reference.safetensors')
     def test_false_does_not_remove_upstream_model_guard(self):
         with patch.object(self.module,'attach_model_guard',side_effect=AssertionError('attach')):
             result=self.sampler.sample(self.patched,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard=False)
