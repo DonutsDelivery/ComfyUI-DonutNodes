@@ -55,3 +55,7 @@ unchanged from 3.0.38.
   Upload success is confirmed; approval remains unverified until that exact
   version becomes Active. Hourly follow-up checks were offered per `AGENTS.md`;
   no recurring monitor has been scheduled without an explicit yes.
+- A subsequent lookup at `2026-09-27T00:48:15Z`, during preparation of 3.0.40,
+  confirmed `NodeVersionStatusActive` for 3.0.39, with `status_reason` set to
+  `Passed automated checks`. Registry approval is confirmed for 3.0.39; this
+  does not verify runtime behavior or crash avoidance.

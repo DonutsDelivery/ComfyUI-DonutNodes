@@ -390,14 +390,16 @@ if _WEIGHT_ADAPTER_BASE is not None:
                 raise ValueError("Composite bypass adapter weight layout changed unexpectedly")
 
         def h(self, x, base_out):
-            # Linear LoRA is independent for each token. Bound the simultaneous
-            # down/up/scale and stacking temporaries on full-frame edit sequences.
-            # Keep convolutional, other adapter families and autograd unchanged.
+            # Linear adapters act independently on each token. LoKr's transpose
+            # and flatten can otherwise allocate several full-sequence buffers.
             lora_type = getattr(comfy_weight_adapter, "LoRAAdapter", ())
-            if (getattr(self, "low_vram_chunking", False)
+            lokr_type = getattr(comfy_weight_adapter, "LoKrAdapter", ())
+            has_lokr = any(isinstance(adapter, lokr_type) for adapter, _ in self.components)
+            if ((getattr(self, "low_vram_chunking", False) or has_lokr)
                     and not torch.is_grad_enabled() and x.ndim == 3 and x.shape[1] > 1024
                     and not getattr(self, "is_conv", False)
-                    and all(isinstance(adapter, lora_type) for adapter, _ in self.components)):
+                    and all(isinstance(adapter, lora_type) or isinstance(adapter, lokr_type)
+                            for adapter, _ in self.components)):
                 output = None
                 for start in range(0, x.shape[1], 1024):
                     end = min(start + 1024, x.shape[1])
@@ -447,6 +449,19 @@ if _LOKR_ADAPTER_BASE is not None:
             self.weights = adapter.weights
 
         def h(self, x, base_out):
+            if not torch.is_grad_enabled() and x.ndim == 3 and x.shape[1] > 1024:
+                output = None
+                for start in range(0, x.shape[1], 1024):
+                    end = min(start + 1024, x.shape[1])
+                    chunk = self._apply_lokr(x[:, start:end])
+                    if output is None:
+                        output = chunk.new_empty((chunk.shape[0], x.shape[1], chunk.shape[2]))
+                    output[:, start:end].copy_(chunk)
+                    del chunk
+                return output
+            return self._apply_lokr(x)
+
+        def _apply_lokr(self, x):
             w1, w2, alpha, a, b, c, d, _, _ = self.weights
             rank = None
             if w1 is None:
@@ -639,10 +654,12 @@ def _trace_lokr_calls(manager):
                 continue
             token = (key, index)
             pending.add(token)
-            original = component.h
+            # A bound method here creates component -> callback -> component,
+            # retaining its GPU weights after ejection until cyclic GC runs.
+            original = weakref.WeakMethod(component.h)
 
             def traced(x, base_out, _original=original, _token=token):
-                result = _original(x, base_out)
+                result = _original()(x, base_out)
                 if _token in pending:
                     pending.remove(_token)
                     if not pending:

@@ -30,8 +30,10 @@ except ImportError:
 
 try:
     from .donut_detailer_core import offload_model_for_auxiliary_stage
+    from .krea2_memory import patch_krea2_upscale_memory
 except ImportError:
     from donut_detailer_core import offload_model_for_auxiliary_stage
+    from krea2_memory import patch_krea2_upscale_memory
 
 try:
     from .krea2_edit_integration import (
@@ -388,6 +390,7 @@ class DonutFaceDetailer:
                             seed2, torch.zeros_like(latent2["samples"]), is_touched=False)
                         if not touched:
                             noise = None
+                model2 = patch_krea2_upscale_memory(model2)
                 refined_latent = impact_sampling.ksampler_wrapper(
                     model2, seed2, steps2, cfg2, sampler2, scheduler2,
                     positive2, negative2, latent2, denoise2, noise=noise,

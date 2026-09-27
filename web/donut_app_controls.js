@@ -6,8 +6,8 @@ import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 import { weightControl, vectorControl } from "./donut_weight_controls.js?v=2";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
 import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=17";
+import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=11";
 
-const NAG_SHARED_WIDGETS = ["nag_phi","nag_auto_phi","nag_phi_scale","nag_tau","nag_sigma_start","nag_sigma_end","nag_ref_boost","nag_ref_boost_a","nag_fit_mode"];
 const service = createLoraService(api);
 const FUSION_PRESET = (tapMethod, tapProfile, tapNormalization, projectorMethod, fusionMethod) => ({
     tap_method: tapMethod, tap_profile: tapProfile, tap_strength: 1,
@@ -115,20 +115,29 @@ function install(node, appOnly = false) {
             // the same value to the same-named widgets of the workflow
             // family's other NAG-capable nodes, honoring the per-stage
             // nag_enabled only (that one never mirrors).
-            const controls = node.properties?.donut_app_controls?.groups?.flatMap(group => group.controls || []) || [];
-            const source = controls.find(item => item.widget === widget.name && resolve(item.path) === target);
-            const seen = new Set([target.id]);
+            const seedPath = node.properties?.donut_app_controls?.seed_path;
+            const family = Array.isArray(seedPath) && seedPath.length
+                ? JSON.stringify(seedPath.map(String)) : null;
+            const panels = family === null ? [node] : graphEntries(app.rootGraph || app.graph)
+                .map(entry => entry.node).filter(panel => {
+                    const path = panel.properties?.donut_app_controls?.seed_path;
+                    return Array.isArray(path) && JSON.stringify(path.map(String)) === family;
+                });
+            const controls = panels.flatMap(panel => panel.properties?.donut_app_controls?.groups || [])
+                .flatMap(group => group.controls || []);
+            const seen = new Set([target]);
             for (const item of controls) {
-                if (item.widget !== widget.name) continue;
+                // Consolidated stage panels retain only their NAG enable control.
+                // Use that binding to find the hidden shared widgets as well.
+                if (item.widget !== widget.name && item.widget !== "nag_enabled") continue;
+                if (!Array.isArray(item.path)) continue;
                 const destination = resolve(item.path);
-                if (!destination || seen.has(destination.id)) continue;
-                seen.add(destination.id);
+                const mirror = destination?.widgets?.find(w => w.name === widget.name);
+                if (!mirror || seen.has(destination)) continue;
+                seen.add(destination);
                 destination.graph.beforeChange();
-                const mirror = destination.widgets?.find(w => w.name === widget.name);
-                if (mirror) {
-                    mirror.value = value;
-                    mirror.callback?.(value, app.canvas, destination);
-                }
+                mirror.value = value;
+                mirror.callback?.(value, app.canvas, destination);
                 destination.graph.afterChange();
                 destination.setDirtyCanvas(true, false);
             }
