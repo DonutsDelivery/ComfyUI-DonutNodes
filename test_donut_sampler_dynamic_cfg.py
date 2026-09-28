@@ -166,6 +166,10 @@ class DynamicCFGGuiderTests(unittest.TestCase):
             sampler_module._aligned_cfg_values([8.0, 7.0, 6.0, 5.0], 2),
             [8.0, 7.0],
         )
+        self.assertEqual(
+            sampler_module._aligned_cfg_values([8.0, 7.0, 6.0, 5.0], 2, start_step=2),
+            [6.0, 5.0],
+        )
 
     def test_installed_heun_callbacks_advance_once_per_sampler_step(self):
         guider = sampler_module._DynamicCFGGuider(
@@ -277,10 +281,10 @@ class DynamicCFGDispatchTests(unittest.TestCase):
 
         self.assertTrue(torch.equal(result[0]["samples"], latent_samples))
         guider_class.assert_called_once_with(
-            model, [8.0], log_prefix="DonutSampler"
+            model, [4.0], log_prefix="DonutSampler"
         )
         fake_guider.set_conds.assert_called_once()
-        fake_guider.set_cfg.assert_called_once_with(8.0)
+        fake_guider.set_cfg.assert_called_once_with(4.0)
         fake_guider.sample.assert_called_once()
         preview_callback.assert_called_once_with(0, "denoised", "x", 1)
         fake_guider.set_completed_step.assert_called_once_with(0)

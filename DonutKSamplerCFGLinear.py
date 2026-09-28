@@ -87,15 +87,16 @@ def _safe_print(*args, **kwargs):
 print = _safe_print
 
 
-def _aligned_cfg_values(cfg_values, active_steps):
-    """Trim a per-run CFG schedule to the number of executed sigma intervals."""
+def _aligned_cfg_values(cfg_values, active_steps, start_step=0):
+    """Select CFG at the same interval indices as the sliced sigma schedule."""
     if not cfg_values:
         raise ValueError("Dynamic CFG requires at least one CFG value")
 
     count = max(1, int(active_steps))
-    active = list(cfg_values[:count])
+    start = max(0, int(start_step))
+    active = list(cfg_values[start:start + count])
     if len(active) < count:
-        active.extend([active[-1]] * (count - len(active)))
+        active.extend([cfg_values[-1]] * (count - len(active)))
     return active
 
 
@@ -186,7 +187,9 @@ def _common_ksampler_with_dynamic_cfg(
     if len(sigmas) < 2:
         raise ValueError("DonutSampler step range has no denoising steps after applying end_at_step and denoise.")
 
-    active_cfg_values = _aligned_cfg_values(cfg_values, max(0, len(sigmas) - 1))
+    active_cfg_values = _aligned_cfg_values(
+        cfg_values, len(sigmas) - 1, start_step=start_step or 0,
+    )
     guider = _DynamicCFGGuider(model, active_cfg_values, log_prefix=log_prefix)
     guider.set_conds(positive, negative)
     guider.set_cfg(active_cfg_values[0])
@@ -425,20 +428,20 @@ class _DonutSamplerEngine:
     # SIMPLE MODE (verbatim from original DonutSampler)
     # ==================================================================
     def simple_calculate_cfg_for_step(self, step, total_steps, cfg_start, cfg_halfway, cfg_end, halfway_step):
-        """Calculate the CFG value for a specific step with optional halfway point."""
+        """Use start for one step, endpoints for two, and an interior midpoint otherwise."""
         if total_steps <= 1:
             return cfg_start
 
         # Check if halfway CFG is disabled (same as start or end)
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (total_steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
 
         if halfway_disabled:
             # Simple linear interpolation between start and end
             progress = step / (total_steps - 1)
             current_cfg = cfg_start + (cfg_end - cfg_start) * progress
         else:
-            # Clamp halfway_step to valid range
-            halfway_step = max(1, min(halfway_step, total_steps - 1))
+            # Reserve the final evaluation for cfg_end.
+            halfway_step = max(1, min(halfway_step, total_steps - 2))
 
             if step <= halfway_step:
                 # First segment: start -> halfway
@@ -473,11 +476,11 @@ class _DonutSamplerEngine:
                 self.cfg_history.append((i, cfg_val))
 
             # Check if halfway is enabled
-            halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+            halfway_disabled = (steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
             if halfway_disabled:
                 print(f"DonutSampler: CFG progression {cfg_start:.2f} -> {cfg_end:.2f} over {steps} steps (halfway disabled)")
             else:
-                clamped_halfway_step = max(1, min(halfway_step, steps - 1))
+                clamped_halfway_step = max(1, min(halfway_step, steps - 2))
                 print(f"DonutSampler: CFG progression {cfg_start:.2f} -> {cfg_halfway:.2f} (step {clamped_halfway_step}) -> {cfg_end:.2f} over {steps} steps")
 
             # Show CFG values for debugging
@@ -519,7 +522,7 @@ class _DonutSamplerEngine:
 
     def format_simple_cfg_info(self, cfg_start, cfg_halfway, cfg_end, halfway_step, steps, sampler_name, scheduler):
         """Format the CFG progression information."""
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
 
         if halfway_disabled:
             cfg_info = f"DonutSampler - Linear CFG Progression\n"
@@ -530,7 +533,7 @@ class _DonutSamplerEngine:
         cfg_info += f"Start CFG: {cfg_start:.2f}\n"
 
         if not halfway_disabled:
-            clamped_halfway_step = max(1, min(halfway_step, steps - 1))
+            clamped_halfway_step = max(1, min(halfway_step, steps - 2))
             cfg_info += f"Halfway CFG: {cfg_halfway:.2f} (at step {clamped_halfway_step})\n"
 
         cfg_info += f"End CFG: {cfg_end:.2f}\n"
@@ -569,7 +572,7 @@ class _DonutSamplerEngine:
             return cfg_start
 
         # Check if halfway CFG is disabled (same as start or end)
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (total_steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
 
         if halfway_disabled:
             # Simple curved interpolation between start and end
@@ -577,8 +580,8 @@ class _DonutSamplerEngine:
             curved_progress = self.apply_curve(progress, curve_type)
             current_cfg = cfg_start + (cfg_end - cfg_start) * curved_progress
         else:
-            # Clamp halfway_step to valid range
-            halfway_step = max(1, min(halfway_step, total_steps - 1))
+            # Reserve the final evaluation for cfg_end.
+            halfway_step = max(1, min(halfway_step, total_steps - 2))
 
             if step <= halfway_step:
                 # First segment: start -> halfway with curve
@@ -625,11 +628,11 @@ class _DonutSamplerEngine:
             self.cfg_history.append((i, cfg_val))
 
         # Check if halfway is enabled
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
         if halfway_disabled:
             print(f"DonutSampler Advanced: CFG {curve_type} progression {cfg_start:.2f} -> {cfg_end:.2f} over {steps} steps (halfway disabled)")
         else:
-            clamped_halfway_step = max(1, min(halfway_step, steps - 1))
+            clamped_halfway_step = max(1, min(halfway_step, steps - 2))
             print(f"DonutSampler Advanced: CFG {curve_type} progression {cfg_start:.2f} -> {cfg_halfway:.2f} (step {clamped_halfway_step}) -> {cfg_end:.2f} over {steps} steps")
 
         # Show curve comparison for debugging
@@ -700,7 +703,7 @@ class _DonutSamplerEngine:
     def format_advanced_cfg_info(self, cfg_start, cfg_halfway, cfg_end, halfway_step, steps, sampler_name, scheduler,
                                 start_at_step, end_at_step, add_noise, return_with_leftover_noise, cfg_curve="linear"):
         """Format the advanced CFG progression information."""
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
 
         if halfway_disabled:
             cfg_info = f"DonutSampler Advanced - {cfg_curve.title()} CFG Progression\n"
@@ -712,33 +715,35 @@ class _DonutSamplerEngine:
         if halfway_disabled:
             cfg_info += f"CFG Range: {cfg_start:.2f} → {cfg_end:.2f} | Curve: {cfg_curve}\n"
         else:
-            clamped_halfway_step = max(1, min(halfway_step, steps - 1))
+            clamped_halfway_step = max(1, min(halfway_step, steps - 2))
             cfg_info += f"CFG Range: {cfg_start:.2f} → {cfg_halfway:.2f} (step {clamped_halfway_step}) → {cfg_end:.2f} | Curve: {cfg_curve}\n"
 
         cfg_info += f"Steps: {steps} | Sampler: {sampler_name} | Scheduler: {scheduler}\n"
         cfg_info += f"Step Range: {start_at_step} to {end_at_step}\n"
+        cfg_info += "CFG follows the selected full-schedule step indices.\n"
         cfg_info += f"Add Noise: {add_noise} | Return w/ Leftover Noise: {return_with_leftover_noise}\n"
 
+        history = [(step, cfg) for step, cfg in self.cfg_history
+                   if start_at_step <= step < min(end_at_step, steps)]
         # Add ASCII chart
-        if self.cfg_history:
-            cfg_values = [cfg_val for _, cfg_val in self.cfg_history]
+        if history:
+            cfg_values = [cfg_val for _, cfg_val in history]
             cfg_info += f"\nCFG Progression Chart ({cfg_curve}):\n"
             cfg_info += self.create_ascii_chart(cfg_values, cfg_start, cfg_end)
             cfg_info += f"\n"
 
             # Show key numerical values
             cfg_info += f"\nKey Steps:\n"
-            if len(self.cfg_history) > 8:
-                shown = self.cfg_history[:4] + [(-1, "...")] + self.cfg_history[-4:]
+            if len(history) > 8:
+                shown = history[:4] + [(-1, "...")] + history[-4:]
             else:
-                shown = self.cfg_history
+                shown = history
 
             for step, cfg_val in shown:
                 if step == -1:
                     cfg_info += f"  ...\n"
                 else:
-                    actual_step = start_at_step + step
-                    cfg_info += f"  Step {actual_step+1}: CFG={cfg_val:.2f}\n"
+                    cfg_info += f"  Step {step+1}: CFG={cfg_val:.2f}\n"
 
         return cfg_info
 
@@ -758,14 +763,14 @@ class _DonutSamplerEngine:
         if total_steps <= 1:
             return cfg_start
 
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (total_steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
 
         if halfway_disabled:
             progress = step / (total_steps - 1)
             curved_progress = self.apply_curve(progress, curve_type)
             current_cfg = cfg_start + (cfg_end - cfg_start) * curved_progress
         else:
-            halfway_step = max(1, min(halfway_step, total_steps - 1))
+            halfway_step = max(1, min(halfway_step, total_steps - 2))
 
             if step <= halfway_step:
                 if halfway_step == 0:
@@ -1025,11 +1030,12 @@ class _DonutSamplerEngine:
         info += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
         # CFG progression info
-        halfway_disabled = (cfg_halfway == cfg_start or cfg_halfway == cfg_end)
+        halfway_disabled = (steps < 3 or cfg_halfway == cfg_start or cfg_halfway == cfg_end)
         if halfway_disabled:
             info += f"CFG Progression: {cfg_start:.2f} → {cfg_end:.2f} | Curve: {cfg_curve}\n"
         else:
-            info += f"CFG Progression: {cfg_start:.2f} → {cfg_halfway:.2f} (step {halfway_step}) → {cfg_end:.2f} | Curve: {cfg_curve}\n"
+            clamped_halfway_step = max(1, min(halfway_step, steps - 2))
+            info += f"CFG Progression: {cfg_start:.2f} → {cfg_halfway:.2f} (step {clamped_halfway_step}) → {cfg_end:.2f} | Curve: {cfg_curve}\n"
 
         info += f"Total Steps: {steps} | Step Range: {start_at_step} to {end_at_step}\n"
         info += f"Sampler: {sampler_name} | Scheduler: {scheduler}\n"

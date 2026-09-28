@@ -432,6 +432,64 @@ class DonutFaceDetailerTests(unittest.TestCase):
         self.assertEqual(h % 64, 0)
         self.assertEqual(w % 64, 0)
 
+    def test_force_refines_oversized_faces_with_both_size_guides(self):
+        image = torch.zeros(1, 1, 1, 3).expand(1, 1088, 1088, 3)
+        for guide in (False, True):
+            for force in (False, True, False):
+                with self.subTest(guide=guide, force=force):
+                    sample_calls.clear()
+                    result, _ = module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
+                        image=image, bbox=(0, 0, 1088, 1088), resolution=1024**2,
+                        max_resolution=1280, guide_size_for_bbox=guide, force_inpaint=force,
+                    ))
+                    self.assertEqual(len(sample_calls), int(force))
+                    if force:
+                        self.assertEqual(tuple(result.shape[1:3]), (1024, 1024))
+                    else:
+                        self.assertIsNone(result)
+
+    def test_force_preserves_cap_after_downsampling_and_sizing_hook(self):
+        image = torch.zeros(1, 1, 1, 3).expand(1, 1000, 3000, 3)
+        hook = types.SimpleNamespace(touch_scaled_size=lambda w, h: (w * 3, h * 3))
+        for detailer_hook in (None, hook):
+            with self.subTest(hook=detailer_hook is not None):
+                result, _ = module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
+                    image=image, bbox=(0, 0, 200, 200), guide_size_for_bbox=True,
+                    max_resolution=1280, force_inpaint=True, detailer_hook=detailer_hook,
+                ))
+                self.assertEqual(tuple(result.shape[1:3]), (448, 1280))
+                self.assertEqual(tuple(sample_calls[-1]['latent']['samples'].shape[-2:]), (448, 1280))
+
+    def test_nonedit_wildcard_gets_taps_before_replace_or_concat(self):
+        from DonutKrea2FusionControl import FUSION_BUDGET_KEY, TAP_METHOD_DONUT, prepare_positive_conditioning_taps
+        class Concat:
+            def concat(self, primary, extra):
+                return ([[torch.cat((entry[0], extra[0][0]), dim=1), dict(entry[1])] for entry in primary],)
+        for normalization in ('none', 'tensor_rms'):
+            for mode in (None, 'concat'):
+                for match_negative in (False, True):
+                    with self.subTest(normalization=normalization, mode=mode, match_negative=match_negative):
+                        model = FakeModel('fusion', {'transformer_options': {FUSION_BUDGET_KEY: {
+                            'tap_method': TAP_METHOD_DONUT, 'tap_gains': (1.,) * 7 + (2.5, 5., 1.1, 4., 1.),
+                            'tap_normalization': normalization, 'nag_match_taps': match_negative,
+                        }}})
+                        raw = [[torch.ones(1, 2, 30720), {'source': 'primary'}]]
+                        positive = prepare_positive_conditioning_taps(model, raw)
+                        original = positive[0][0].clone()
+                        wildcard = [[torch.ones(1, 2, 30720), {'source': 'wildcard'}]]
+                        with patch.object(fake_wildcards, 'process_with_loras', return_value=(model, None, wildcard)), \
+                                patch.object(fake_nodes, 'ConditioningConcat', Concat):
+                            module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
+                                image=torch.zeros(1, 64, 64, 3), resolution=64**2,
+                                model=model, positive=positive, wildcard_opt='portrait', wildcard_concat_mode=mode,
+                            ))
+                        actual = sample_calls[-1]['positive'][0][0]
+                        expected = torch.cat((original, original), dim=1) if mode == 'concat' else original
+                        torch.testing.assert_close(actual, expected)
+                        torch.testing.assert_close(positive[0][0], original)
+                        torch.testing.assert_close(wildcard[0][0], torch.ones_like(wildcard[0][0]))
+                        self.assertEqual(wildcard[0][1], {'source': 'wildcard'})
+
     def test_inpaint_model_conditioning_is_used(self):
         module.DonutFaceDetailer.enhance_detail_megapixel(
             **self.detail_kwargs(noise_mask=torch.ones(300, 500),

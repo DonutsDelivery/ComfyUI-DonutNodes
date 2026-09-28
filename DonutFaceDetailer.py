@@ -272,7 +272,7 @@ class DonutFaceDetailer:
         bbox_h = bbox[3] - bbox[1]
         if guide_size_for_bbox:
             bbox_pixels = bbox_w * bbox_h
-            if bbox_pixels > resolution:
+            if bbox_pixels > resolution and not force_inpaint:
                 logging.info("[DonutFaceDetailer] Segment skip [bbox larger than target]")
                 return None, None
             if bbox_pixels > 0:
@@ -282,23 +282,21 @@ class DonutFaceDetailer:
                 new_w, new_h = _align_canvas(w, h, max_resolution)
         else:
             crop_pixels = w * h
-            if crop_pixels > resolution:
+            if crop_pixels > resolution and not force_inpaint:
                 logging.info("[DonutFaceDetailer] Segment skip [crop larger than target]")
                 return None, None
             new_w, new_h = _scale_to_target_pixels(w, h, resolution, max_resolution)
 
         upscale = new_w / max(w, 1)
-        if upscale <= 1.0:
-            if not force_inpaint:
-                logging.info("[DonutFaceDetailer] Segment skip [upscale=%.2f]", upscale)
-                return None, None
-            new_w = _ceil_dimension(w)
-            new_h = _ceil_dimension(h)
-            upscale = new_w / max(w, 1)
+        if upscale <= 1.0 and not force_inpaint:
+            logging.info("[DonutFaceDetailer] Segment skip [upscale=%.2f]", upscale)
+            return None, None
+        # Force means refine even when the target requires downsampling. Keep
+        # the calculated canvas so max_resolution still bounds the pass.
 
         if detailer_hook is not None and hasattr(detailer_hook, "touch_scaled_size"):
             new_w, new_h = detailer_hook.touch_scaled_size(new_w, new_h)
-            new_w, new_h = _align_canvas(new_w, new_h, max_resolution)
+        new_w, new_h = _align_canvas(new_w, new_h, max_resolution)
 
         logging.info("[DonutFaceDetailer] Crop %dx%d -> %dx%d (%d pixels, target %d)",
                      w, h, new_w, new_h, new_w * new_h, resolution)
@@ -322,6 +320,10 @@ class DonutFaceDetailer:
         if wildcard_opt:
             sampling_model, _, wildcard_positive = impact_wildcards.process_with_loras(wildcard_opt, sampling_model, clip)
             if not edit_mode:
+                # Transform only the fresh tokens. ConditioningConcat retains
+                # the primary stream's processed marker, so transforming after
+                # concatenation would skip a raw wildcard tail.
+                wildcard_positive = prepare_positive_conditioning_taps(sampling_model, wildcard_positive)
                 if wildcard_concat_mode == "concat":
                     sampling_positive = nodes.ConditioningConcat().concat(sampling_positive, wildcard_positive)[0]
                 else:
