@@ -19,3 +19,19 @@ Includes the earlier NAG edit/refinement fixes from 3.0.45.
 Existing workflows receive the caption correction from the frontend and require no replacement JSON. The bundled `workflows/v5/DonutWF_v5.json` also has the corrected caption; manually upload that file to Civitai to refresh its downloadable copy.
 
 Registry packaging uses the documented restricted distribution, replacing the automatic downloader with the manual model-files panel. Exact publication status and downloaded-package verification will be recorded below.
+
+## Publication verification
+
+- GitHub `main` release commit `b8cf7db` was pushed before publication and includes all three previously unpushed fixes.
+- `comfy-cli 1.20.0` packed the source; `tools/prepare_registry.py` built a fresh staging directory. Configuration and security validation passed. The staged ZIP was inspected before upload.
+- Comfy Registry **3.1.0** upload succeeded using the documented non-Git staging-directory fallback.
+- At **2026-09-28T21:04:40Z**, the version listing with status reasons and the exact-version endpoint both reported **NodeVersionStatusPending**. `status_reason` was empty. Upload success is confirmed; Registry approval and normal update discovery remain unverified.
+- Hourly review checks were offered for this version. No recurring monitor is scheduled without opt-in.
+
+## Downloaded package verification
+
+- URL: `https://cdn.comfy.org/donutsdelivery/donutnodes/3.1.0/node.zip`
+- **228 files**, **15,774,560 bytes**.
+- SHA-256: `d64960db62663aa3c15b1bee63bba661242017902d0c45f6285d4c5ff6a37c4e`.
+- Published ZIP is byte-identical to the inspected staged ZIP; all extracted files match the staging tree. It declares version 3.1.0. Changed runtime files, workflow caption, and weight asset also match the source checkout.
+- Required assets and manual model catalog are present. Credentials, caches, development tests/tools, validation reports, automatic downloader backend, and standalone installers are absent.
