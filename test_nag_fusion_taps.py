@@ -75,6 +75,24 @@ class NAGTapTests(unittest.TestCase):
         raw = [[value, {}]]
         self.assertIs(fusion.prepare_nag_conditioning(model, raw), raw)
 
+    def test_positive_edit_reencode_keeps_taps_when_negative_matching_is_opted_out(self):
+        value = torch.randn(1, 2, 30720)
+        gains = (1.,)*7 + (2.5, 5., 1.1, 4., 1.)
+        config = dict(tap_method=fusion.TAP_METHOD_DONUT, tap_gains=gains,
+                      tap_normalization='none', nag_match_taps=False)
+        model = types.SimpleNamespace(model_options={'transformer_options': {fusion.FUSION_BUDGET_KEY: config}})
+        raw = [[value, {'source': 'fresh edit encoding'}]]
+
+        positive = fusion.prepare_positive_conditioning_taps(model, raw)
+        negative = fusion.prepare_nag_conditioning(model, raw)
+
+        self.assertIsNot(positive, raw)
+        self.assertIs(negative, raw)
+        expected = value.reshape(1, 2, 12, 2560) * torch.tensor(gains).reshape(1, 1, 12, 1)
+        torch.testing.assert_close(positive[0][0], expected.reshape_as(value))
+        self.assertIs(fusion.prepare_positive_conditioning_taps(model, positive)[0][0], positive[0][0])
+        self.assertEqual(raw[0][1], {'source': 'fresh edit encoding'})
+
     def test_standalone_nag_node_receives_fusion_taps(self):
         captured = []
         class NAG:

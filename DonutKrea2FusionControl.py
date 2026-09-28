@@ -247,11 +247,11 @@ def _tap_signature(config):
             tuple(config.get("tap_profile_values", ())))
 
 
-def prepare_nag_conditioning(model, conditioning):
-    """Apply the model's upstream tap transform to NAG's separate text input."""
+def _prepare_tap_conditioning(model, conditioning, *, respect_nag_match):
+    """Apply the model's upstream tap transform once, preserving metadata."""
     config = getattr(model, "model_options", {}).get("transformer_options", {}).get(FUSION_BUDGET_KEY)
     if (not config or _is_neutral(config["tap_gains"]) or conditioning is None
-            or not config.get("nag_match_taps", True)):
+            or (respect_nag_match and not config.get("nag_match_taps", True))):
         return conditioning
     signature = _tap_signature(config)
     output = []
@@ -268,6 +268,16 @@ def prepare_nag_conditioning(model, conditioning):
         value, meta = transformed[0]
         output.append([value, dict(meta, **{_TAP_METADATA_KEY: signature})])
     return output
+
+
+def prepare_nag_conditioning(model, conditioning):
+    """Match NAG's negative stream to the upstream positive tap transform."""
+    return _prepare_tap_conditioning(model, conditioning, respect_nag_match=True)
+
+
+def prepare_positive_conditioning_taps(model, conditioning):
+    """Apply Fusion taps to a freshly encoded positive, independent of NAG opt-out."""
+    return _prepare_tap_conditioning(model, conditioning, respect_nag_match=False)
 
 
 _NAG_TAP_WRAP = "_donut_prepare_nag_conditioning"
@@ -308,10 +318,21 @@ def ensure_standalone_nag_uses_fusion_taps():
                 kwargs["nag_negative"] = prepare_nag_conditioning(
                     kwargs["model"], kwargs["nag_negative"],
                 )
-                return _original(self, *args, **kwargs)
-            model, nag_negative, *rest = args
-            nag_negative = prepare_nag_conditioning(model, nag_negative)
-            return _original(self, model, nag_negative, *rest, **kwargs)
+                result = _original(self, *args, **kwargs)
+            else:
+                model, nag_negative, *rest = args
+                nag_negative = prepare_nag_conditioning(model, nag_negative)
+                result = _original(self, model, nag_negative, *rest, **kwargs)
+            if isinstance(result, tuple) and result:
+                try:
+                    from .donut_nag_txtfusion import install_nag_wrapper_composition
+                except ImportError:
+                    from donut_nag_txtfusion import install_nag_wrapper_composition
+                key = ("krea2_edit_normalized_attention_guidance"
+                       if node_id == "Krea2EditNormalizedAttentionGuidance"
+                       else "krea2_normalized_attention_guidance")
+                result = (install_nag_wrapper_composition(result[0], key), *result[1:])
+            return result
 
         setattr(patch, _NAG_TAP_WRAP, True)
         setattr(patch, _NAG_PATCH_ORIGINAL, original)
@@ -794,6 +815,20 @@ class DonutKrea2FusionControl:
             f"{CONDITIONING_SLOT_COUNT}\n"
             "external_files_loaded=none"
         )
+        # A workflow may have already attached standalone NAG before this
+        # node adds its Fusion diffusion wrapper. Retrofit the local NAG
+        # wrapper only on the resulting clone, so active NAG still composes
+        # with this later wrapper in either node order.
+        if output_model is not model or runtime_config:
+            try:
+                from .donut_nag_txtfusion import install_nag_wrapper_composition
+            except ImportError:
+                from donut_nag_txtfusion import install_nag_wrapper_composition
+            for key in (
+                "krea2_normalized_attention_guidance",
+                "krea2_edit_normalized_attention_guidance",
+            ):
+                output_model = install_nag_wrapper_composition(output_model, key)
         return (output_model, *output_conditionings, diagnostics)
 
 

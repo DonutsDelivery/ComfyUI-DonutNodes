@@ -368,10 +368,12 @@ def _prepare_conditions(request, nag_request, model, positive, negative, values,
             from .krea2_edit_integration import scale_image_to_megapixels
             from .krea2_variance_integration import reapply_edit_variance
             from .krea2_nag_integration import sampler_negative
+            from .DonutKrea2FusionControl import prepare_positive_conditioning_taps
         except ImportError:
             from krea2_edit_integration import scale_image_to_megapixels
             from krea2_variance_integration import reapply_edit_variance
             from krea2_nag_integration import sampler_negative
+            from DonutKrea2FusionControl import prepare_positive_conditioning_taps
 
     wrappers = comfy.patcher_extension.WrappersMP
     if not all(hasattr(wrappers, name) for name in ("PREDICT_NOISE", "SAMPLER_SAMPLE")):
@@ -396,6 +398,7 @@ def _prepare_conditions(request, nag_request, model, positive, negative, values,
                 raw_negative = encoder.encode(request.clip, request.negative_prompt, image=image,
                                               grounding_px=px, **options)[0]
                 pos = reapply_edit_variance(pos, request.original_positive)
+                pos = prepare_positive_conditioning_taps(model, pos)
                 raw_negatives[px] = raw_negative
                 cache[px] = (pos, sampler_negative(raw_negative, request.turbo))
 
@@ -416,7 +419,7 @@ def _prepare_conditions(request, nag_request, model, positive, negative, values,
         except ImportError:
             from krea2_nag_integration import resolve_nag_phi
         for px, alpha in pairs:
-            raw_negative = raw_negatives.get(px) if px is not None else None
+            raw_negative = raw_negatives.get(px) if vary_negative and px is not None else None
             if vary_alpha:
                 phi = (resolve_nag_phi(nag_request.manual_phi, alpha, True, nag_request.phi_scale)
                        if nag_request.auto_phi else nag_request.manual_phi)

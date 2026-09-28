@@ -11,9 +11,14 @@ from donut_nag_txtfusion import (
     NAG_TEXT_ENERGY_COMPENSATION,
     _fused_text,
     _nudge_tap_energy,
+    _composable_nag_wrapper,
+    _flatten_temporal_latent,
+    _reject_unsupported_attention_hooks,
+    _restore_temporal_latent,
     donut_nag_forward,
     ensure_nag_txtfusion_is_batched,
     install_donut_nag_experiment,
+    install_nag_wrapper_composition,
 )
 from DonutKrea2FusionControl import FUSION_BUDGET_KEY, copy_fusion_budget, prepare_nag_conditioning
 
@@ -289,6 +294,103 @@ class DonutForwardMirrorTests(unittest.TestCase):
         self.assertEqual(len(fusion_calls), 1)
         self.assertEqual(fusion_calls[0][1], (2, 12, 2560))
 
+    def test_temporal_flatten_and_restore_preserve_batch_frame_order(self):
+        value = torch.arange(2 * 2 * 3 * 2 * 4).reshape(2, 2, 3, 2, 4)
+        flattened, shape = _flatten_temporal_latent(value)
+
+        self.assertEqual(tuple(flattened.shape), (6, 2, 2, 4))
+        for batch in range(2):
+            for frame in range(3):
+                torch.testing.assert_close(flattened[batch * 3 + frame], value[batch, :, frame])
+        torch.testing.assert_close(_restore_temporal_latent(flattened, shape), value)
+
+    def test_active_nag_composes_later_diffusion_wrappers(self):
+        from functools import partial
+
+        events = []
+
+        class Executor:
+            def __init__(self, terminal, class_obj, wrappers, idx):
+                self.terminal = terminal
+                self.class_obj = class_obj
+                self.wrappers = wrappers
+                self.idx = idx
+
+            @classmethod
+            def new_class_executor(cls, terminal, class_obj, wrappers, idx):
+                return cls(terminal, class_obj, wrappers, idx)
+
+            def execute(self, *args, **kwargs):
+                if self.idx >= len(self.wrappers):
+                    return self.terminal(*args, **kwargs)
+                next_executor = type(self)(self.terminal, self.class_obj, self.wrappers, self.idx + 1)
+                return self.wrappers[self.idx](next_executor, *args, **kwargs)
+
+            def __call__(self, *args, **kwargs):
+                return self.execute(*args, **kwargs)
+
+        comfy = types.ModuleType("comfy")
+        extension = types.ModuleType("comfy.patcher_extension")
+        extension.WrapperExecutor = Executor
+        comfy.patcher_extension = extension
+
+        state = types.SimpleNamespace(
+            negative_context=torch.zeros(1, 1, 1), phi=4.0, tau=2.5,
+            alpha=.25, sigma_start=1000.0, sigma_end=0.0,
+        )
+        upstream = types.SimpleNamespace(_nag_is_active=lambda options, state: True)
+
+        def original(executor, *args, state=None, **kwargs):
+            events.append("nag")
+            return "prediction"
+
+        def later(executor, *args, **kwargs):
+            events.append("later-before")
+            result = executor(*args, **kwargs)
+            events.append("later-after")
+            return result + "+later"
+
+        class CurrentExecutor:
+            class_obj = object()
+            wrappers = [None, later]
+            idx = 0
+
+            def __call__(self, *args, **kwargs):
+                raise AssertionError("The active NAG wrapper should use the remaining executor.")
+
+        wrapper = _composable_nag_wrapper(partial(original, state=state), state, upstream)
+        with patch.dict(sys.modules, {"comfy": comfy, "comfy.patcher_extension": extension}):
+            result = wrapper(CurrentExecutor(), "latent", "sigma", "context", {})
+
+        self.assertEqual(result, "prediction+later")
+        self.assertEqual(events, ["later-before", "nag", "later-after"])
+
+    def test_active_nag_rejects_skipped_attention_hooks(self):
+        state = types.SimpleNamespace(
+            negative_context=torch.zeros(1, 1, 1), phi=4.0, tau=2.5,
+            alpha=.25, sigma_start=1000.0, sigma_end=0.0,
+        )
+        upstream = types.SimpleNamespace(_nag_is_active=lambda options, state: True)
+        wrapper = _composable_nag_wrapper(
+            lambda executor, *args, **kwargs: "would skip hooks", state, upstream,
+        )
+
+        class Executor:
+            class_obj = object()
+            wrappers = []
+            idx = 0
+
+            def __call__(self, *args, **kwargs):
+                raise AssertionError("NAG must not silently continue with skipped attention hooks.")
+
+        with self.assertRaisesRegex(RuntimeError, "attn1_patch"):
+            wrapper(Executor(), "latent", "sigma", "context",
+                    {"patches": {"attn1_patch": [object()]}})
+        with self.assertRaisesRegex(RuntimeError, "attn1_output_patch"):
+            _reject_unsupported_attention_hooks({
+                "patches": {"attn1_output_patch": [object()]},
+            })
+
 
 class FusionBudgetFlagTests(unittest.TestCase):
     """The UI toggles must land in the model's fusion budget (base node level)."""
@@ -434,6 +536,54 @@ class InstallExperimentTests(unittest.TestCase):
         )
         self.assertIs(result, model)
         self.assertEqual(model.added, [])
+
+    def test_registered_upstream_wrapper_is_adapted_on_model_clone(self):
+        from functools import partial
+
+        wrapper_type = "diffusion_model"
+        state = types.SimpleNamespace(
+            negative_context=torch.zeros(1, 1, 1), phi=4.0, tau=2.5,
+            alpha=.25, sigma_start=1000.0, sigma_end=0.0,
+        )
+
+        def original(executor, *args, state=None, **kwargs):
+            return "nag"
+
+        upstream = types.ModuleType("_nag_compat_pack.krea2_nag")
+        upstream._nag_is_active = lambda options, state: True
+        package = types.ModuleType("_nag_compat_pack")
+        package.__path__ = []
+        node_module = types.ModuleType("_nag_compat_pack.nodes")
+
+        class FakeNAG:
+            pass
+
+        FakeNAG.__module__ = node_module.__name__
+        nodes = types.ModuleType("nodes")
+        nodes.NODE_CLASS_MAPPINGS = {"Krea2NormalizedAttentionGuidance": FakeNAG}
+        model = self._model(wrappers={wrapper_type: {
+            "krea2_normalized_attention_guidance": [partial(original, state=state)],
+        }})
+        comfy = types.ModuleType("comfy")
+        extension = types.ModuleType("comfy.patcher_extension")
+        extension.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL=wrapper_type)
+        comfy.patcher_extension = extension
+
+        with patch.dict(sys.modules, {
+            "comfy": comfy,
+            "comfy.patcher_extension": extension,
+            "nodes": nodes,
+            package.__name__: package,
+            node_module.__name__: node_module,
+            upstream.__name__: upstream,
+        }):
+            result = install_nag_wrapper_composition(
+                model, "krea2_normalized_attention_guidance",
+            )
+
+        wrapper = result.wrappers[wrapper_type]["krea2_normalized_attention_guidance"][0]
+        self.assertTrue(wrapper._donut_nag_composable)
+        self.assertIs(wrapper._donut_original_nag_wrapper.func, original)
 
 
 class FusionBudgetCopyTests(unittest.TestCase):

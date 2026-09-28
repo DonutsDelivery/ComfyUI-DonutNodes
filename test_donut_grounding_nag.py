@@ -104,6 +104,9 @@ class NAGTests(unittest.TestCase):
             self.fusion_inputs.append(cond)
             return [[t * 2, m.copy()] for t, m in cond]
         fusion.prepare_nag_conditioning = prepare
+        fusion.prepare_positive_conditioning_taps = lambda model, cond: [
+            [t, dict(m, positive_taps=True)] for t, m in cond
+        ]
         edit = types.ModuleType("krea2_edit_integration")
         edit.scale_image_to_megapixels = lambda image: image
         variance = types.ModuleType("krea2_variance_integration")
@@ -195,6 +198,54 @@ class NAGTests(unittest.TestCase):
         self.assertEqual([call["alpha"] for call in scheduled_calls], list(alphas))
         for call, phi in zip(scheduled_calls, (15., 5., 3.)):
             self.assertAlmostEqual(call["phi"], phi)
+
+    def test_explicit_negative_stays_fixed_across_dynamic_grounding_and_alpha(self):
+        class Preparation:
+            explicit_negative = True
+            changes_negative = False
+
+            def __init__(self):
+                self.selected = []
+
+            def wrappers_for(self, negative=None, *, alpha=None, phi=None):
+                self.selected.append(negative)
+                return {"scheduled": (object(),)}
+
+        preparation = Preparation()
+        alphas = (.1, .3, .5)
+        nag_request = grounding._NagRequest("linear", .1, .5, False, 4.0, 1.0)
+        with patch.object(grounding, "get_nag_preparation", return_value=preparation):
+            grounding._prepare_conditions(
+                request(end=1024), nag_request, self.model,
+                conditioning(512), conditioning(512, -1), (512, 768, 1024), alphas,
+            )
+
+        self.assertEqual(preparation.selected, [None, None, None])
+
+    def test_implicit_negative_still_tracks_dynamic_grounding(self):
+        class Preparation:
+            explicit_negative = False
+            changes_negative = True
+
+            def __init__(self):
+                self.selected = []
+
+            def wrappers_for(self, negative=None, *, alpha=None, phi=None):
+                self.selected.append(negative)
+                return {"scheduled": (object(),)}
+
+        preparation = Preparation()
+        alphas = (.1, .3, .5)
+        nag_request = grounding._NagRequest("linear", .1, .5, False, 4.0, 1.0)
+        with patch.object(grounding, "get_nag_preparation", return_value=preparation):
+            grounding._prepare_conditions(
+                request(end=1024), nag_request, self.model,
+                conditioning(512), conditioning(512, -1), (512, 768, 1024), alphas,
+            )
+
+        self.assertIsNone(preparation.selected[0])
+        self.assertEqual(float(preparation.selected[1][0][0].flatten()[0]), -768.)
+        self.assertEqual(float(preparation.selected[2][0][0].flatten()[0]), -1024.)
 
     def test_dynamic_alpha_fails_if_no_nag_recipe_was_captured(self):
         request = grounding._NagRequest("linear", .1, .5, True, 4.0, 1.0)

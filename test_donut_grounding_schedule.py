@@ -402,9 +402,14 @@ class PreparationTests(unittest.TestCase):
         edit.scale_image_to_megapixels = scale
         variance = types.ModuleType("krea2_variance_integration")
         variance.reapply_edit_variance = lambda cond, donor: [[t, dict(m, donor=donor)] for t, m in cond]
+        fusion = types.ModuleType("DonutKrea2FusionControl")
+        fusion.prepare_positive_conditioning_taps = lambda model, cond: [
+            [t, dict(m, positive_taps=True)] for t, m in cond
+        ]
         nag = types.ModuleType("krea2_nag_integration")
         nag.sampler_negative = lambda cond, turbo: [[t, dict(m, turbo=turbo)] for t, m in cond]
         modules = {"nodes": nodes, "comfy": comfy, "comfy.patcher_extension": extension,
+                   "DonutKrea2FusionControl": fusion,
                    "krea2_edit_integration": edit, "krea2_variance_integration": variance,
                    "krea2_nag_integration": nag}
         model = Model()
@@ -424,6 +429,7 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(len(negatives), 3)
         self.assertTrue(positives[0][1]["original"])
         self.assertEqual(positives[1][1]["donor"], "variance-donor")
+        self.assertTrue(positives[1][1]["positive_taps"])
         self.assertTrue(negatives[1][1]["turbo"])
         self.assertNotIn(grounding._TAG, pos[0][1])
 

@@ -132,9 +132,9 @@ def donut_nag_forward(
     _nag_block = upstream._nag_block
 
     temporal = x.ndim == 5
+    temporal_shape = None
     if temporal:
-        batch_5d, channels_5d, frames_5d, height_5d, width_5d = x.shape
-        x = x.reshape(batch_5d * frames_5d, channels_5d, height_5d, width_5d)
+        x, temporal_shape = _flatten_temporal_latent(x)
     elif x.ndim != 4:
         raise RuntimeError(f"Krea2 NAG expected a 4D or 5D latent, got rank {x.ndim}.")
 
@@ -198,9 +198,7 @@ def donut_nag_forward(
     )
     output = output[:, :, :h_orig, :w_orig]
     if temporal:
-        output = output.reshape(
-            batch_5d, frames_5d, model.channels, h_orig, w_orig
-        ).movedim(1, 2)
+        output = _restore_temporal_latent(output, temporal_shape)
     return output
 
 
@@ -237,6 +235,171 @@ def _experiment_is_active(transformer_options, state):
     return bool(torch.all((sigmas >= state.sigma_end) & (sigmas <= state.sigma_start)).item())
 
 
+def _nag_transformer_options(args, kwargs):
+    options = kwargs.get("transformer_options")
+    if isinstance(options, dict):
+        return options
+    return next((value for value in reversed(args[3:]) if isinstance(value, dict)), {})
+
+
+def _attention_hooks(transformer_options):
+    patches = (transformer_options or {}).get("patches", {})
+    if not isinstance(patches, dict):
+        return ()
+    return tuple(name for name in ("attn1_patch", "attn1_output_patch") if patches.get(name))
+
+
+def _reject_unsupported_attention_hooks(transformer_options):
+    hooks = _attention_hooks(transformer_options)
+    if hooks:
+        raise RuntimeError(
+            "Krea2 NAG cannot preserve ComfyUI attention hooks "
+            f"({', '.join(hooks)}). NAG was stopped instead of silently skipping "
+            "those attention patches. Disable the conflicting attention patch or NAG."
+        )
+
+
+def _flatten_temporal_latent(value):
+    """Flatten [B,C,F,H,W] in frame-major order and return its inverse shape."""
+    if not torch.is_tensor(value) or value.ndim != 5:
+        return value, None
+    batch, channels, frames, height, width = value.shape
+    flat = value.movedim(2, 1).reshape(batch * frames, channels, height, width)
+    return flat, (batch, frames)
+
+
+def _restore_temporal_latent(value, shape):
+    if shape is None or not torch.is_tensor(value) or value.ndim != 4:
+        return value
+    batch, frames = shape
+    if value.shape[0] != batch * frames:
+        raise RuntimeError(
+            "Krea2 NAG changed the flattened frame batch size; refusing to return "
+            "a misordered temporal latent."
+        )
+    return value.reshape(batch, frames, *value.shape[1:]).movedim(1, 2)
+
+
+def _call_remaining_wrappers(executor, terminal, *args, **kwargs):
+    """Run later DIFFUSION_MODEL wrappers around a NAG terminal forward."""
+    import comfy.patcher_extension
+
+    remaining = comfy.patcher_extension.WrapperExecutor.new_class_executor(
+        terminal,
+        executor.class_obj,
+        executor.wrappers,
+        idx=executor.idx + 1,
+    )
+    return remaining.execute(*args, **kwargs)
+
+
+def _state_from_wrapper(wrapper):
+    state = getattr(wrapper, "keywords", None)
+    if isinstance(state, dict):
+        state = state.get("state")
+        if state is not None:
+            return state
+    for cell in getattr(wrapper, "__closure__", ()) or ():
+        try:
+            candidate = cell.cell_contents
+        except ValueError:
+            continue
+        if all(hasattr(candidate, name) for name in (
+            "negative_context", "phi", "tau", "alpha", "sigma_start", "sigma_end",
+        )):
+            return candidate
+    return None
+
+
+def _composable_nag_wrapper(original, state, upstream):
+    """Adapt upstream NAG so its active terminal forward keeps later wrappers."""
+    if getattr(original, "_donut_nag_composable", False):
+        return original
+
+    from types import SimpleNamespace
+
+    def wrapper(executor, *args, **kwargs):
+        if len(args) < 3:
+            return original(executor, *args, **kwargs)
+        options = _nag_transformer_options(args, kwargs)
+        if not upstream._nag_is_active(options, state):
+            return executor(*args, **kwargs)
+        _reject_unsupported_attention_hooks(options)
+
+        def terminal(*forward_args, **forward_kwargs):
+            _reject_unsupported_attention_hooks(
+                _nag_transformer_options(forward_args, forward_kwargs),
+            )
+            terminal_executor = SimpleNamespace(class_obj=executor.class_obj)
+            adjusted_args = forward_args
+            temporal_shape = None
+            if forward_args:
+                flattened, temporal_shape = _flatten_temporal_latent(forward_args[0])
+                if temporal_shape is not None:
+                    adjusted_args = (flattened, *forward_args[1:])
+            result = original(terminal_executor, *adjusted_args, **forward_kwargs)
+            return _restore_temporal_latent(result, temporal_shape)
+
+        return _call_remaining_wrappers(executor, terminal, *args, **kwargs)
+
+    wrapper._donut_nag_composable = True
+    wrapper._donut_original_nag_wrapper = original
+    wrapper._donut_nag_state = state
+    return wrapper
+
+
+def install_nag_wrapper_composition(patched, key):
+    """Make installed upstream NAG wrappers composable on this model clone."""
+    model_options = getattr(patched, "model_options", {}) or {}
+    transformer_options = model_options.get("transformer_options", {})
+    owners = (getattr(patched, "wrappers", None),
+              transformer_options.get("wrappers") if isinstance(transformer_options, dict) else None)
+    if not any(isinstance(owner, dict) and owner for owner in owners):
+        return patched
+
+    import comfy.patcher_extension
+
+    wrapper_type = comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL
+    tables = []
+    for owner in owners:
+        if not isinstance(owner, dict):
+            continue
+        table = owner.get(wrapper_type)
+        if isinstance(table, dict) and key in table and all(table is not old for old in tables):
+            tables.append(table)
+    if not tables:
+        return patched
+
+    upstream = None
+    replacements = {}
+    for table in tables:
+        current = table[key]
+        entries = list(current) if isinstance(current, (list, tuple)) else [current]
+        wrapped_entries = []
+        for entry in entries:
+            if getattr(entry, "_donut_nag_composable", False):
+                wrapped_entries.append(entry)
+                continue
+            state = _state_from_wrapper(entry)
+            if state is None:
+                # Other versions and test doubles can register opaque callables.
+                # Leave those untouched rather than guessing at their contract.
+                wrapped_entries.append(entry)
+                continue
+            if upstream is None:
+                upstream = _nag_module()
+            wrapped_entries.append(_composable_nag_wrapper(entry, state, upstream))
+        if isinstance(current, tuple):
+            replacements[id(table)] = (table, tuple(wrapped_entries))
+        elif isinstance(current, list):
+            replacements[id(table)] = (table, wrapped_entries)
+        else:
+            replacements[id(table)] = (table, wrapped_entries[0])
+    for table, replacement in replacements.values():
+        table[key] = replacement
+    return patched
+
+
 def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
                                  sigma_start, sigma_end):
     """Attach the experimental forward to this Donut NAG clone only.
@@ -248,17 +411,18 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
     budget = (options.get("transformer_options") or {}).get("donut_krea2_fusion_budget") or {}
     wants_energy = budget.get(NAG_TEXT_ENERGY_COMPENSATION) is True
     wants_batch = budget.get(NAG_BATCH_TXTFUSION) is True
-    if not (wants_energy or wants_batch) or not nag_negative:
-        return patched
-
     import comfy.patcher_extension
 
     wrapper_type = comfy.patcher_extension.WrappersMP.DIFFUSION_MODEL
     existing = (getattr(patched, "wrappers", {}) or {}).get(wrapper_type, {})
     if "krea2_edit_normalized_attention_guidance" in existing:
-        # The combined edit forward is a different upstream function; the
-        # experimental T2I text stage must not replace it.
-        return patched
+        # The combined edit forward is a different upstream function. Keep it,
+        # but adapt its NAG branch to compose with later wrappers.
+        return install_nag_wrapper_composition(
+            patched, "krea2_edit_normalized_attention_guidance",
+        )
+    if not (wants_energy or wants_batch) or not nag_negative:
+        return install_nag_wrapper_composition(patched, _UPSTREAM_WRAPPER_KEY)
     from types import SimpleNamespace
 
     state = SimpleNamespace(
@@ -282,6 +446,7 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
             )
         if not _experiment_is_active(transformer_options, state):
             return executor(*args, **kwargs)
+        _reject_unsupported_attention_hooks(transformer_options)
         cond_or_uncond = transformer_options.get("cond_or_uncond", [0])
         if any(branch != 0 for branch in cond_or_uncond):
             raise RuntimeError(
@@ -296,18 +461,28 @@ def install_donut_nag_experiment(patched, *, nag_negative, phi, tau, alpha,
                 "The NAG text-energy experiment does not support reference "
                 "latents/Krea2Edit; use the regular NAG path."
             )
-        return donut_nag_forward(
-            executor.class_obj,
-            x,
-            timesteps,
-            context,
-            state.negative_context,
-            transformer_options,
-            state.phi,
-            state.tau,
-            state.alpha,
-            upstream,
-        )
+        def terminal(*forward_args, **forward_kwargs):
+            forward_x, forward_t, forward_context = forward_args[:3]
+            forward_options = forward_kwargs.get("transformer_options")
+            if not isinstance(forward_options, dict):
+                forward_options = next(
+                    (value for value in reversed(forward_args[3:]) if isinstance(value, dict)), {}
+                )
+            _reject_unsupported_attention_hooks(forward_options)
+            return donut_nag_forward(
+                executor.class_obj,
+                forward_x,
+                forward_t,
+                forward_context,
+                state.negative_context,
+                forward_options,
+                state.phi,
+                state.tau,
+                state.alpha,
+                upstream,
+            )
+
+        return _call_remaining_wrappers(executor, terminal, *args, **kwargs)
 
     wrapper._donut_uses_upstream_nag_module = upstream
     wrapper._donut_experiment_wrapper_key = _EXPERIMENT_WRAPPER_KEY

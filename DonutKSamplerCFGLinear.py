@@ -59,6 +59,11 @@ except ImportError:
     from krea2_variance_integration import reapply_edit_variance
 
 try:
+    from .DonutKrea2FusionControl import prepare_positive_conditioning_taps
+except ImportError:
+    from DonutKrea2FusionControl import prepare_positive_conditioning_taps
+
+try:
     from .krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
 except ImportError:
     from krea2_nag_integration import apply_krea2_nag, nag_input_types, sampler_negative
@@ -1185,6 +1190,7 @@ class DonutSampler(_DonutSamplerEngine):
                 source_image_b=source_image_b,
             )
             positive = reapply_edit_variance(positive, original_positive)
+            positive = prepare_positive_conditioning_taps(model, positive)
             latent_image = (masked_edit_target(latent_image, source_latent, edit_inpaint)
                             if edit_inpaint is not None else make_krea2_edit_target(latent_image))
             if mode == "multi_model":

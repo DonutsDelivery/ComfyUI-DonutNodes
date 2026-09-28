@@ -148,12 +148,15 @@ class NAGIntegrationTests(unittest.TestCase):
         with patch.object(samplers, 'prepare_krea2_edit', return_value=(
             Model(), self.negative, self.negative, refs, image,
         )), patch.object(samplers, 'patch_krea2_edit_model', side_effect=lambda m, *a, **kw: m), \
+                patch.object(samplers, 'prepare_positive_conditioning_taps',
+                             side_effect=lambda model, conditioning: conditioning) as positive_taps, \
                 patch.object(sampler, 'run_multi_model', return_value=(self.target, 'info')) as run:
             sampler.sample(Model(), 1, 8, 8, 4, 2, 4, 'euler', 'simple',
                            self.negative, 'unused neg', self.target, 1., mode='multi_model',
                            model_2=Model(), model_3=Model(), edit_mode=True,
                            source_image=image, source_image_b=image, vae='vae', clip='clip',
                            nag_enabled=True, turbo_mode=True)
+        positive_taps.assert_called_once_with(ANY, self.negative)
         self.assertEqual(len(CaptureNAG.calls), 3)
         for call in CaptureNAG.calls:
             self.assertIs(call['nag_negative'], self.negative)
