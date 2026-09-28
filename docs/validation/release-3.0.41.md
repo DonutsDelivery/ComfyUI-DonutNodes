@@ -47,8 +47,9 @@ uploaded to Civitai.
 - Exact-version API check at `2026-09-27T14:30:59Z` returned
   **NodeVersionStatusPending**, with an empty/null `status_reason`. Upload
   success is confirmed; Registry approval and normal update discovery remain
-  unverified. The user was asked whether they want hourly follow-up checks;
-  no monitor has been scheduled while that answer is pending.
+  unverified. On 2026-09-28, the user declined hourly follow-up checks. No
+  recurring monitor is scheduled; approval remains unverified at the last
+  recorded check.
 
 ## Published package verification
 
