@@ -469,6 +469,15 @@ export function organizeV4Panels(root) {
     for (const panel of panels) {
         panel.properties.donut_panel_role = panelRole(panel);
         panel.properties.donut_columns = 'sections';
+        for (const group of panel.properties.donut_app_controls.groups) {
+            for (const control of group.controls || []) {
+                if (control.widget !== 'strength' || control.title !== 'Strength') continue;
+                const target = entries.find(entry => pathKey(entry.path) === pathKey(control.path))?.node;
+                if ((target?.comfyClass || target?.type) === 'DifferentialDiffusion') {
+                    control.title = 'Differential diffusion strength';
+                }
+            }
+        }
         if (panelRole(panel) === 'guidance' && /seed.*guidance/i.test(panel.title || '')) {
             const prefix = String(panel.title).match(/^\s*\d+\s*·\s*/)?.[0] || '';
             panel.title = `${prefix}Settings / Configuration`;

@@ -472,3 +472,26 @@ test('per-stage NAG groups shrink to the enable toggle; shared NAG settings glob
     const firstNag=titles.find(t=>t.startsWith('Donut · first upscale'));
     assert.ok(!/nag_phi|nag_tau/.test(firstNag), titles.join('|'));
 });
+
+test('Differential Diffusion label changes without moving controls or changing values',()=>{
+    const face = panel(1,'Face detail', [{title:'Face detail · sampling',donut_category_fixed:true,controls:[
+        {path:[2],widget:'vary_seed_per_face',title:'Vary seed per face'},
+        {path:[3],widget:'strength',title:'Strength'},
+        {path:[4],widget:'strength',title:'Strength'},
+        {path:[3],widget:'strength',title:'My custom mask label'},
+    ]}]);
+    face.properties.donut_panel_role='face';
+    face.properties.donut_columns='sections';
+    const graph={nodes:[face,
+        {id:2,type:'DonutFaceDetailer',widgets_values_named:{vary_seed_per_face:true}},
+        {id:3,type:'DifferentialDiffusion',mode:4,widgets_values:[.37],widgets_values_named:{strength:.37}},
+        {id:4,type:'OtherNode',widgets_values_named:{strength:.64}},
+    ]};
+    const expected=plain(graph);
+    expected.nodes[0].properties.donut_app_controls.groups[0].controls[1].title='Differential diffusion strength';
+    organizeV4Panels(graph);
+    same(graph,expected);
+    const reloaded=plain(graph);
+    organizeV4Panels(reloaded);
+    same(reloaded,expected);
+});

@@ -6,7 +6,7 @@ import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 import { weightControl, vectorControl } from "./donut_weight_controls.js?v=2";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
 import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=17";
-import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=14";
+import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=15";
 import {VAE_SHARED_WIDGETS, prepareVaeCorrectionMigration, vaeCorrectionMirrorWidgets} from "./donut_vae_global_controls_model.js?v=1";
 
 const service = createLoraService(api);
