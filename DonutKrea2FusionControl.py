@@ -313,7 +313,7 @@ def ensure_standalone_nag_uses_fusion_taps():
             continue
         original = getattr(cls.patch, _NAG_PATCH_ORIGINAL, cls.patch)
 
-        def patch(self, *args, _original=original, **kwargs):
+        def patch(self, *args, _original=original, _node_id=node_id, **kwargs):
             if "nag_negative" in kwargs:
                 kwargs["nag_negative"] = prepare_nag_conditioning(
                     kwargs["model"], kwargs["nag_negative"],
@@ -329,7 +329,7 @@ def ensure_standalone_nag_uses_fusion_taps():
                 except ImportError:
                     from donut_nag_txtfusion import install_nag_wrapper_composition
                 key = ("krea2_edit_normalized_attention_guidance"
-                       if node_id == "Krea2EditNormalizedAttentionGuidance"
+                       if _node_id == "Krea2EditNormalizedAttentionGuidance"
                        else "krea2_normalized_attention_guidance")
                 result = (install_nag_wrapper_composition(result[0], key), *result[1:])
             return result

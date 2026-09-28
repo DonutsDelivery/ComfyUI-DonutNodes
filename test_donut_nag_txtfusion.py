@@ -20,7 +20,56 @@ from donut_nag_txtfusion import (
     install_donut_nag_experiment,
     install_nag_wrapper_composition,
 )
-from DonutKrea2FusionControl import FUSION_BUDGET_KEY, copy_fusion_budget, prepare_nag_conditioning
+class _WrapperExecutor:
+    """CPU double using ComfyUI's current-index/next-call executor contract."""
+    def __init__(self, original, class_obj, wrappers, idx=0):
+        self.original, self.class_obj = original, class_obj
+        self.wrappers, self.idx = list(wrappers), idx
+
+    @classmethod
+    def new_class_executor(cls, original, class_obj, wrappers, idx=0):
+        return cls(original, class_obj, wrappers, idx)
+
+    def execute(self, *args, **kwargs):
+        if self.idx == len(self.wrappers):
+            return self.original(*args, **kwargs)
+        return self.wrappers[self.idx](self, *args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        return type(self)(self.original, self.class_obj, self.wrappers, self.idx + 1).execute(*args, **kwargs)
+
+
+try:
+    import comfy.patcher_extension as _extension
+except ModuleNotFoundError as exc:
+    if exc.name not in ("comfy", "comfy.patcher_extension"):
+        raise
+    _extension = types.ModuleType("comfy.patcher_extension")
+    _extension.WrapperExecutor = _WrapperExecutor
+    _extension.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL="diffusion_model")
+_comfy = types.ModuleType("comfy")
+_comfy.patcher_extension = _extension
+with patch.dict(sys.modules, {"comfy": _comfy, "comfy.patcher_extension": _extension}):
+    from DonutKrea2FusionControl import FUSION_BUDGET_KEY, copy_fusion_budget, prepare_nag_conditioning
+
+
+def setUpModule():
+    global _comfy_patch
+    modules = {"comfy": _comfy, "comfy.patcher_extension": _extension}
+    try:
+        import nodes
+    except ModuleNotFoundError as exc:
+        if exc.name != "nodes":
+            raise
+        nodes = types.ModuleType("nodes")
+        nodes.NODE_CLASS_MAPPINGS = {}
+        modules["nodes"] = nodes
+    _comfy_patch = patch.dict(sys.modules, modules)
+    _comfy_patch.start()
+
+
+def tearDownModule():
+    _comfy_patch.stop()
 
 
 class TxtfusionHelperTests(unittest.TestCase):
@@ -309,29 +358,9 @@ class DonutForwardMirrorTests(unittest.TestCase):
 
         events = []
 
-        class Executor:
-            def __init__(self, terminal, class_obj, wrappers, idx):
-                self.terminal = terminal
-                self.class_obj = class_obj
-                self.wrappers = wrappers
-                self.idx = idx
-
-            @classmethod
-            def new_class_executor(cls, terminal, class_obj, wrappers, idx):
-                return cls(terminal, class_obj, wrappers, idx)
-
-            def execute(self, *args, **kwargs):
-                if self.idx >= len(self.wrappers):
-                    return self.terminal(*args, **kwargs)
-                next_executor = type(self)(self.terminal, self.class_obj, self.wrappers, self.idx + 1)
-                return self.wrappers[self.idx](next_executor, *args, **kwargs)
-
-            def __call__(self, *args, **kwargs):
-                return self.execute(*args, **kwargs)
-
         comfy = types.ModuleType("comfy")
         extension = types.ModuleType("comfy.patcher_extension")
-        extension.WrapperExecutor = Executor
+        extension.WrapperExecutor = _extension.WrapperExecutor
         comfy.patcher_extension = extension
 
         state = types.SimpleNamespace(
@@ -354,6 +383,7 @@ class DonutForwardMirrorTests(unittest.TestCase):
             class_obj = object()
             wrappers = [None, later]
             idx = 0
+            original = staticmethod(lambda *args, **kwargs: "base")
 
             def __call__(self, *args, **kwargs):
                 raise AssertionError("The active NAG wrapper should use the remaining executor.")
@@ -364,6 +394,78 @@ class DonutForwardMirrorTests(unittest.TestCase):
 
         self.assertEqual(result, "prediction+later")
         self.assertEqual(events, ["later-before", "nag", "later-after"])
+
+    def test_edit_fade_keeps_reference_forward_and_later_wrappers(self):
+        state = types.SimpleNamespace(alpha=.25, phi=4., sigma_start=1., sigma_end=.1)
+        def active(options, state):
+            return bool(state.alpha and state.phi and state.sigma_end <= options['sigmas'] <= state.sigma_start)
+        upstream = types.SimpleNamespace(_nag_is_active=active)
+        events = []
+        def base(*args, **kwargs):
+            events.append('base')
+            return 'base'
+        def edit(executor, x, timestep, context, transformer_options):
+            result = 'nag-edit' if active(transformer_options, state) else 'reference-edit'
+            events.append(result)
+            return result
+        def later(executor, *args, **kwargs):
+            events.append('later-before')
+            result = executor(*args, **kwargs)
+            events.append('later-after')
+            return result
+        adapted = _composable_nag_wrapper(edit, state, upstream, edit_mode=True)
+        with patch.dict(sys.modules, {'comfy': _comfy, 'comfy.patcher_extension': _extension}):
+            for alpha, phi, sigma, expected in (
+                (.25, 4., .5, 'nag-edit'), (0., 4., .5, 'reference-edit'),
+                (.25, 0., .5, 'reference-edit'), (.25, 4., .05, 'reference-edit'),
+                (.25, 4., 1.1, 'reference-edit'), (.25, 4., .5, 'nag-edit'),
+            ):
+                with self.subTest(alpha=alpha, phi=phi, sigma=sigma):
+                    state.alpha, state.phi = alpha, phi
+                    events.clear()
+                    executor = _extension.WrapperExecutor.new_class_executor(base, object(), [adapted, later])
+                    self.assertEqual(executor.execute('x', 't', 'context', {'sigmas': sigma}), expected)
+                    self.assertEqual(events, ['later-before', expected, 'later-after'])
+
+    def test_inactive_edit_keyword_call_preserves_frame_order(self):
+        value = torch.arange(24.).reshape(1, 2, 3, 2, 2)
+        upstream = types.SimpleNamespace(_nag_is_active=lambda options, state: False)
+
+        def edit(executor, x, timesteps, context, **kwargs):
+            self.assertEqual(tuple(x.shape), (3, 2, 2, 2))
+            for frame in range(3):
+                torch.testing.assert_close(x[frame], value[0, :, frame])
+            return x
+
+        def base(*args, **kwargs):
+            self.fail("Inactive edit must retain the reference-aware forward")
+
+        adapted = _composable_nag_wrapper(edit, object(), upstream, edit_mode=True)
+        executor = _extension.WrapperExecutor.new_class_executor(base, object(), [adapted])
+        result = executor.execute(x=value, timesteps=torch.zeros(1), context=torch.ones(1))
+        torch.testing.assert_close(result, value)
+
+    def test_t2i_inactive_continuation_runs_base_once_after_later_wrapper(self):
+        state = types.SimpleNamespace(alpha=.25)
+        upstream = types.SimpleNamespace(_nag_is_active=lambda options, state: bool(options['active']))
+        events = []
+        def base(*args, **kwargs):
+            events.append('base')
+            return 'base'
+        def original(executor, x, t, context, transformer_options):
+            if not transformer_options['active']:
+                return executor(x, t, context, transformer_options)
+            return 'nag'
+        def later(executor, x, t, context, options):
+            events.append('later')
+            return executor(x, t, context, dict(options, active=False))
+        adapted = _composable_nag_wrapper(original, state, upstream)
+        with patch.dict(sys.modules, {'comfy': _comfy, 'comfy.patcher_extension': _extension}):
+            for initial_active in (True, False):
+                events.clear()
+                executor = _extension.WrapperExecutor.new_class_executor(base, object(), [adapted, later])
+                self.assertEqual(executor.execute('x', 't', 'context', {'active': initial_active}), 'base')
+                self.assertEqual(events, ['later', 'base'])
 
     def test_active_nag_rejects_skipped_attention_hooks(self):
         state = types.SimpleNamespace(

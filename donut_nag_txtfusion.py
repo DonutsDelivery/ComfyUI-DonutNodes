@@ -311,33 +311,45 @@ def _state_from_wrapper(wrapper):
     return None
 
 
-def _composable_nag_wrapper(original, state, upstream):
-    """Adapt upstream NAG so its active terminal forward keeps later wrappers."""
+def _composable_nag_wrapper(original, state, upstream, *, edit_mode=False):
+    """Keep the upstream active/inactive routing inside the remaining chain."""
     if getattr(original, "_donut_nag_composable", False):
         return original
 
-    from types import SimpleNamespace
-
     def wrapper(executor, *args, **kwargs):
-        if len(args) < 3:
-            return original(executor, *args, **kwargs)
         options = _nag_transformer_options(args, kwargs)
-        if not upstream._nag_is_active(options, state):
-            return executor(*args, **kwargs)
-        _reject_unsupported_attention_hooks(options)
+        if upstream._nag_is_active(options, state):
+            _reject_unsupported_attention_hooks(options)
 
         def terminal(*forward_args, **forward_kwargs):
-            _reject_unsupported_attention_hooks(
-                _nag_transformer_options(forward_args, forward_kwargs),
+            import comfy.patcher_extension
+
+            active = upstream._nag_is_active(
+                _nag_transformer_options(forward_args, forward_kwargs), state,
             )
-            terminal_executor = SimpleNamespace(class_obj=executor.class_obj)
+            if active:
+                _reject_unsupported_attention_hooks(
+                    _nag_transformer_options(forward_args, forward_kwargs),
+                )
+            # The original edit wrapper owns its reference-aware inactive
+            # fallback. The T2I wrapper instead delegates to the native forward.
+            # Give both a real executor whose continuation cannot repeat the
+            # downstream wrappers we already ran around this terminal.
+            terminal_executor = comfy.patcher_extension.WrapperExecutor.new_class_executor(
+                executor.original, executor.class_obj, [original], idx=0,
+            )
             adjusted_args = forward_args
+            adjusted_kwargs = forward_kwargs
             temporal_shape = None
-            if forward_args:
+            if (active or edit_mode) and forward_args:
                 flattened, temporal_shape = _flatten_temporal_latent(forward_args[0])
                 if temporal_shape is not None:
                     adjusted_args = (flattened, *forward_args[1:])
-            result = original(terminal_executor, *adjusted_args, **forward_kwargs)
+            elif (active or edit_mode) and "x" in forward_kwargs:
+                flattened, temporal_shape = _flatten_temporal_latent(forward_kwargs["x"])
+                if temporal_shape is not None:
+                    adjusted_kwargs = dict(forward_kwargs, x=flattened)
+            result = terminal_executor.execute(*adjusted_args, **adjusted_kwargs)
             return _restore_temporal_latent(result, temporal_shape)
 
         return _call_remaining_wrappers(executor, terminal, *args, **kwargs)
@@ -388,7 +400,10 @@ def install_nag_wrapper_composition(patched, key):
                 continue
             if upstream is None:
                 upstream = _nag_module()
-            wrapped_entries.append(_composable_nag_wrapper(entry, state, upstream))
+            wrapped_entries.append(_composable_nag_wrapper(
+                entry, state, upstream,
+                edit_mode=key == "krea2_edit_normalized_attention_guidance",
+            ))
         if isinstance(current, tuple):
             replacements[id(table)] = (table, tuple(wrapped_entries))
         elif isinstance(current, list):

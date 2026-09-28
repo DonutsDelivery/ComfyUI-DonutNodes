@@ -75,9 +75,16 @@ fake_comfy.samplers = fake_samplers
 fake_comfy.sample = fake_sample
 fake_comfy.model_management = fake_management
 fake_comfy.utils = fake_utils_mod
+fake_extension = types.ModuleType("comfy.patcher_extension")
+fake_extension.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL="diffusion_model")
+fake_comfy.patcher_extension = fake_extension
 
 fake_nodes = types.ModuleType("nodes")
 fake_nodes.MAX_RESOLUTION = 16384
+fake_nodes.VAELoader = type('VAELoader', (), {})
+fake_nodes.VAEDecode = type('VAEDecode', (), {
+    'decode': lambda self, vae, samples: (vae.decode(samples['samples']),),
+})
 
 
 class FakeInpaintModelConditioning:
@@ -236,16 +243,22 @@ fake_comfy_extras.nodes_differential_diffusion = fake_dd
 
 fake_nag = types.ModuleType("krea2_nag_integration")
 fake_nag.apply_krea2_nag = lambda model, negative, **kwargs: model
+fake_nag.apply_krea2_nag_scheduled = lambda model, negative, nag_options, **kwargs: model
 fake_nag.nag_input_types = lambda: {}
 fake_nag.sampler_negative = lambda negative, turbo_mode: negative
 
 fake_variance = types.ModuleType("krea2_variance_integration")
 fake_variance.reapply_edit_variance = lambda grounded, original: grounded
 
+fake_schedule = types.ModuleType('donut_grounding_schedule')
+fake_schedule.nag_alpha_schedule_input_types = lambda: {}
+
 _modules = {
+    "donut_grounding_schedule": fake_schedule,
     "krea2_variance_integration": fake_variance,
     "krea2_nag_integration": fake_nag,
     "comfy": fake_comfy,
+    "comfy.patcher_extension": fake_extension,
     "comfy.samplers": fake_samplers,
     "comfy.sample": fake_sample,
     "comfy.model_management": fake_management,
@@ -354,7 +367,7 @@ class DonutFaceDetailerTests(unittest.TestCase):
         latent = {"samples": torch.zeros(1, 4, 8, 8)}
         with patch.object(module, "prepare_krea2_edit", return_value=(
             FakeModel("edit"), ["pos"], negative, latent, reference,
-        )), patch.object(module, "apply_krea2_nag", return_value=FakeModel("nag")) as apply, \
+        )), patch.object(module, "apply_krea2_nag_scheduled", return_value=FakeModel("nag")) as apply, \
                 patch.object(module, "sampler_negative", return_value=["zero"]) as zero:
             module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
                 edit_mode=True, face_reference_crop=reference, turbo_mode=True,
@@ -363,7 +376,7 @@ class DonutFaceDetailerTests(unittest.TestCase):
         self.assertIs(apply.call_args.args[1], negative)
         self.assertIs(apply.call_args.kwargs["source_latent"], latent)
         self.assertIs(apply.call_args.kwargs["source_image"], reference)
-        self.assertEqual(apply.call_args.kwargs["nag_phi"], 5)
+        self.assertEqual(apply.call_args.args[2]["nag_phi"], 5)
         zero.assert_called_once_with(negative, True)
         self.assertEqual(sample_calls[-1]["cfg"], 1.)
         self.assertEqual(sample_calls[-1]["negative"], ["zero"])
@@ -379,6 +392,37 @@ class DonutFaceDetailerTests(unittest.TestCase):
         self.assertEqual(target_w % 64, 0)
         self.assertEqual(target_h % 64, 0)
         self.assertEqual([call["seed"] for call in sample_calls], [7, 1007, 2007])
+
+    def test_edit_face_restores_positive_taps_after_variance(self):
+        from DonutKrea2FusionControl import FUSION_BUDGET_KEY, TAP_METHOD_DONUT, prepare_nag_conditioning
+        gains = (1.,) * 7 + (2.5, 5., 1.1, 4., 1.)
+        for match_negative in (True, False):
+            with self.subTest(match_negative=match_negative):
+                model = FakeModel('edit', {'transformer_options': {FUSION_BUDGET_KEY: {
+                    'tap_method': TAP_METHOD_DONUT, 'tap_gains': gains,
+                    'tap_normalization': 'none', 'nag_match_taps': match_negative,
+                }}})
+                fresh = [[torch.ones(1, 2, 30720), {'fresh': True}]]
+                negative = [[torch.full((1, 2, 30720), 2.), {}]]
+                reference = torch.zeros(1, 64, 64, 3)
+                nag_negatives = []
+                def nag(model, negative, options, **kwargs):
+                    nag_negatives.append(prepare_nag_conditioning(model, negative))
+                    return model
+                with (
+                    patch.object(module, 'prepare_krea2_edit', return_value=(model, fresh, negative, {}, reference)),
+                    patch.object(module, 'reapply_edit_variance', side_effect=lambda cond, original: [[cond[0][0] + 1, dict(cond[0][1])]]),
+                    patch.object(module, 'apply_krea2_nag_scheduled', side_effect=nag),
+                ):
+                    module.DonutFaceDetailer.enhance_detail_megapixel(**self.detail_kwargs(
+                        image=reference, resolution=4096, edit_mode=True,
+                        face_reference_crop=reference, nag_enabled=True,
+                    ))
+                actual = sample_calls[-1]['positive'][0][0]
+                expected = (torch.full((1, 2, 12, 2560), 2.) * torch.tensor(gains).reshape(1, 1, 12, 1)).reshape_as(actual)
+                torch.testing.assert_close(actual, expected)
+                torch.testing.assert_close(nag_negatives[0][0][0], expected if match_negative else negative[0][0])
+                self.assertEqual(fresh[0][1], {'fresh': True})
 
     def test_max_resolution_remains_aligned(self):
         result, _ = module.DonutFaceDetailer.enhance_detail_megapixel(

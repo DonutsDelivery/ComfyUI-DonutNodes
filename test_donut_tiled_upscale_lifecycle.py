@@ -92,6 +92,9 @@ fake_comfy.sample = fake_sample
 fake_comfy.samplers = fake_samplers
 fake_comfy.utils = fake_utils
 fake_comfy.model_management = fake_management
+fake_extension = types.ModuleType("comfy.patcher_extension")
+fake_extension.WrappersMP = types.SimpleNamespace(DIFFUSION_MODEL="diffusion_model")
+fake_comfy.patcher_extension = fake_extension
 
 fake_preview = types.ModuleType("latent_preview")
 fake_preview.prepare_callback = lambda model, steps: None
@@ -115,6 +118,7 @@ _fake_modules = {
     "krea2_nag_integration": fake_nag,
     "nodes": fake_nodes,
     "comfy": fake_comfy,
+    "comfy.patcher_extension": fake_extension,
     "comfy.sample": fake_sample,
     "comfy.samplers": fake_samplers,
     "comfy.utils": fake_utils,
@@ -228,6 +232,42 @@ class DonutTiledUpscaleLifecycleTests(unittest.TestCase):
 
     def setUp(self):
         events.clear()
+
+    def test_edit_hires_restores_positive_taps_after_variance(self):
+        from DonutKrea2FusionControl import FUSION_BUDGET_KEY, TAP_METHOD_DONUT, prepare_nag_conditioning
+        gains = (1.,) * 7 + (2.5, 5., 1.1, 4., 1.)
+        for match_negative in (True, False):
+            with self.subTest(match_negative=match_negative):
+                model = types.SimpleNamespace(model_options={'transformer_options': {FUSION_BUDGET_KEY: {
+                    'tap_method': TAP_METHOD_DONUT, 'tap_gains': gains,
+                    'tap_normalization': 'none', 'nag_match_taps': match_negative,
+                }}})
+                fresh = [[torch.ones(1, 2, 30720), {'fresh': True}]]
+                negative = [[torch.full((1, 2, 30720), 2.), {}]]
+                image = torch.zeros(1, 32, 64, 3)
+                nag_negatives = []
+                def nag(model, negative, options, **kwargs):
+                    nag_negatives.append(prepare_nag_conditioning(model, negative))
+                    return model
+                with (
+                    patch.object(module, 'upscale_with_model', side_effect=lambda model, image: image),
+                    patch.object(module, 'create_debug_image', return_value=Image.new('RGB', (64, 32))),
+                    patch.object(FakeVAEDecode, 'decode', return_value=(image,)),
+                    patch.object(module, 'prepare_krea2_edit', return_value=(model, fresh, negative, [], image)),
+                    patch.object(module, 'reapply_edit_variance', side_effect=lambda cond, original: [[cond[0][0] + 1, dict(cond[0][1])]]),
+                    patch.object(module, 'apply_krea2_nag_scheduled', side_effect=nag),
+                    patch.object(fake_sample, 'sample', side_effect=lambda *args, **kwargs: args[8]) as sample,
+                ):
+                    module.DonutTiledUpscale().upscale(
+                        image, types.SimpleNamespace(scale=1), model, fresh, negative, object(),
+                        1, 8, 1, 'euler', 'simple', .5, 1, 'nearest', 0, False,
+                        edit_mode=True, clip=object(), edit_source_image=image, nag_enabled=True,
+                    )
+                actual = sample.call_args.args[6][0][0]
+                expected = (torch.full((1, 2, 12, 2560), 2.) * torch.tensor(gains).reshape(1, 1, 12, 1)).reshape_as(actual)
+                torch.testing.assert_close(actual, expected)
+                torch.testing.assert_close(nag_negatives[0][0][0], expected if match_negative else negative[0][0])
+                self.assertEqual(fresh[0][1], {'fresh': True})
 
     def test_patcher_backed_upscaler_uses_current_comfy_lifecycle(self):
         upscale_model = PatcherUpscaleModel()

@@ -66,6 +66,11 @@ except ImportError:
     from krea2_variance_integration import reapply_edit_variance
 
 try:
+    from .DonutKrea2FusionControl import prepare_positive_conditioning_taps
+except ImportError:
+    from DonutKrea2FusionControl import prepare_positive_conditioning_taps
+
+try:
     from .krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
 except ImportError:
     from krea2_nag_integration import apply_krea2_nag_scheduled, nag_input_types, sampler_negative
@@ -332,6 +337,7 @@ class DonutFaceDetailer:
             if wildcard_positive is not None:
                 sampling_positive = _combine_conditioning(sampling_positive, wildcard_positive)
             sampling_positive = reapply_edit_variance(sampling_positive, positive)
+            sampling_positive = prepare_positive_conditioning_taps(sampling_model, sampling_positive)
             if noise_mask is not None and any(target_padding):
                 left, top, right, bottom = target_padding
                 noise_mask = torch.nn.functional.pad(noise_mask, (left, right, top, bottom), value=0)

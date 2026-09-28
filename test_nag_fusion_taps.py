@@ -129,6 +129,32 @@ class NAGTapTests(unittest.TestCase):
         expected = (value.float().reshape(1, 2, 12, 2560) * torch.tensor(profile).reshape(1, 1, 12, 1)).reshape_as(value)
         torch.testing.assert_close(first[0][0], expected)
 
+    def test_standalone_callbacks_keep_their_own_wrapper_key(self):
+        class NAG:
+            def patch(self, model, nag_negative, **kwargs):
+                return (model,)
+        class EditNAG:
+            def patch(self, model, nag_negative, **kwargs):
+                return (model,)
+        nodes = types.ModuleType('nodes')
+        nodes.NODE_CLASS_MAPPINGS = {
+            'Krea2NormalizedAttentionGuidance': NAG,
+            'Krea2EditNormalizedAttentionGuidance': EditNAG,
+        }
+        model = types.SimpleNamespace(model_options={})
+        with patch.dict(sys.modules, {'nodes': nodes}), patch(
+            'donut_nag_txtfusion.install_nag_wrapper_composition', side_effect=lambda model, key: model,
+        ) as install:
+            fusion.ensure_standalone_nag_uses_fusion_taps()
+            fusion.ensure_standalone_nag_uses_fusion_taps()
+            for cls in (NAG, EditNAG):
+                cls().patch(model, [[torch.ones(1, 1, 30720), {}]])
+                cls().patch(model=model, nag_negative=[[torch.ones(1, 1, 30720), {}]])
+        self.assertEqual([call.args[1] for call in install.call_args_list], [
+            'krea2_normalized_attention_guidance', 'krea2_normalized_attention_guidance',
+            'krea2_edit_normalized_attention_guidance', 'krea2_edit_normalized_attention_guidance',
+        ])
+
     def test_donut_sampler_patch_callable_skips_the_standalone_wrap(self):
         seen = []
         class NAG:
