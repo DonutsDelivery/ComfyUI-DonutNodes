@@ -285,6 +285,28 @@ class DynamicCFGDispatchTests(unittest.TestCase):
         preview_callback.assert_called_once_with(0, "denoised", "x", 1)
         fake_guider.set_completed_step.assert_called_once_with(0)
 
+    def test_advanced_range_rejects_second_slice_of_turbo_tail(self):
+        model = Mock(load_device=torch.device("cpu"), model_options={})
+        latent_samples = torch.zeros((1, 4, 2, 2))
+        latent = {"samples": latent_samples}
+        fake_ksampler = Mock()
+        fake_ksampler.sigmas = torch.tensor([0.8, 0.6, 0.4, 0.2, 0.0])
+
+        with (
+            patch.object(sampler_module.comfy.sample, "fix_empty_latent_channels", return_value=latent_samples),
+            patch.object(sampler_module.comfy.sample, "prepare_noise", return_value=latent_samples),
+            patch.object(sampler_module.latent_preview, "prepare_callback", return_value=Mock()),
+            patch.object(sampler_module.comfy.samplers, "KSampler", return_value=fake_ksampler),
+            patch.object(sampler_module, "_DynamicCFGGuider") as guider_class,
+        ):
+            with self.assertRaisesRegex(ValueError, r"start_at_step=4.*denoise=0\.5"):
+                sampler_module._common_ksampler_with_dynamic_cfg(
+                    model, 1, 4, [1.0] * 4, "euler", "simple", object(), object(),
+                    latent, denoise=0.5, start_step=4, last_step=8,
+                )
+
+        guider_class.assert_not_called()
+
     def test_multi_model_mode_preserves_phase_constant_cfg_behavior(self):
         engine = sampler_module._DonutSamplerEngine()
         sampler_name = comfy.samplers.KSampler.SAMPLERS[0]

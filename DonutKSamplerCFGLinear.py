@@ -171,19 +171,20 @@ def _common_ksampler_with_dynamic_cfg(
         if force_full_denoise:
             sigmas[-1] = 0
 
+    available_steps = len(sigmas) - 1
     if start_step is not None:
-        if start_step < (len(sigmas) - 1):
-            sigmas = sigmas[start_step:]
-        else:
-            samples = latent_image.to(
-                device=comfy.model_management.intermediate_device(),
-                dtype=comfy.model_management.intermediate_dtype(),
+        if start_step < 0 or start_step >= available_steps:
+            message = (
+                "DonutSampler advanced step range has no denoising steps "
+                f"(start_at_step={start_step}, end_at_step={last_step}, "
+                f"available_steps={available_steps}, denoise={denoise})."
             )
-            out = latent.copy()
-            out.pop("downscale_ratio_spacial", None)
-            out.pop("downscale_ratio_temporal", None)
-            out["samples"] = samples
-            return (out,)
+            if denoise < 1.0:
+                message += " Denoise already shortened the schedule; use denoise=1.0 for full-schedule step indices."
+            raise ValueError(message)
+        sigmas = sigmas[start_step:]
+    if len(sigmas) < 2:
+        raise ValueError("DonutSampler step range has no denoising steps after applying end_at_step and denoise.")
 
     active_cfg_values = _aligned_cfg_values(cfg_values, max(0, len(sigmas) - 1))
     guider = _DynamicCFGGuider(model, active_cfg_values, log_prefix=log_prefix)
