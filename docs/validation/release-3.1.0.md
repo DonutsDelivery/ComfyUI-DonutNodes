@@ -26,7 +26,7 @@ Registry packaging uses the documented restricted distribution, replacing the au
 - `comfy-cli 1.20.0` packed the source; `tools/prepare_registry.py` built a fresh staging directory. Configuration and security validation passed. The staged ZIP was inspected before upload.
 - Comfy Registry **3.1.0** upload succeeded using the documented non-Git staging-directory fallback.
 - At **2026-09-28T21:04:40Z**, the version listing with status reasons and the exact-version endpoint both reported **NodeVersionStatusPending**. `status_reason` was empty. Upload success is confirmed; Registry approval and normal update discovery remain unverified.
-- Hourly review checks were offered for this version. No recurring monitor is scheduled without opt-in.
+- The user declined hourly review checks for 3.1.0. No recurring monitor is scheduled. Registry approval remains unverified.
 
 ## Downloaded package verification
 
