@@ -69,6 +69,8 @@ def prepare(archive, destination):
                 raise ValueError(f"Unsafe archive path: {name}")
             if name in forbidden_files or name.startswith(forbidden_prefixes):
                 raise ValueError(f"Non-registry file in packed archive: {name}; check .comfyignore")
+            if path.name.startswith("test_") and path.suffix in {".py", ".js", ".mjs", ".cjs"}:
+                raise ValueError(f"Development test in packed archive: {name}; check .comfyignore")
         required = {"assets/uncensorfix.f32", "uncensorfix_weights.py", "model_sources.json", "pyproject.toml",
                     "web/donut_model_requirements.js", "web/donut_model_downloads.js", "web/donut_layout.js"}
         if not required.issubset(source.namelist()):
