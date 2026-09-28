@@ -48,6 +48,16 @@ class DonutSampler(_Base):
         })
         return schema
 
+    @classmethod
+    def VALIDATE_INPUTS(cls, txtfusion_reference_checkpoint="None"):
+        # This saved filename is ignored by execution, even with the legacy
+        # guard enabled. Validate only its type, not membership in the local
+        # model list. Naming only this field keeps ComfyUI's normal validation
+        # for every other sampler input (no catch-all **kwargs here).
+        if not isinstance(txtfusion_reference_checkpoint, str):
+            return "Deprecated txtfusion reference must be a string"
+        return True
+
     # Explicit parent signature instead of reflected argument binding: the
     # registry scanner misreads reflection here as socket binding (3.0.29
     # through 3.0.33 were Flagged for exactly that). Keyword-only and

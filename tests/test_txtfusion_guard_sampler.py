@@ -5,6 +5,7 @@ in test_txtfusion_model_guard.py; these check dispatch and input preservation.
 """
 from pathlib import Path
 import importlib.util
+import inspect
 import sys
 import types
 import unittest
@@ -108,6 +109,26 @@ class SamplerTests(unittest.TestCase):
         with patch.object(self.module,'attach_model_guard',return_value=self.patched),self.assertLogs(self.module.LOGGER,level='WARNING') as logs:
             result=self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,txtfusion_internal_guard=True,txtfusion_reference_checkpoint='same.safetensors')
         self.assertIn('not used',logs.output[0]);self.assertNotIn('txtfusion_reference_checkpoint',result[-1])
+    def test_missing_legacy_reference_is_accepted_and_ignored_with_guard_off_or_on(self):
+        missing = 'uninstalled/legacy-reference.safetensors'
+        choices = self.sampler.INPUT_TYPES()['optional']['txtfusion_reference_checkpoint'][0]
+        self.assertNotIn(missing, choices)
+        self.assertIs(self.sampler.VALIDATE_INPUTS(txtfusion_reference_checkpoint=missing), True)
+        for enabled in (False, True, False):
+            with self.subTest(enabled=enabled), patch.object(self.module, 'attach_model_guard', return_value=self.patched) as install:
+                result = self.sampler.sample(self.model,987,8,0,0,0,0,'euler','beta',None,None,None,None,
+                    txtfusion_internal_guard=enabled,txtfusion_reference_checkpoint=missing)
+                self.assertIs(result[0], self.patched if enabled else self.model)
+                self.assertEqual(install.call_count, int(enabled))
+                self.assertNotIn('txtfusion_reference_checkpoint', result[-1])
+    def test_reference_validation_is_narrow_and_preserves_other_input_validation(self):
+        # ComfyUI skips default validation only for named custom-validator
+        # arguments. Adding **kwargs would accidentally exempt every input.
+        signature = inspect.signature(self.sampler.VALIDATE_INPUTS)
+        self.assertEqual(list(signature.parameters), ['txtfusion_reference_checkpoint'])
+        self.assertIs(self.sampler.VALIDATE_INPUTS(), True)
+        for invalid in (None, 12, {}, []):
+            self.assertIsInstance(self.sampler.VALIDATE_INPUTS(invalid), str)
     def test_schema_positions_preserved(self):
         old=ParentSampler.INPUT_TYPES();new=self.sampler.INPUT_TYPES()
         self.assertEqual(old['required'],new['required'])
