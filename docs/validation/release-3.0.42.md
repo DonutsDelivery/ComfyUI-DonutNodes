@@ -40,8 +40,8 @@ no image-quality comparison was made.
   and security checks.
 - Upload of **3.0.42** succeeded. The CLI used its staging-directory fallback
   because the staging tree has no `.git` directory.
-- Exact-version API check at `2026-09-28T15:52:19Z` returned
-  **NodeVersionStatusPending** with an empty `status_reason`. Upload success is
+- Exact-version API check at `2026-09-28T15:53:58Z` returned
+  **NodeVersionStatusPending** with a null `status_reason`. Upload success is
   confirmed; Registry approval and normal update discovery are unverified.
   The user has been asked whether they want hourly follow-up checks; no monitor
   is scheduled unless they opt in.
