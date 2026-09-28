@@ -12,7 +12,7 @@ GPU generation and residual-grain improvement remain unverified. Publication and
 - `comfy-cli 1.20.0` packed the source; `tools/prepare_registry.py` produced a new staging directory. Configuration and security validation passed. The new staging guard correctly rejects the downloaded 3.0.44 archive containing the development test.
 - Registry upload succeeded. Publishing used the documented staging-directory fallback (no Git repository in staging).
 - At `2026-09-28T19:07:36Z`, both the version listing with status reasons and the exact-version endpoint reported **NodeVersionStatusPending** for **3.0.45**. The listing's `status_reason` was empty. Approval and normal update discovery remain unverified.
-- Hourly status checks were offered for 3.0.45, superseding the earlier 3.0.44 question. No recurring monitor has been enabled without opt-in.
+- The user declined hourly status checks for 3.0.45 (and the superseded 3.0.44 release). No recurring monitor is scheduled. Registry approval remains unverified.
 
 ## Downloaded package
 
