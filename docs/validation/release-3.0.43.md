@@ -26,4 +26,25 @@ image-quality comparison was made. No distributed workflow JSON changed.
 
 ## Publication
 
-Package and Registry verification will be recorded after upload.
+- GitHub `main` includes release commit `dd7f274` (`Release 3.0.43: reject
+  empty sampler ranges`), pushed before publication.
+- `comfy-cli 1.20.0` packed the node. `tools/prepare_registry.py` created the
+  registry staging tree, and `comfy node validate` passed configuration and
+  security checks.
+- Comfy Registry upload of **3.0.43** succeeded. The publisher used its
+  staging-directory fallback because the staging tree has no `.git` directory.
+- Exact-version API check at `2026-09-28T16:34:37Z` returned
+  **NodeVersionStatusPending** with an empty `status_reason`. Upload success is
+  confirmed; Registry approval and normal update discovery remain unverified.
+  No recurring status monitor is scheduled without the user's opt-in.
+
+## Published package verification
+
+- Downloaded ZIP:
+  `https://cdn.comfy.org/donutsdelivery/donutnodes/3.0.43/node.zip`.
+- Checked ZIP: **229 files**, **15,775,507 bytes**, SHA-256
+  `8a4ee2cfac7087a16657a4c8e0c58ab5b8ed9bda0373be7d21c8b90a5917f1c1`.
+- The ZIP reports version **3.0.43** and contains the empty-range guard. All
+  229 downloaded file hashes match the validated staging tree. Required
+  runtime assets are present; tests, validation reports, credentials, the
+  automatic downloader backend, and standalone installers are absent.
