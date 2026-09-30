@@ -195,7 +195,7 @@ class EditMemoryTests(unittest.TestCase):
     def test_textfusion_parity_hooks_and_full_attention_sequences(self):
         torch.manual_seed(19)
         model = Patcher()
-        fusion = model.model.diffusion_modelfusion if False else model.model.diffusion_model.txtfusion
+        fusion = model.model.diffusion_model.txtfusion
         seen = []
         def adapter(layer, args, output):
             seen.append(args[0].shape[0])
