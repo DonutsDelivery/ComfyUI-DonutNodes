@@ -710,10 +710,18 @@ def _make_rebinding_bypass_injections(manager, model_root):
                 del active[owner]
 
         runtime = type(manager)()
+        chunk_lora = bool(getattr(model_patcher, "model_options", {}).get("donut_chunk_lora", False))
         for key, (adapter, strength) in manager.adapters.items():
             runtime_adapter = _copy_runtime_adapter(adapter)
+            # Single plain LoRAs otherwise use the native, unchunked h(). Wrap
+            # only the runtime copy so canonical save/extraction data and the
+            # disabled path stay native. The hook owns the original strength;
+            # a unit child strength avoids applying it twice.
+            if (chunk_lora and type(runtime_adapter)
+                    is getattr(comfy_weight_adapter, "LoRAAdapter", None)):
+                runtime_adapter = _CompositeBypassAdapter([(runtime_adapter, 1.0)])
             if isinstance(runtime_adapter, _CompositeBypassAdapter):
-                runtime_adapter.low_vram_chunking = bool(model_patcher.model_options.get("donut_chunk_lora", False))
+                runtime_adapter.low_vram_chunking = chunk_lora
             runtime.add_adapter(key, runtime_adapter, strength=strength)
         _trace_lokr_calls(runtime)
         inner = tuple(runtime.create_injections(model_patcher.model))
