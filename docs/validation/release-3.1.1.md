@@ -35,6 +35,31 @@ manual model-files panel, as documented in `docs/publishing.md`.
 
 ## Publication verification
 
-Preparation is in progress. Exact GitHub commit, Registry review status and UTC
-check time, and published-package verification will be recorded after upload.
-Upload success alone does not establish Registry approval.
+- PR #77 was merged into GitHub main at
+  `36e788974c1f47a2fb1d784104d8a5981f9cc188`. Local main was fast-forwarded to
+  that revision while preserving unrelated uncommitted edits.
+- `comfy-cli 1.20.0` packed the clean release checkout, and
+  `tools/prepare_registry.py` prepared a fresh restricted staging directory.
+  Configuration/security checks passed. Publication used the documented non-Git
+  staging-directory fallback.
+- Comfy Registry **3.1.1** upload succeeded.
+- At **2026-10-01T19:45:43.397783Z**, both the version listing with status
+  reasons and exact-version endpoint reported **NodeVersionStatusPending**.
+  `status_reason` was null. Registry approval and normal update discovery remain
+  unverified; upload success is reported separately.
+- Hourly review checks were offered as required by AGENTS.md. No recurring
+  monitor is scheduled without the user's explicit yes.
+
+## Downloaded package verification
+
+- URL: `https://cdn.comfy.org/donutsdelivery/donutnodes/3.1.1/node.zip`.
+- **228 files**, **15,775,578 bytes**.
+- SHA-256:
+  `c18d2289a94246615118011e6f1983604e8788128ab0bccff80c0981ec658f38`.
+- The downloaded ZIP is byte-identical to the inspected prepublication ZIP and
+  the CLI upload ZIP. Every extracted file matches the staging tree; version is
+  3.1.1. Changed backend code and the unchanged workflow JSON match the clean
+  release source.
+- Required runtime assets, model catalog, and manual model-files panel are
+  present. Credentials, caches, tests/tools, validation reports, automatic
+  downloader backend, and standalone installers are absent.
