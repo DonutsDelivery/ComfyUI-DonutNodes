@@ -294,6 +294,7 @@ class EditMemoryTests(unittest.TestCase):
             actual, chunked_peak = measured(chunked)
         torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-5)
         self.assertLess(chunked_peak, full_peak)
+        print(f"Layerwise MLP CUDA incremental peak: native={full_peak} chunked={chunked_peak} bytes")
 
     def test_small_empty_and_lower_rank_inputs_use_direct_forward(self):
         for shape in ((64, 12, 8), (0, 12, 8), (130, 8)):
