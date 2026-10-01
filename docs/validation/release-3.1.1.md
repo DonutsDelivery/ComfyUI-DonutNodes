@@ -47,8 +47,8 @@ manual model-files panel, as documented in `docs/publishing.md`.
   reasons and exact-version endpoint reported **NodeVersionStatusPending**.
   `status_reason` was null. Registry approval and normal update discovery remain
   unverified; upload success is reported separately.
-- Hourly review checks were offered as required by AGENTS.md. No recurring
-  monitor is scheduled without the user's explicit yes.
+- The user declined hourly review checks for 3.1.1. No recurring monitor is
+  scheduled. Registry approval remains unverified.
 
 ## Downloaded package verification
 
