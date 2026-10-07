@@ -1,0 +1,20 @@
+DMC ordered face routing
+Copyright (c) 2024-2026 DonutsDelivery and contributors.
+
+SPDX-License-Identifier: GPL-3.0-only
+
+The transferred dmc_face_detailer.py and tests/test_dmc_face_detailer.py
+originate in DonutMediaCenter, revision 2cf5b41e, under GNU GPL version 3 only.
+The module is registered by DonutNodes for use by existing ComfyUI installs.
+Its initial transfer preserves the executable source unchanged.
+
+These files are free software: you can redistribute them and/or modify them
+under the terms of version 3 of the GNU General Public License, as published
+by the Free Software Foundation. This grant is version 3 only.
+
+These files are distributed in the hope that they will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See dmc-face-detailer-GPL-3.0.txt for the full license.
+
+This component notice does not replace the existing licenses or notices for
+other DonutNodes components or third-party dependencies.
