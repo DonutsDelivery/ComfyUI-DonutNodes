@@ -1,5 +1,13 @@
 # Third-Party Notices
 
+## DMC ordered face routing
+
+`dmc_face_detailer.py` and its transferred behavioral fixtures in
+`tests/test_dmc_face_detailer.py` originate in DonutMediaCenter and retain
+GPL-3.0-only. See the scoped [component notice](licenses/dmc-face-detailer-NOTICE.txt)
+and [GNU GPL version 3 license](licenses/dmc-face-detailer-GPL-3.0.txt).
+This notice does not replace the existing licenses of other components.
+
 `Donut Krea2 Fusion Control` includes explicitly named compatibility presets derived from the following projects and community artifacts. The presets are labelled `COPY settings:` in the node UI. Selecting one writes its values into the node's visible method/strength/profile settings; the preset label is not a hidden runtime override. No external files are loaded at runtime.
 
 ## ComfyUI-Krea2T-Enhancer

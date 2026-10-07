@@ -34,7 +34,7 @@ _NODE_MODULES = (
     "DonutSpectralNoiseSharpener", "DonutKSamplerCFGLinear", "donut_krea2_sda", "donut_grounding_schedule", "donut_txtfusion_guard_sampler", "donut_lora_civitai",
     "donut_vae_upscale", "donut_vae_correction", "DonutTiledUpscale", "DonutColorPreservingUpscale", "DonutDetailerZIT",
     "ModelMergeZIT", "DonutModelMergeKrea2", "ModelMergeZITBlocks",
-    "DonutModelSave", "DonutFaceDetailer", "DonutUniversalDetailer",
+    "DonutModelSave", "DonutFaceDetailer", "dmc_face_detailer", "DonutUniversalDetailer",
     "DonutWeightVectorScale", "DonutGammaCorrection", "DonutAutoGamma",
     "DonutHistogramStretch", "DonutAutoWhiteBalance", "DonutSharpen",
     "DonutPromptInjection", "DonutZitConditioningRebalance", "DonutZitLayerBlendEncode",
