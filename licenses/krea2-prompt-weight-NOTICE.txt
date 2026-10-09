@@ -1,0 +1,16 @@
+Krea2 prompt weighting from ComfyUI-KJNodes
+Upstream authors: kijai and ComfyUI-KJNodes contributors.
+Source: https://github.com/kijai/ComfyUI-KJNodes
+Revision: d3cfe21625e5170126ce06fbfcfe1d88108688c3
+File: nodes/model_optimization_nodes.py
+SPDX-License-Identifier: GPL-3.0-only
+
+Copied Krea2PromptWeight, token-span helpers and attention math. Modifications:
+Donut node naming/category; optional existing conditioning to preserve fusion
+and variance; zero/unit-weight no-op; strength/encoder checks; lazy Comfy imports;
+shared text cleaning before DonutPromptConditioning's scene encoding.
+
+Distributed under GNU GPL version 3. See krea2-prompt-weight-GPL-3.0.txt.
+No warranty. This notice applies to the copied component and does not replace
+other components' existing licenses. Complete modified source accompanies the
+node pack; the whole KJNodes package is not required at runtime.

@@ -38,7 +38,7 @@ _NODE_MODULES = (
     "DonutWeightVectorScale", "DonutGammaCorrection", "DonutAutoGamma",
     "DonutHistogramStretch", "DonutAutoWhiteBalance", "DonutSharpen",
     "DonutPromptInjection", "DonutZitConditioningRebalance", "DonutZitLayerBlendEncode",
-    "DonutKrea2ImageConditioning", "DonutKrea2FusionControl", "DonutKrea2FusionPreset",
+    "DonutKrea2ImageConditioning", "donut_krea_prompt_weight", "DonutKrea2FusionControl", "DonutKrea2FusionPreset",
     "donut_krea2_fusion_experiments", "donut_txtfusion_model_guard_node",
     "DonutImageAdjust", "DonutImageSave",
     "donut_prompt", "donut_seed_plan", "donut_dynamic_lora",

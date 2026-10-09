@@ -52,7 +52,7 @@ class FaceRegistrationTests(unittest.TestCase):
                   if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)
                   and node.targets[0].id in {"_NODE_MODULES", "_REQUIRED_OVERRIDES"}}
         for name in (*values["_NODE_MODULES"], "shared.server_routes", "donut_wildcards", "donut_model_downloads"):
-            if name == "dmc_face_detailer":
+            if name in {"dmc_face_detailer", "donut_krea_prompt_weight"}:
                 continue
             module = types.ModuleType(PACKAGE + "." + name)
             module.NODE_CLASS_MAPPINGS = {
@@ -65,6 +65,14 @@ class FaceRegistrationTests(unittest.TestCase):
 
     def import_pack(self):
         return load(PACKAGE, ROOT / "__init__.py", package=True)
+
+    # AC: @create-krea-prompt-weights ac-execution
+    def test_actual_initializer_exports_copied_prompt_weight_node(self):
+        pack = self.import_pack()
+        node = pack.NODE_CLASS_MAPPINGS["DonutKrea2PromptWeight"]
+        self.assertEqual(node.RETURN_TYPES, ("MODEL", "CONDITIONING"))
+        self.assertEqual(node.INPUT_TYPES()["optional"]["conditioning"], ("CONDITIONING",))
+        self.assertEqual(self.dependency.IMPORT_FAILURES, {})
 
     # AC: @create-multiple-face-prompts ac-existing-backend-node
     def test_actual_initializer_exports_wrapper_before_comfy_registers_upstream(self):

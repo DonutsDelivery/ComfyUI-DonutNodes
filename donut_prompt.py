@@ -15,8 +15,10 @@ import re
 
 try:
     from .krea2_variance_integration import enhance_prompt_pair, variance_input_types
+    from .donut_krea_prompt_weight import clean_weighted_text
 except ImportError:
     from krea2_variance_integration import enhance_prompt_pair, variance_input_types
+    from donut_krea_prompt_weight import clean_weighted_text
 
 MAX_TEXT = 1_000_000
 MAX_PROMPT_SETS = 128
@@ -280,6 +282,7 @@ class DonutPromptConditioning:
             "text_seed": ("INT", {"default": 0, "min": 0, "max": 2**53 - 1}),
         }, "optional": {**variance_input_types(),
             "native_reference_enabled": ("BOOLEAN", {"default": False}),
+            "krea_prompt_weights": ("BOOLEAN", {"default": False}),
             "native_reference_a": ("IMAGE",), "native_reference_b": ("IMAGE",),
             "prompt_sets_json": ("STRING", {"default": "[]", "multiline": True, "dynamicPrompts": False}),
             "prompt_set_index": ("INT", {"default": 1, "min": 1, "max": 2**53 - 1, "control_after_generate": True}),
@@ -292,7 +295,7 @@ class DonutPromptConditioning:
 
     def encode(self, clip, face, scene, negative, edit_negative="", separator="", text_seed=0,
                native_reference_enabled=False, native_reference_a=None, native_reference_b=None,
-               prompt_sets_json="[]", prompt_set_index=0, **variance_options):
+               prompt_sets_json="[]", prompt_set_index=0, krea_prompt_weights=False, **variance_options):
         from nodes import CLIPTextEncode, ConditioningZeroOut
         selected, selected_index = select_prompt_set(
             prompt_sets_json, prompt_set_index,
@@ -323,7 +326,11 @@ class DonutPromptConditioning:
                 else:
                     cache[key] = encoder.encode(clip, text)[0]
             return cache[key]
-        positive = encode_once(full, bool(references))
+        if krea_prompt_weights and native_reference_enabled:
+            raise ValueError("Prompt weights support text-only conditioning; turn Reference Guidance off.")
+        # Keep resolved weighted text as output 0 for attention patching, while
+        # encoding its cleaned text before existing variance/fusion transforms.
+        positive = encode_once(clean_weighted_text(full) if krea_prompt_weights else full, bool(references))
         # Native references guide the full-image generation/upscale path, not
         # each face crop. Vision tokens cannot be removed by filtering metadata
         # after encoding, so build face conditioning through the text-only path.

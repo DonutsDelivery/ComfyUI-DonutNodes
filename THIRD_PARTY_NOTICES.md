@@ -1,5 +1,15 @@
 # Third-Party Notices
 
+## Krea2 prompt weighting from ComfyUI-KJNodes
+
+`donut_krea_prompt_weight.py` adapts Krea2PromptWeight, its token-span helpers,
+and attention implementation from kijai/ComfyUI-KJNodes. The source revision,
+changes and GPL-3.0-only terms are recorded in
+[the component notice](licenses/krea2-prompt-weight-NOTICE.txt), with
+[the full GPL version 3 license](licenses/krea2-prompt-weight-GPL-3.0.txt).
+The copied component retains its upstream license. This notice does not replace
+other DonutNodes component licenses.
+
 ## DMC ordered face routing
 
 `dmc_face_detailer.py` and its transferred behavioral fixtures in
