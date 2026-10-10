@@ -42,3 +42,6 @@ HERMES.md
 .DS_Store
 
 /distribution/manual/DonutNodes-model-installer/
+
+# Internal agent instructions and tracker state; not published
+AGENTS.md
