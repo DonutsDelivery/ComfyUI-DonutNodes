@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { bindPanelWheel } from "./donut_canvas_wheel.js";
 
 const style = document.createElement("style");
 style.textContent = `
@@ -161,9 +162,17 @@ export function fitModule(node, dom, root) {
         }
         scheduleLayout();
     });
-    const watch = () => { cards.set(node, root); observer.observe(root); scheduleLayout(); };
+    let unbindWheel;
+    const watch = () => {
+        unbindWheel ||= bindPanelWheel(root, node, () => app.canvas);
+        cards.set(node, root); observer.observe(root); scheduleLayout();
+    };
     const added = node.onAdded, removed = node.onRemoved;
     node.onAdded = function() { const result = added?.apply(this, arguments); watch(); return result; };
-    node.onRemoved = function() { cards.delete(node); observer.disconnect(); return removed?.apply(this, arguments); };
+    node.onRemoved = function() {
+        unbindWheel?.(); unbindWheel = undefined;
+        cards.delete(node); observer.disconnect();
+        return removed?.apply(this, arguments);
+    };
     watch();
 }

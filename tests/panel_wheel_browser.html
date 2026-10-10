@@ -1,0 +1,20 @@
+<!doctype html><title>Donut panel wheel audit</title>
+<style>body{margin:0;background:#141414;color:#eee;font:16px system-ui}.graph-canvas-container{position:relative;width:100vw;height:100vh}canvas{position:absolute;width:100%;height:100%}#panel{position:absolute;top:70px;left:70px;padding:24px;background:#252a33;border:2px solid #86baff;width:400px;transform-origin:top left}label{display:block;margin:20px 0}input,textarea,select,button{font:inherit}#log{position:fixed;bottom:15px;left:20px;white-space:pre}</style>
+<div class="graph-canvas-container"><canvas></canvas><section id="panel"><h2>Donut panel wheel audit</h2><p id="surface">Wheel over this panel or its controls</p><label>Steps <input id="steps" type="number" value="8"></label><label>Strength <input id="strength" type="range" min="0" max="1" step=".01" value=".37"></label><label>Prompt <textarea id="prompt">Saved prompt</textarea></label><label>Sampler <select><option>euler</option><option>heun</option></select></label><button id="toggle">Toggle feature</button><span id="state">Off</span></section></div><output id="log"></output>
+<script type="module">
+import {bindPanelWheel} from '../web/donut_canvas_wheel.js';
+const panel=document.querySelector('#panel');
+const graph={}; let scale=1;
+window.calls=[]; window.controlEvents=0;
+window.canvas={graph, canvas:document.querySelector('canvas'), processMouseWheel(e){
+ if(!this.allow_dragcanvas) return;
+ calls.push({deltaY:e.deltaY,deltaMode:e.deltaMode,clientX:e.clientX,clientY:e.clientY,ctrlKey:e.ctrlKey,altKey:e.altKey});
+ scale*=e.deltaY<0?1.1:1/1.1;
+ panel.style.transform=`scale(${scale})`;
+ document.querySelector('#log').textContent=`Canvas calls: ${calls.length}   Scale: ${scale.toFixed(3)}`;
+ e.preventDefault();},allow_dragcanvas:true};
+window.cleanup=bindPanelWheel(panel,{graph},()=>canvas);
+panel.addEventListener('wheel',()=>controlEvents++);
+document.querySelector('#toggle').onclick=()=>{const s=document.querySelector('#state');s.textContent=s.textContent==='Off'?'On':'Off'};
+window.ready=true;
+</script>

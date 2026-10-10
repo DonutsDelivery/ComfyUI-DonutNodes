@@ -2,7 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { ASPECT_RATIOS, targetDimensions, cropBox, imageLocation } from "./donut_edit_geometry.js";
 import { promptTools } from "./donut_wildcards.js";
-import { fitModule, fitTextarea } from "./donut_layout.js?v=17";
+import { fitModule, fitTextarea } from "./donut_layout.js?v=18";
 import { drawMask, readMask, maskInverted, openInpaintEditor, readOutpaint, outpaintRect, drawOutpaintBase } from "./donut_inpaint_editor.js?v=outpaint2";
 import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
 

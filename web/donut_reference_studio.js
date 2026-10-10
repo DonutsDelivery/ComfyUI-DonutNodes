@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { fitModule } from "./donut_layout.js?v=17";
+import { fitModule } from "./donut_layout.js?v=18";
 import { clipboardImage, readClipboardImage } from "./donut_clipboard.js?v=1";
 
 const referenceStudios = new Set();

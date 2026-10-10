@@ -5,15 +5,17 @@ import vm from 'node:vm';
 
 test('control and disclosure remeasurement preserves configured panel width', () => {
     const handlers = {};
+    let measure;
     const sandbox = {
         app: {},
+        bindPanelWheel: () => () => {},
         document: {createElement: () => ({}), head: {append() {}}, addEventListener() {}},
         requestAnimationFrame: () => 1,
-        ResizeObserver: class {observe() {} disconnect() {}},
+        ResizeObserver: class {constructor(callback) { measure = callback; } observe() {} disconnect() {}},
     };
     vm.createContext(sandbox);
     vm.runInContext(fs.readFileSync(new URL('../web/donut_layout.js', import.meta.url), 'utf8')
-        .replace(/^import .*;\n/m, '').replaceAll('export function', 'function'), sandbox);
+        .replace(/^import .*;\n/mg, '').replaceAll('export function', 'function'), sandbox);
     const node = {properties: {}, size: [960, 600], computeSize: (out = [0, 0]) => { out[0] = 220; out[1] = 500; return out; }};
     const root = {style: {}, isConnected: true, offsetWidth: 936, offsetHeight: 500,
         scrollHeight: 500, addEventListener: (name, handler) => handlers[name] = handler,
@@ -25,6 +27,7 @@ test('control and disclosure remeasurement preserves configured panel width', ()
     assert.equal(node.size[0], 960);
     root.scrollHeight = 800;
     handlers.toggle();
+    measure(); // Height is cached by ResizeObserver, not measured while drawing.
     node.size = dom.computeSize();
     assert.equal(node.size[0], 960);
     assert.equal(node.size[1], 800);

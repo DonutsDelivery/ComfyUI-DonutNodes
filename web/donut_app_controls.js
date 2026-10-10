@@ -5,7 +5,8 @@ import { createLoraService, decodeRows, moveRow } from "./donut_native_lora.js";
 
 import { weightControl, vectorControl } from "./donut_weight_controls.js?v=2";
 import { promptTools, wildcardLibrary } from "./donut_wildcards.js";
-import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=17";
+import { adjustPromptWeight, promptWeightTarget } from "./donut_prompt_weight_edit.js";
+import { fitModule, fitTextarea, scheduleLayout } from "./donut_layout.js?v=18";
 import { graphEntries, NAG_SHARED_WIDGETS } from "./donut_panel_categories_model.js?v=15";
 import {VAE_SHARED_WIDGETS, prepareVaeCorrectionMigration, vaeCorrectionMirrorWidgets} from "./donut_vae_global_controls_model.js?v=1";
 
@@ -629,6 +630,20 @@ function install(node, appOnly = false) {
             }
             root.append(section);
         }
+        if (config.groups.some(group => group.shared_prompt_tools)) {
+            const graph = node.graph;
+            const strength = weightControl("Prompt weights", () => Number(graph?.extra?.dmc_prompt_weight_strength ?? 0), value => {
+                if (!graph) return;
+                graph.beforeChange?.();
+                graph.extra = {...(graph.extra || {}), dmc_prompt_weight_strength: value};
+                graph.afterChange?.();
+                node.setDirtyCanvas(true, true);
+            }, {min: 0, max: 4, step: 0.05});
+            const section = element("section");
+            section.append(element("h3", "Prompt weights"), strength.element, element("p", "0 is off. Select a phrase, then Shift+Up or Shift+Down changes its weight by 0.05 from 1.00. Use (smile:1.5) to emphasize or (fog:-1) to suppress."));
+            root.append(section);
+            refreshers.push(strength.refresh);
+        }
         root.querySelectorAll('textarea').forEach(fitTextarea); scheduleLayout();
     }
     const dom = node.addDOMWidget("workflow_controls", "custom", root, {serialize:false, hideOnZoom:false, getValue:() => "", setValue:() => {}});
@@ -664,9 +679,25 @@ function install(node, appOnly = false) {
     node._donutAppControls = {render, dom, root};
     if (!appOnly) fitModule(node, dom, root);
 }
+function installPromptWeightKeys() {}
 app.registerExtension({
     name:"Donut.AppControls",
     setup() {
+        if (!installPromptWeightKeys.installed) {
+            installPromptWeightKeys.installed = true;
+            document.addEventListener("keydown", event => {
+                const field = event.target;
+                if (!promptWeightTarget(field) || !event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+                if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+                const next = adjustPromptWeight(field.value, field.selectionStart, field.selectionEnd, event.key === "ArrowUp" ? 0.05 : -0.05);
+                if (!next) return;
+                event.preventDefault();
+                event.stopPropagation();
+                field.value = next.text;
+                field.setSelectionRange(next.start, next.end);
+                field.dispatchEvent(new Event("input", {bubbles: true}));
+            }, true);
+        }
         const style = element("style");
         style.textContent = `.graph-canvas-container .donut-app-only{display:none!important}.graph-canvas-container [data-testid="node-widget"]:has(.donut-app-only){display:none!important}.donut-section-controls{border-radius:10px;border-top:5px solid var(--donut-accent)}.donut-section-controls section:first-child{border-top:0;padding-top:0}.donut-app-controls{box-sizing:border-box;width:100%;height:auto;overflow:visible;padding:18px;color:var(--input-text,#eee);background:var(--comfy-menu-bg,#242424);font:15px/1.45 system-ui;container-type:inline-size}.donut-app-controls *{box-sizing:border-box}.donut-app-controls h2{margin:0 0 6px}.donut-app-controls h3{margin:0 0 12px;color:var(--donut-accent)}.donut-app-controls p{opacity:.75;margin:6px 0 14px}.donut-app-controls section,.donut-app-controls details{border-top:1px solid #ffffff25;padding:16px 0}.donut-app-controls summary{font-weight:650;cursor:pointer;padding:4px 0 12px}.donut-app-controls label{display:flex;align-items:center;gap:12px;justify-content:space-between;margin:9px 0}.donut-app-controls label:has(textarea){display:block}.donut-app-controls input,.donut-app-controls select,.donut-app-controls textarea,.donut-app-controls button{font:inherit;color:inherit;border:1px solid #ffffff35;background:var(--comfy-input-bg,#181818);border-radius:6px;padding:7px;min-width:0}.donut-app-controls input:not([type=checkbox]),.donut-app-controls select{width:55%}.donut-app-controls textarea{overflow:hidden;display:block;width:100%;min-height:90px;resize:vertical;margin-top:6px}.donut-app-controls button{cursor:pointer;margin:5px 6px 0 0}.donut-app-controls button:disabled{opacity:.35}.donut-app-controls fieldset{border:1px solid #ffffff25;border-radius:8px;margin:8px 0;padding:10px}@container (max-width:420px){.donut-app-controls label{display:block}.donut-app-controls input:not([type=checkbox]),.donut-app-controls select{display:block;width:100%;margin-top:5px}.donut-app-controls input[type=checkbox]{float:right}}.donut-app-controls input:focus,.donut-app-controls textarea:focus,.donut-app-controls select:focus{outline:2px solid var(--donut-accent)}.donut-app-controls .donut-weight-row{display:block}.donut-app-controls .donut-weight-value{display:flex;align-items:center;gap:8px;margin-top:5px}.donut-app-controls .donut-weight-value input[type=range]{flex:1;width:0;accent-color:var(--donut-accent);padding:0;min-width:65px}.donut-app-controls .donut-weight-value input[type=number]{width:82px;flex:none;margin:0}.donut-app-controls .donut-vector-control{margin:16px 0;border-top:1px solid #ffffff20;padding-top:8px}.donut-app-controls .donut-vector-grid{display:grid;grid-template-columns:1fr;gap:0 14px}.donut-app-controls [hidden]{display:none!important}@container(min-width:600px){.donut-app-controls .donut-vector-grid{grid-template-columns:1fr 1fr}}`;
         style.textContent += `

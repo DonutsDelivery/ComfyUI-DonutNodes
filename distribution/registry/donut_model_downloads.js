@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { fitModule } from "./donut_layout.js?v=17";
+import { fitModule } from "./donut_layout.js?v=18";
 import { modelBindings, manualModelFiles } from "./donut_model_requirements.js?v=3";
 // Generated from the packed model_sources.json by tools/prepare_registry.py.
 import { MODEL_CATALOG } from "./donut_registry_catalog.js";

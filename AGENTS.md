@@ -66,5 +66,8 @@ does not prove that generation uses its displayed value.
   Record the tested transitions, expected/actual values, output PNG paths, and
   verification limits in docs/validation. If generation is blocked, report that
   explicitly rather than claiming end-to-end success.
+- Run audit generation on a separate ComfyUI instance on a different port (for
+  example 8189, as in docs/validation/clean-install-2026-09-09.md). Never restart
+  or queue into the user's live instance on port 8188 without explicit approval.
 - When a fix changes the distributed workflow JSON, explicitly tell the user
   which updated JSON must be uploaded manually to Civitai.
