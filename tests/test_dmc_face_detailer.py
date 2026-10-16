@@ -63,6 +63,14 @@ def relative_rows(names, left=None, above=None):
             "above": (above or {}).get(name, [])}, "face_prompt": name + " has a distinct expression."} for name in names]
 
 
+REQUIRED_INPUTS = dict(model="model", clip="clip", vae="vae", resolution=1024, max_resolution=1280,
+    guide_size_for=False, seed=42, steps=8, cfg=1, sampler_name="er_sde", scheduler="simple",
+    negative="negative", denoise=.2, feather=5, noise_mask=True, force_inpaint=False, bbox_threshold=.21,
+    bbox_dilation=8, bbox_crop_factor=1.5, sam_detection_hint="rect-4", sam_dilation=3, sam_threshold=.93,
+    sam_bbox_expansion=6, sam_mask_hint_threshold=.7, sam_mask_hint_use_negative="False", drop_size=12,
+    wildcard="", cycle=2, max_faces=13)
+
+
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
         self.passes, self.encoded, self.legacy = [], [], []
@@ -121,13 +129,29 @@ class RuntimeTests(unittest.TestCase):
 
     def run_faces(self, detections=None, rows=ROWS, **kwargs):
         detections = detections or [[segment(70, width=25), segment(10)]]
-        return runtime.DMCFaceDetailer().doit([Image(index) for index in range(len(detections))],
-            bbox_detector=Detector(detections), positive=[["NEVER REUSE WHOLE PROMPT", {"variance": "recipe"}]],
-            face_prompts_json=json.dumps(rows), **kwargs)
+        inputs = {**REQUIRED_INPUTS, "image": [Image(index) for index in range(len(detections))],
+            "bbox_detector": Detector(detections), "positive": [["NEVER REUSE WHOLE PROMPT", {"variance": "recipe"}]],
+            "face_prompts_json": json.dumps(rows), **kwargs}
+        return runtime.DMCFaceDetailer().doit(**inputs)
+
+    def test_wrapper_defaults_match_the_real_detailer_signature(self):
+        # ComfyUI never passes positional arguments; defaults are spelled out
+        # in the wrapper instead of read from the upstream signature.
+        import ast
+        tree = ast.parse((ROOT / "DonutFaceDetailer.py").read_text(encoding="utf-8"))
+        doit = next(node for cls in tree.body if isinstance(cls, ast.ClassDef) and cls.name == "DonutFaceDetailer"
+                    for node in cls.body if isinstance(node, ast.FunctionDef) and node.name == "doit")
+        args = doit.args.args[1:]
+        count = len(args) - len(doit.args.defaults)
+        self.assertEqual(tuple(arg.arg for arg in args[:count]), runtime.UPSTREAM_REQUIRED)
+        self.assertEqual({arg.arg: ast.literal_eval(default) for arg, default in zip(args[count:], doit.args.defaults)},
+                         runtime.UPSTREAM_OPTIONAL_DEFAULTS)
+        with self.assertRaisesRegex(TypeError, "missing required inputs"):
+            runtime.DMCFaceDetailer().doit(face_prompts_json=json.dumps(ROWS))
 
     # AC: @create-multiple-face-prompts ac-spatial-matching
     def test_ordered_separate_conditioning_and_evolving_crops(self):
-        result = self.run_faces(vary_seed_per_face=True, nag_alpha=3.4)
+        result = self.run_faces(vary_seed_per_face=True, nag_alpha=3.4, turbo_mode=True, vae_damage_strength=.8)
         self.assertEqual(len(result), 6)
         self.assertEqual(len(result[4]), 14)
         self.assertEqual([mask.ndim for mask in result[3]], [3])

@@ -4,7 +4,6 @@ The node resolves DonutNodes only after ComfyUI has registered all packs. It
 never patches its classes or shares detector/conditioning state between runs.
 """
 import copy
-import inspect
 import json
 import math
 import sys
@@ -165,6 +164,26 @@ class SingleFaceDetector:
         return self.dimensions, [self.segment]
 
 
+# DonutFaceDetailer.doit inputs, spelled out so defaults need no signature
+# reflection. tests/test_dmc_face_detailer.py checks them against that method.
+UPSTREAM_REQUIRED = (
+    "image", "model", "clip", "vae", "resolution", "max_resolution", "guide_size_for",
+    "seed", "steps", "cfg", "sampler_name", "scheduler", "positive", "negative", "denoise",
+    "feather", "noise_mask", "force_inpaint", "bbox_threshold", "bbox_dilation",
+    "bbox_crop_factor", "sam_detection_hint", "sam_dilation", "sam_threshold",
+    "sam_bbox_expansion", "sam_mask_hint_threshold", "sam_mask_hint_use_negative",
+    "drop_size", "bbox_detector", "wildcard", "cycle", "max_faces",
+)
+UPSTREAM_OPTIONAL_DEFAULTS = {
+    "sam_model_opt": None, "segm_detector_opt": None, "detailer_hook": None,
+    "inpaint_model": False, "noise_mask_feather": 0, "scheduler_func_opt": None,
+    "edit_mode": False, "edit_prompt": "Enhance facial details while preserving identity.",
+    "edit_negative_prompt": "", "grounding_px": 768, "edit_model": None,
+    "face_reference": None, "vary_seed_per_face": False, "turbo_mode": False,
+    "face_reference_b": None, "vae_damage_correction": False, "vae_damage_strength": 1.0,
+}
+
+
 def ordered_faces(module, image, inputs, expected, rows=None):
     detector = inputs["bbox_detector"]
     detector.setAux("face")
@@ -237,17 +256,19 @@ class DMCFaceDetailer:
         upstream = self.upstream()
         if not rows and not require_single_face:
             return upstream().doit(*args, **kwargs)
-        bound = inspect.signature(upstream().doit).bind(*args, **kwargs)
-        bound.apply_defaults()
-        inputs = dict(bound.arguments)
-        inputs.update(inputs.pop("nag_options", {}))
+        if args:
+            raise TypeError("Face routing needs keyword inputs, as ComfyUI supplies them.")
+        missing = [name for name in UPSTREAM_REQUIRED if name not in kwargs]
+        if missing:
+            raise TypeError("Face detailer is missing required inputs: " + ", ".join(missing))
+        inputs = {**UPSTREAM_OPTIONAL_DEFAULTS, **kwargs}
         if not rows:
             module = sys.modules[upstream.__module__]
             module._ensure_impact()
             module.offload_model_for_auxiliary_stage(inputs["model"], module.comfy.model_management)
             for image in inputs["image"]:
                 ordered_faces(module, image.unsqueeze(0), inputs, 1)
-            return upstream().doit(*args, **kwargs)
+            return upstream().doit(**kwargs)
         if inputs.get("edit_mode") or any(inputs.get(key) is not None for key in ("face_reference", "face_reference_b")):
             raise ValueError("Multi-face identity editing and identity references are not supported. Use a single face description or disable identity editing.")
         if inputs.get("wildcard", "").strip() or inputs.get("detailer_hook") is not None:
