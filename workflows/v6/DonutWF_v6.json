@@ -7613,6 +7613,7 @@
               "uniform",
               "values",
               false,
+              false,
               "[]",
               1,
               "fixed"
@@ -8797,6 +8798,7 @@
               false,
               "uniform",
               "values",
+              false,
               false,
               "[]",
               1,

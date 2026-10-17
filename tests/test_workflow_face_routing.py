@@ -42,6 +42,20 @@ class WorkflowFaceRoutingTests(unittest.TestCase):
         output = next(item for item in nodes[1128]["outputs"] if item["name"] == "text_3")
         self.assertIn(prefix["link"], output["links"])
 
+    def test_prompt_conditioning_saved_values_match_the_widget_order(self):
+        # Inner subgraph nodes load widgets_values by position, so a missing
+        # widget shifts every later value (prompt_set_index received "fixed").
+        for path in WORKFLOWS:
+            for node_id in (996, 1180):
+                with self.subTest(path=path, node=node_id):
+                    values = face_branch(path, node_id)[0][node_id]["widgets_values"]
+                    self.assertEqual(len(values), 20)
+                    self.assertIsInstance(values[15], bool)  # native_reference_enabled
+                    self.assertIsInstance(values[16], bool)  # krea_prompt_weights
+                    self.assertIsInstance(values[17], str)   # prompt_sets_json
+                    self.assertIsInstance(values[18], int)   # prompt_set_index
+                    self.assertEqual(values[19], "fixed")    # control_after_generate
+
 
 if __name__ == "__main__":
     unittest.main()
