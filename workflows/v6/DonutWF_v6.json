@@ -8613,13 +8613,13 @@
                 "localized_name": "face",
                 "name": "face",
                 "type": "STRING",
-                "link": 1115425
+                "link": 1115418
               },
               {
                 "localized_name": "scene",
                 "name": "scene",
                 "type": "STRING",
-                "link": 1115418
+                "link": 1115425
               },
               {
                 "localized_name": "negative",
@@ -8726,15 +8726,15 @@
                 "localized_name": "full_text",
                 "name": "full_text",
                 "type": "STRING",
-                "links": [
-                  1073498
-                ]
+                "links": []
               },
               {
                 "localized_name": "face_text",
                 "name": "face_text",
                 "type": "STRING",
-                "links": []
+                "links": [
+                  1073498
+                ]
               },
               {
                 "localized_name": "edit_negative",
@@ -8746,15 +8746,15 @@
                 "localized_name": "positive",
                 "name": "positive",
                 "type": "CONDITIONING",
-                "links": [
-                  1115059
-                ]
+                "links": []
               },
               {
                 "localized_name": "face_positive",
                 "name": "face_positive",
                 "type": "CONDITIONING",
-                "links": []
+                "links": [
+                  1115059
+                ]
               },
               {
                 "localized_name": "negative_zeroed",
@@ -8823,7 +8823,7 @@
               "prompt_set_index": 1,
               "control_after_generate": "fixed"
             },
-            "title": "Face-only conditioning · whole-image context + optional face instruction"
+            "title": "Face-only conditioning · separate face instruction"
           },
           {
             "id": 1181,
@@ -8972,7 +8972,7 @@
           {
             "id": 1073498,
             "origin_id": 1180,
-            "origin_slot": 0,
+            "origin_slot": 1,
             "target_id": 984,
             "target_slot": 11,
             "type": "STRING"
@@ -9660,7 +9660,7 @@
           {
             "id": 1115059,
             "origin_id": 1180,
-            "origin_slot": 3,
+            "origin_slot": 4,
             "target_id": 1118,
             "target_slot": 2,
             "type": "CONDITIONING"
@@ -10070,7 +10070,7 @@
             "origin_id": -10,
             "origin_slot": 46,
             "target_id": 1180,
-            "target_slot": 2,
+            "target_slot": 1,
             "type": "STRING"
           },
           {
@@ -10126,7 +10126,7 @@
             "origin_id": 996,
             "origin_slot": 0,
             "target_id": 1180,
-            "target_slot": 1,
+            "target_slot": 2,
             "type": "STRING"
           },
           {
