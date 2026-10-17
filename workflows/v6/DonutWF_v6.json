@@ -2,7 +2,7 @@
   "id": "af40cf96-e217-4ea4-ac49-1fe5b69d531a",
   "revision": 9,
   "last_node_id": 1181,
-  "last_link_id": 1115427,
+  "last_link_id": 1115428,
   "nodes": [
     {
       "id": 912,
@@ -8823,7 +8823,7 @@
               "prompt_set_index": 1,
               "control_after_generate": "fixed"
             },
-            "title": "Face-only conditioning · separate face instruction"
+            "title": "Face-only conditioning · style + optional face instruction"
           },
           {
             "id": 1181,
@@ -11269,7 +11269,7 @@
         "state": {
           "lastGroupId": 2,
           "lastNodeId": 1181,
-          "lastLinkId": 1115427,
+          "lastLinkId": 1115428,
           "lastRerouteId": 1
         },
         "revision": 1,
@@ -12172,7 +12172,8 @@
                 "name": "text_3",
                 "type": "STRING",
                 "links": [
-                  1115375
+                  1115375,
+                  1115428
                 ]
               }
             ],
@@ -12433,7 +12434,7 @@
                 "name": "prefix",
                 "shape": 7,
                 "type": "STRING",
-                "link": null
+                "link": 1115428
               },
               {
                 "localized_name": "suffix",
@@ -12471,7 +12472,7 @@
                 ]
               }
             ],
-            "title": "Optional face instruction expansion",
+            "title": "Face prompt · style + optional face instruction",
             "properties": {
               "cnr_id": "donutnodes",
               "ver": "f5b0b2a3dd10f36c902ff0f3c504b8625e3cb84b",
@@ -12491,7 +12492,7 @@
               "fixed",
               128,
               "error",
-              ""
+              " "
             ],
             "widgets_values_named": {
               "text": "",
@@ -12499,7 +12500,7 @@
               "control_after_generate": "fixed",
               "max_depth": 128,
               "missing": "error",
-              "separator": ""
+              "separator": " "
             },
             "color": "#9551b0",
             "bgcolor": "#813d9c"
@@ -12721,6 +12722,14 @@
             "origin_slot": 0,
             "target_id": -20,
             "target_slot": 15,
+            "type": "STRING"
+          },
+          {
+            "id": 1115428,
+            "origin_id": 1128,
+            "origin_slot": 9,
+            "target_id": 1179,
+            "target_slot": 0,
             "type": "STRING"
           }
         ],
