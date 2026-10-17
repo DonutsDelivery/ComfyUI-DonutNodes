@@ -31,6 +31,10 @@ const FUSION_PRESETS = {
     "Balanced + Enhancer": FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
     UncensorFix: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
 };
+// The Refusal Reduction presets use the same neutral fusion settings and apply their own embedded weights.
+const WEIGHT_PRESETS = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000",
+    "Refusal Reduction v1", "Refusal Reduction v2"];
+FUSION_PRESETS["Refusal Reduction v1"] = FUSION_PRESETS["Refusal Reduction v2"] = FUSION_PRESETS.UncensorFix;
 for (const [legacy, current] of Object.entries({
     "COPY settings: Krea2FilterBypass 2vector": "Bypass 2",
     "COPY settings: Krea2FilterBypass 3vector": "Bypass 3",
@@ -70,7 +74,7 @@ function applyFusionPreset(node, preset) {
             ? "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0" : neutral,
         projector_layer_weights: neutral,
         compatibility_preset: preset,
-        uncensorfix_controls: ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset)
+        uncensorfix_controls: WEIGHT_PRESETS.includes(preset)
             ? "Fusion + UncensorFix weights" : "Fusion only",
     })) {
         const widget = node.widgets.find(item => item.name === name);
@@ -326,7 +330,7 @@ function install(node, appOnly = false) {
                         && item.path.every((id, index) => path[index] === id));
                 const presetNode = presetControl ? resolve(presetControl.path) : target;
                 const preset = presetNode?.widgets?.find(item => item.name === "compatibility_preset")?.value;
-                const legacyActive = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"].includes(preset);
+                const legacyActive = WEIGHT_PRESETS.includes(preset);
                 // Old workflows serialized LoRA-only modes here. Outside the
                 // legacy UncensorFix preset those values are stale and can make
                 // the backend do something different from the visible panel.

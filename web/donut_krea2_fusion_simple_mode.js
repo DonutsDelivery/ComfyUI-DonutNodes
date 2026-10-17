@@ -5,6 +5,11 @@ const SIMPLE = "Simple";
 const ADVANCED = "Advanced";
 const CUSTOM = "Custom";
 const UNCENSORFIX = "UncensorFix";
+const REFUSAL_V1 = "Refusal Reduction v1";
+const REFUSAL_V2 = "Refusal Reduction v2";
+// Active embedded weight patches, not settings labels: they keep neutral fusion
+// settings and set the composition that applies the preset's weights.
+const WEIGHT_PRESETS = new Set([UNCENSORFIX, REFUSAL_V1, REFUSAL_V2]);
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
@@ -188,6 +193,8 @@ const SIMPLE_PRESETS = {
   },
 };
 
+SIMPLE_PRESETS[REFUSAL_V1] = SIMPLE_PRESETS[REFUSAL_V2] = SIMPLE_PRESETS[UNCENSORFIX];
+
 for (const preset of Object.values(SIMPLE_PRESETS)) {
   if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
 }
@@ -297,7 +304,7 @@ function applySimplePreset(node, name) {
     node._donutApplyingKrea2Preset = false;
   }
   const composition = widget(node, "uncensorfix_controls");
-  if (composition) composition.value = name === UNCENSORFIX ? "Fusion + UncensorFix weights" : "Fusion only";
+  if (composition) composition.value = WEIGHT_PRESETS.has(name) ? "Fusion + UncensorFix weights" : "Fusion only";
 }
 
 function updateModeVisibility(node) {
@@ -329,7 +336,7 @@ function updateModeVisibility(node) {
       visible.add("tap_normalization");
     }
   }
-  if (preset === UNCENSORFIX) visible.add("tap_strength");
+  if (WEIGHT_PRESETS.has(preset)) visible.add("tap_strength");
 
   if (projectorMethod === PROJECTOR_DONUT) {
     visible.add("projector_profile");

@@ -307,7 +307,9 @@ app.registerExtension({
           // explicitly select Custom or any other preset to turn it off.
           const uncensorFixActive = presetWidget?.value === "UncensorFix"
             || presetWidget?.value === "TeacherFix"
-            || presetWidget?.value === "DONUT settings: Krea2 C33 TeacherFix EMA5000";
+            || presetWidget?.value === "DONUT settings: Krea2 C33 TeacherFix EMA5000"
+            || presetWidget?.value === "Refusal Reduction v1"
+            || presetWidget?.value === "Refusal Reduction v2";
           // Off must stay off when dormant settings/strength are edited;
           // otherwise the automatic Custom label would enable them again.
           const offActive = presetWidget?.value === OFF;

@@ -225,7 +225,8 @@ class RegistryStaging(unittest.TestCase):
     def archive(self, catalog=None, extra=None, helper=None):
         archive = self.root / 'node.zip'
         with zipfile.ZipFile(archive, 'w') as z:
-            for name in ('assets/uncensorfix.f32', 'uncensorfix_weights.py', 'pyproject.toml',
+            for name in ('assets/uncensorfix.f32', 'uncensorfix_weights.py', 'assets/refusal_reduction_v2.bf16',
+                         'refusal_reduction_weights.py', 'pyproject.toml',
                          'web/donut_model_downloads.js', 'web/donut_layout.js'):
                 z.writestr(name, 'fixture')
             z.writestr('web/donut_model_requirements.js', helper if helper is not None else (ROOT / 'web/donut_model_requirements.js').read_bytes())

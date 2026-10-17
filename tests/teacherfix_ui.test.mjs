@@ -40,7 +40,8 @@ function edit(node, name, value) {
 }
 
 for (const mode of ["Simple", "Advanced"]) {
-  for (const preset of ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000"]) {
+  for (const preset of ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000",
+    "Refusal Reduction v1", "Refusal Reduction v2"]) {
     test(`${mode}: ${preset} survives strength edits synchronously`, () => {
       const node = makeNode(preset, mode);
       for (const value of [0, .75, 1, 2]) {
@@ -59,6 +60,16 @@ test("UncensorFix stays active while other Advanced controls are edited", () => 
     assert.equal(widget(node, "compatibility_preset").value, "UncensorFix", name);
   }
 });
+
+for (const preset of ["Refusal Reduction v1", "Refusal Reduction v2"]) {
+  test(`${preset} stays active while other Advanced controls are edited`, () => {
+    const node = makeNode(preset, "Advanced");
+    for (const name of settings) {
+      edit(node, name, name.endsWith("profile") ? "off" : 1);
+      assert.equal(widget(node, "compatibility_preset").value, preset, name);
+    }
+  });
+}
 
 test("ordinary COPY-style presets still become Custom when edited", () => {
   const node = makeNode("Balanced", "Advanced");
@@ -86,7 +97,7 @@ test("applying a different preset does not keep UncensorFix selected", () => {
 const modeSource = fs.readFileSync(new URL("../web/donut_krea2_fusion_simple_mode.js", import.meta.url), "utf8")
   .replace(/^import .*;\n/m, "");
 
-function makeCombinedNode(preset, mode, reverse) {
+function makeCombinedNode(preset, mode, reverse, extraWidgets = []) {
   const extensions = [];
   const tasks = [];
   const context = vm.createContext({
@@ -99,7 +110,7 @@ function makeCombinedNode(preset, mode, reverse) {
   class Node {
     constructor() {
       this.size = [400, 400];
-      this.widgets = [...settings, "compatibility_preset", "ui_mode"].map(name => ({
+      this.widgets = [...settings, "compatibility_preset", "ui_mode", ...extraWidgets].map(name => ({
         name, type: "number", value: 1, computeSize: () => [100, 20],
       }));
       widget(this, "compatibility_preset").value = preset;
@@ -233,6 +244,28 @@ for (const reverse of [false, true]) {
         flush();
         assert.equal(widget(node, "compatibility_preset").value, to);
       }
+    });
+  }
+}
+
+for (const mode of ["Simple", "Advanced"]) {
+  for (const preset of ["Refusal Reduction v1", "Refusal Reduction v2"]) {
+    test(`combined extensions: ${mode} ${preset} keeps neutral fusion and applies its weights`, () => {
+      const { node, flush } = makeCombinedNode(preset, mode, false, ["uncensorfix_controls"]);
+      edit(node, "compatibility_preset", preset);
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, preset);
+      assert.equal(widget(node, "tap_profile").value, "off");
+      assert.equal(widget(node, "projector_profile").value, "off");
+      assert.equal(widget(node, "fusion_method").value, "Standard Krea2 fusion");
+      assert.equal(widget(node, "uncensorfix_controls").value, "Fusion + UncensorFix weights");
+      assert.equal(widget(node, "tap_strength").hidden, false);
+      edit(node, "tap_strength", .75);
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, preset);
+      edit(node, "compatibility_preset", "Bypass 2");
+      flush();
+      assert.equal(widget(node, "uncensorfix_controls").value, "Fusion only");
     });
   }
 }

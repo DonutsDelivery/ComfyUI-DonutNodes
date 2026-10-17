@@ -8,6 +8,7 @@ to the base node.
 
 import math
 import uuid
+from collections import namedtuple
 
 from . import DonutKrea2FusionControl as base
 from .donut_lora_execution import EXECUTION_MODES, publish_execution_mode, resolve_execution_mode
@@ -30,6 +31,8 @@ PRESET_BALANCED = "Balanced"
 PRESET_BALANCED_RAW_NAG = "Balanced + raw NAG"
 PRESET_BALANCED_ENHANCER = "Balanced + Enhancer"
 PRESET_UNCENSORFIX = "UncensorFix"
+PRESET_REFUSAL_V1 = "Refusal Reduction v1"
+PRESET_REFUSAL_V2 = "Refusal Reduction v2"
 LEGACY_TEACHERFIX = "DONUT settings: Krea2 C33 TeacherFix EMA5000"
 LEGACY_TEACHERFIX_SHORT = "TeacherFix"
 
@@ -46,7 +49,9 @@ SIMPLE_PRESET_TO_LEGACY = {
     PRESET_BALANCED_RAW_NAG: base.PRESET_DONUT_BALANCED_RAW_NAG,
     PRESET_BALANCED_ENHANCER: base.PRESET_DONUT_BALANCED_ENHANCER,
 }
-SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + (PRESET_UNCENSORFIX,)
+SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + (
+    PRESET_UNCENSORFIX, PRESET_REFUSAL_V1, PRESET_REFUSAL_V2,
+)
 LEGACY_PRESET_TO_SIMPLE = {legacy: simple for simple, legacy in SIMPLE_PRESET_TO_LEGACY.items()}
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_UNCENSORFIX
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX_SHORT] = PRESET_UNCENSORFIX
@@ -76,12 +81,41 @@ def _uncensorfix_factors():
     return get_uncensorfix_factors()
 
 
-def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
+def _refusal_v1_factors():
+    from .refusal_reduction_weights import get_refusal_reduction_v1_factors
+    return get_refusal_reduction_v1_factors()
+
+
+def _refusal_v2_factors():
+    from .refusal_reduction_weights import get_refusal_reduction_v2_factors
+    return get_refusal_reduction_v2_factors()
+
+
+# factors() is called lazily, so mocks and strength zero never decode the data.
+EmbeddedLoRA = namedtuple("EmbeddedLoRA", "label factors target_count asset")
+UNCENSORFIX_LORA = EmbeddedLoRA(
+    "UncensorFix", lambda: _uncensorfix_factors(), UNCENSORFIX_TARGET_COUNT, "assets/uncensorfix.f32")
+REFUSAL_V1_LORA = EmbeddedLoRA(
+    "Refusal Reduction v1", lambda: _refusal_v1_factors(), 32, "assets/refusal_reduction_v2.bf16")
+REFUSAL_V2_LORA = EmbeddedLoRA(
+    "Refusal Reduction v2", lambda: _refusal_v2_factors(), 35, "assets/refusal_reduction_v2.bf16")
+# Presets that are an active embedded weight patch rather than a settings label.
+EMBEDDED_LORA_PRESETS = {
+    PRESET_UNCENSORFIX: UNCENSORFIX_LORA,
+    LEGACY_TEACHERFIX: UNCENSORFIX_LORA,
+    LEGACY_TEACHERFIX_SHORT: UNCENSORFIX_LORA,
+    PRESET_REFUSAL_V1: REFUSAL_V1_LORA,
+    PRESET_REFUSAL_V2: REFUSAL_V2_LORA,
+}
+
+
+def _apply_uncensorfix(model, strength, execution_mode="Comfy patches", lora=UNCENSORFIX_LORA):
     """Apply embedded factors using the selected Donut LoRA execution path."""
+    label = lora.label
     execution_mode = resolve_execution_mode(model, execution_mode)
     strength = float(strength)
     if not math.isfinite(strength):
-        raise ValueError("UncensorFix strength must be finite")
+        raise ValueError(f"{label} strength must be finite")
     if strength == 0.0:
         return model, 0, "embedded (strength 0)"
 
@@ -90,10 +124,10 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
     # helper. Neither mode reads a LoRA file or changes the cached factors.
     from comfy.weight_adapter.lora import LoRAAdapter
 
-    factors = _uncensorfix_factors()
+    factors = lora.factors()
     expected = {key for key, _, _, _ in factors}
-    if len(factors) != UNCENSORFIX_TARGET_COUNT or len(expected) != UNCENSORFIX_TARGET_COUNT:
-        raise RuntimeError("UncensorFix requires exactly 33 unique embedded targets")
+    if len(factors) != lora.target_count or len(expected) != lora.target_count:
+        raise RuntimeError(f"{label} requires exactly {lora.target_count} unique embedded targets")
 
     # Hard model2 swaps execute a retained source model, not the main model's
     # patched weights. Resolve the same plan used by Donut save/extraction.
@@ -109,7 +143,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
     source_model, source_keys = None, set()
     if merge_info is not None:
         if KREA2_MERGE_INJECTION_KEY not in getattr(model, "injections", {}):
-            raise RuntimeError("UncensorFix found Krea2 swap plans without their runtime injection")
+            raise RuntimeError(f"{label} found Krea2 swap plans without their runtime injection")
         source_model, plans, _ = merge_info
         source_keys = expected.intersection(key for _, key, _ in plans)
 
@@ -121,7 +155,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
         if weight is None or tuple(weight.shape) != (up.shape[0], down.shape[1]):
             owner = "merge-bypass model2" if key in source_keys else "main model"
             raise RuntimeError(
-                f"UncensorFix target missing or wrong shape on {owner}: {key}. "
+                f"{label} target missing or wrong shape on {owner}: {key}. "
                 "The input MODEL must be a compatible Krea 2 model."
             )
     del model_state, source_state
@@ -144,7 +178,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
             accepted = set(patched.add_patches(main_patches, strength_patch=strength))
         if accepted != set(main_patches):
             raise RuntimeError(
-                f"UncensorFix could not patch every target on main model: {len(accepted)}/{len(main_patches)} loaded"
+                f"{label} could not patch every target on main model: {len(accepted)}/{len(main_patches)} loaded"
             )
         loaded.update(accepted)
 
@@ -161,7 +195,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
             accepted = set(source.add_patches(source_patches, strength_patch=strength))
         if accepted != source_keys:
             raise RuntimeError(
-                f"UncensorFix could not patch every target on merge-bypass model2: {len(accepted)}/{len(source_keys)} loaded"
+                f"{label} could not patch every target on merge-bypass model2: {len(accepted)}/{len(source_keys)} loaded"
             )
         loaded.update(accepted)
         patched.set_additional_models(KREA2_MERGE_SOURCE_KEY, [source])
@@ -176,7 +210,7 @@ def _apply_uncensorfix(model, strength, execution_mode="Comfy patches"):
         patched.patches_uuid = uuid.uuid4()
 
     if loaded != expected:
-        raise RuntimeError(f"UncensorFix could not patch every target: {len(loaded)}/33 loaded")
+        raise RuntimeError(f"{label} could not patch every target: {len(loaded)}/{lora.target_count} loaded")
     source_details = "embedded"
     if source_keys:
         source_details += (
@@ -191,15 +225,16 @@ def _rewrite_preset_diagnostics(diagnostics, legacy_name, simple_name):
     return str(diagnostics).replace(f"preset_label={legacy_name}", f"preset_label={simple_name}", 1)
 
 
-def _rewrite_uncensorfix_diagnostics(diagnostics, strength, loaded_count, source_details):
+def _rewrite_uncensorfix_diagnostics(diagnostics, strength, loaded_count, source_details,
+                                     lora=UNCENSORFIX_LORA, preset=PRESET_UNCENSORFIX):
     diagnostics = str(diagnostics).replace(
         f"preset_label={base.PRESET_MANUAL}; preset_is_ui_only=true",
-        f"preset_label={PRESET_UNCENSORFIX}; preset_is_ui_only=false", 1,
+        f"preset_label={preset}; preset_is_ui_only=false", 1,
     )
     return diagnostics.replace(
         "external_files_loaded=none",
         f"uncensorfix_source={source_details}; uncensorfix_strength={float(strength):g}; "
-        f"uncensorfix_targets={loaded_count}; bundled_weight_asset=assets/uncensorfix.f32; external_files_loaded=none", 1,
+        f"uncensorfix_targets={loaded_count}; bundled_weight_asset={lora.asset}; external_files_loaded=none", 1,
     )
 
 
@@ -322,13 +357,17 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                 fallback = kwargs.get("tap_strength", 1.0) if uncensorfix_controls == FUSION_WITH_LORA else 1.0
                 strength = float(fallback if uncensorfix_strength is None else uncensorfix_strength)
                 fused_model = result[0]
-                result[0], count, source = _apply_uncensorfix(fused_model, strength, execution_mode)
+                lora = EMBEDDED_LORA_PRESETS.get(preset, UNCENSORFIX_LORA)
+                result[0], count, source = _apply_uncensorfix(fused_model, strength, execution_mode, lora)
                 result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(result[0], fused_model)
                 result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
                                f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
+                if lora is not UNCENSORFIX_LORA:
+                    result[-1] += f"\nembedded_lora={lora.label}"
             result[-1] += f"\nuncensorfix_controls={uncensorfix_controls}"
             return tuple(result)
-        if preset in (PRESET_UNCENSORFIX, LEGACY_TEACHERFIX, LEGACY_TEACHERFIX_SHORT):
+        if preset in EMBEDDED_LORA_PRESETS:
+            lora = EMBEDDED_LORA_PRESETS[preset]
             execution_mode = resolve_execution_mode(kwargs.get("model"), execution_mode)
             if uncensorfix_controls not in UNCENSORFIX_CONTROL_MODES:
                 raise ValueError(f"Unknown UncensorFix controls mode: {uncensorfix_controls}")
@@ -356,10 +395,13 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                 delegated["nag_batch_txtfusion"] = bool(nag_batch_txtfusion)
                 result = list(super().apply(*args, **delegated))
             patched_model, loaded_count, source_details = _apply_uncensorfix(
-                result[0], strength, execution_mode=execution_mode,
+                result[0], strength, execution_mode=execution_mode, lora=lora,
             )
             result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(patched_model, result[0])
-            result[-1] = _rewrite_uncensorfix_diagnostics(result[-1], strength, loaded_count, source_details)
+            result[-1] = _rewrite_uncensorfix_diagnostics(
+                result[-1], strength, loaded_count, source_details, lora,
+                PRESET_UNCENSORFIX if lora is UNCENSORFIX_LORA else preset,
+            )
             result[-1] += (
                 f"\nuncensorfix_controls={uncensorfix_controls}; "
                 f"uncensorfix_execution_mode={execution_mode}; "

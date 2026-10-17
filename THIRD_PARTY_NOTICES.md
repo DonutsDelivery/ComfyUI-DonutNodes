@@ -53,6 +53,12 @@ The following presets embed the exact single `[1,12]` `projector.diff` tensor va
 
 They reproduce standard ComfyUI `.diff` patch semantics at `projector_strength=1.0` without reading either external file at runtime.
 
+## Krea2 TextFusion Refusal-Reduction LoRA
+
+Source: https://civitai.com/models/2775340 by Capitan01R (v1.0 file `Krea2_TextFusion_Refusal_Reduction.safetensors`, v2.0 file `refusal_reduction_v2.safetensors`). The Civitai page lists derivatives as allowed and credit as not required; no separate license text is published there.
+
+The `Refusal Reduction v1` and `Refusal Reduction v2` presets embed the exact LoRA factors as the raw bfloat16 asset `assets/refusal_reduction_v2.bf16`, without the original safetensors container, and apply them as an ordinary patch to the selected Krea 2 model. The factors are unmodified; v1 is the subset of v2 whose tensors are bit-identical to the v1 file.
+
 ## Hybrid and Donut presets
 
 Presets labelled `HYBRID settings:` combine the separately attributed operations above at a reduced Rebalance multiplier of 1; they do not claim to originate from either upstream project. Presets labelled `DONUT settings:` are Donut-authored RMS-preserved tap configurations, optionally combined with the attributed Enhancer operation.

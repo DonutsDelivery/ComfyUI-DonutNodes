@@ -15,6 +15,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parent
 EXPECTED_PAYLOAD_SHA = "f3c817bd957e6d47883346237b5e067697f0b9e1c9909bd06353da455949aacf"
+REFUSAL_PAYLOAD_SHA = "8d2798e11b79f90c28744e6615a40ff1d8d2ee30fa86f47e2dfddb71467480ba"
 BASE_NAMES = {
     "PRESET_MANUAL": "Custom settings",
     "PRESET_BYPASS_2": "COPY settings: Krea2FilterBypass 2vector",
@@ -30,7 +31,8 @@ BASE_NAMES = {
 }
 SHORT_NAMES = ["Off", "Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
                "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
-               "Balanced", "Balanced + raw NAG", "Balanced + Enhancer", "UncensorFix"]
+               "Balanced", "Balanced + raw NAG", "Balanced + Enhancer", "UncensorFix",
+               "Refusal Reduction v1", "Refusal Reduction v2"]
 LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
                   "tap_profile", "per_layer_weights", "tap_strength", "tap_formula",
                   "tap_normalization", "projector_method", "projector_profile",
@@ -114,6 +116,9 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
         spec.loader.exec_module(cls.module)
         cls.weights = __import__(name + ".uncensorfix_weights", fromlist=["*"])
         cls.factors = cls.weights.get_uncensorfix_factors()
+        cls.refusal = __import__(name + ".refusal_reduction_weights", fromlist=["*"])
+        cls.refusal_v1 = cls.refusal.get_refusal_reduction_v1_factors()
+        cls.refusal_v2 = cls.refusal.get_refusal_reduction_v2_factors()
 
     def test_all_33_embedded_targets_and_exact_payload(self):
         self.assertEqual(len(self.factors), 33)
@@ -151,6 +156,90 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
     def test_decode_is_cached(self):
         with mock.patch.object(self.weights, "_read_payload", side_effect=AssertionError("decoded twice")):
             self.assertIs(self.factors, self.weights.get_uncensorfix_factors())
+
+    def test_refusal_payload_is_exact_bf16_and_hash_checked(self):
+        raw = self.refusal._read_payload()
+        self.assertEqual(len(raw), 30_344_832)
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), REFUSAL_PAYLOAD_SHA)
+        self.assertNotIn(b"__metadata__", raw)
+        for key, up, down, alpha in self.refusal_v2:
+            self.assertEqual(up.dtype, torch.float32)
+            self.assertEqual((up.shape[1], down.shape[0], alpha), (64, 64, 64.0))
+            self.assertTrue(torch.isfinite(up).all() and torch.isfinite(down).all())
+            # Decoded from bfloat16, so every value must round-trip through it.
+            self.assertTrue(torch.equal(up, up.to(torch.bfloat16).to(torch.float32)))
+            self.assertTrue(torch.equal(down, down.to(torch.bfloat16).to(torch.float32)))
+
+    def test_refusal_v1_is_the_block_subset_of_v2(self):
+        self.assertEqual((len(self.refusal_v1), len(self.refusal_v2)), (32, 35))
+        v2 = {key: (up, down) for key, up, down, _ in self.refusal_v2}
+        for key, up, down, _ in self.refusal_v1:
+            self.assertIn("_blocks.", key)
+            self.assertIs(up, v2[key][0])
+            self.assertIs(down, v2[key][1])
+        extra = {key for key, *_ in self.refusal_v2} - {key for key, *_ in self.refusal_v1}
+        self.assertEqual(extra, {"diffusion_model.txtfusion.projector.weight",
+                                 "diffusion_model.txtmlp.1.weight", "diffusion_model.txtmlp.3.weight"})
+
+    def test_refusal_weights_do_not_duplicate_uncensorfix(self):
+        # Same targets, unrelated weights: no identical factor tensors, tiny cosine overlap.
+        fix = {key: (up, down, alpha) for key, up, down, alpha in self.factors}
+        for key, up, down, alpha in self.refusal_v2:
+            if key not in fix:
+                continue
+            fu, fd, fa = fix[key]
+            mine, theirs = up @ down, (fa / fd.shape[0]) * (fu @ fd)
+            cosine = torch.nn.functional.cosine_similarity(mine.flatten(), theirs.flatten(), dim=0)
+            self.assertLess(abs(float(cosine)), 0.3, key)
+            self.assertFalse(torch.equal(mine, theirs))
+
+    def test_refusal_presets_apply_their_own_targets_in_both_compositions(self):
+        cases = (("Refusal Reduction v1", 32, "diffusion_model.txtmlp.1.weight"),
+                 ("Refusal Reduction v2", 35, None))
+        for preset, expected, absent in cases:
+            for composition in ("LoRA only", "LoRA + fusion controls", "Fusion + UncensorFix weights"):
+                with self.subTest(preset=preset, composition=composition):
+                    cond = object()
+                    model = FakeModel(self.refusal_v2)
+                    result = self.module.DonutKrea2FusionControl().apply(
+                        model=model, conditioning_in_1=cond, compatibility_preset=preset,
+                        tap_strength=.75, uncensorfix_strength=.75, uncensorfix_controls=composition)
+                    self.assertEqual(len(result[0].patches), expected)
+                    self.assertEqual(result[0].strength, .75)
+                    if absent:
+                        self.assertNotIn(absent, result[0].patches)
+                    self.assertIn(f"uncensorfix_targets={expected}", result[-1])
+                    if composition == "Fusion + UncensorFix weights":
+                        self.assertIn(f"embedded_lora={preset}", result[-1])
+                    else:
+                        self.assertIn(f"preset_label={preset};", result[-1])
+                        self.assertIn("bundled_weight_asset=assets/refusal_reduction_v2.bf16", result[-1])
+                    for key, up, down, alpha in self.refusal_v2:
+                        if key in result[0].patches:
+                            values = result[0].patches[key].weights
+                            self.assertTrue(torch.equal(values[0], up) and torch.equal(values[1], down))
+                            self.assertEqual(values[2], 64.0)
+
+    def test_refusal_presets_are_not_applied_by_fusion_only_or_other_presets(self):
+        with mock.patch.object(self.module, "_refusal_v2_factors", side_effect=AssertionError("data accessed")), \
+                mock.patch.object(self.module, "_refusal_v1_factors", side_effect=AssertionError("data accessed")):
+            for preset in ("Rebalance", "Balanced", "UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"):
+                original = FakeModel(self.factors)
+                self.module.DonutKrea2FusionControl().apply(
+                    model=original, conditioning_in_1=object(), compatibility_preset=preset,
+                    uncensorfix_controls="Fusion only")
+        # Other presets with the weights composition still apply UncensorFix, unchanged.
+        result = self.module.DonutKrea2FusionControl().apply(
+            model=FakeModel(self.factors), conditioning_in_1=object(), compatibility_preset="Balanced",
+            uncensorfix_controls="Fusion + UncensorFix weights")
+        self.assertIn("uncensorfix_targets=33", result[-1])
+
+    def test_refusal_v2_rejects_a_model_missing_its_targets(self):
+        model = FakeModel(self.refusal_v1)  # no projector or txtmlp targets
+        with self.assertRaisesRegex(RuntimeError, "Refusal Reduction v2 target missing or wrong shape"):
+            self.module._apply_uncensorfix(model, 1.0, lora=self.module.REFUSAL_V2_LORA)
+        result, count, _ = self.module._apply_uncensorfix(FakeModel(self.refusal_v1), 1.0, lora=self.module.REFUSAL_V1_LORA)
+        self.assertEqual(count, 32)
 
     def test_corrupt_payload_fails(self):
         with mock.patch.object(Path, "open", mock.mock_open(read_data=b"corrupt")):
