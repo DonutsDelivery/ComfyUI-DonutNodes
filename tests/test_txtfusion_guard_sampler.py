@@ -162,7 +162,9 @@ class FusionTests(unittest.TestCase):
     def test_general_switch_appended_after_all_old_widgets(self):
         old=ParentFusion.INPUT_TYPES();new=self.node.INPUT_TYPES()
         self.assertEqual(old['required'],new['required'])
-        self.assertEqual(list(new['optional']),[*old['optional'],'txtfusion_rms_guard'])
+        older=[name for name in old['optional'] if name!='embedded_weights']
+        newest=['embedded_weights'] if 'embedded_weights' in old['optional'] else []
+        self.assertEqual(list(new['optional']),[*older,'txtfusion_rms_guard',*newest])
         self.assertIs(new['optional']['txtfusion_rms_guard'][1]['default'],False)
     def test_reference_prepared_before_uncensorfix_parent_execution(self):
         order=[]

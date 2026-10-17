@@ -29,12 +29,13 @@ const FUSION_PRESETS = {
     Balanced: FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
     "Balanced + raw NAG": { ...FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"), nag_match_taps: false },
     "Balanced + Enhancer": FUSION_PRESET("Donut 12-tap gains", "classic", "tensor_rms", "Donut projector-input gains", "capitan01R Krea2T-Enhancer operation"),
-    UncensorFix: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
+    Neutral: FUSION_PRESET("Donut 12-tap gains", "off", "tensor_rms", "Donut projector-input gains", "Standard Krea2 fusion"),
 };
-// The Refusal Reduction presets use the same neutral fusion settings and apply their own embedded weights.
-const WEIGHT_PRESETS = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000",
+// Embedded weights are chosen with embedded_weights, not with a preset. These
+// old preset values are only kept so saved workflows still resolve to the neutral settings.
+const LEGACY_WEIGHT_PRESETS = ["UncensorFix", "TeacherFix", "DONUT settings: Krea2 C33 TeacherFix EMA5000",
     "Refusal Reduction v1", "Refusal Reduction v2"];
-FUSION_PRESETS["Refusal Reduction v1"] = FUSION_PRESETS["Refusal Reduction v2"] = FUSION_PRESETS.UncensorFix;
+for (const legacy of ["UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"]) FUSION_PRESETS[legacy] = FUSION_PRESETS.Neutral;
 for (const [legacy, current] of Object.entries({
     "COPY settings: Krea2FilterBypass 2vector": "Bypass 2",
     "COPY settings: Krea2FilterBypass 3vector": "Bypass 3",
@@ -46,15 +47,15 @@ for (const [legacy, current] of Object.entries({
     "DONUT settings: RMS-balanced classic": "Balanced",
     "DONUT settings: RMS-balanced classic, raw NAG negative": "Balanced + raw NAG",
     "DONUT settings: RMS-balanced classic + Krea2T-Enhancer": "Balanced + Enhancer",
-    TeacherFix: "UncensorFix",
-    "DONUT settings: Krea2 C33 TeacherFix EMA5000": "UncensorFix",
+    TeacherFix: "Neutral",
+    "DONUT settings: Krea2 C33 TeacherFix EMA5000": "Neutral",
 })) FUSION_PRESETS[legacy] = FUSION_PRESETS[current];
 for (const preset of Object.values(FUSION_PRESETS)) {
     if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
 }
 
 function applyFusionPreset(node, preset) {
-    const values = preset === "Off" ? FUSION_PRESETS.UncensorFix : FUSION_PRESETS[preset];
+    const values = preset === "Off" ? FUSION_PRESETS.Neutral : FUSION_PRESETS[preset];
     if (!values || !node.widgets?.some(widget => widget.name === "tap_method")) return;
     node._donutApplyingKrea2Preset = true;
     try {
@@ -74,8 +75,6 @@ function applyFusionPreset(node, preset) {
             ? "1.0,1.0,1.0,1.0,1.0,1.0,1.0,2.5,5.0,1.1,4.0,1.0" : neutral,
         projector_layer_weights: neutral,
         compatibility_preset: preset,
-        uncensorfix_controls: WEIGHT_PRESETS.includes(preset)
-            ? "Fusion + UncensorFix weights" : "Fusion only",
     })) {
         const widget = node.widgets.find(item => item.name === name);
         if (widget) widget.value = value;
@@ -100,10 +99,19 @@ function resolveByType(path, type) {
     return parent?.subgraph?.nodes?.find(node => node.type === type
         || node.properties?.["Node name for S&R"] === type);
 }
+// The Fusion node still stores the composition the backend reads; the weights
+// selector is the only control that changes it.
+function syncWeightsComposition(node, weights) {
+    const composition = node.widgets?.find(item => item.name === "uncensorfix_controls");
+    if (composition && ["Fusion only", "Fusion + UncensorFix weights", "Fusion + LoRA"].includes(composition.value)) {
+        composition.value = weights === "None" ? "Fusion only" : "Fusion + UncensorFix weights";
+    }
+}
 function commitWidget(node, widget, value) {
     node.graph.beforeChange();
     widget.value = value;
     widget.callback?.(value, app.canvas, node);
+    if (widget.name === "embedded_weights") syncWeightsComposition(node, value);
     if (widget.name === "compatibility_preset") applyFusionPreset(node, value);
     node.graph.afterChange();
     node.setDirtyCanvas(true, true);
@@ -275,6 +283,14 @@ function install(node, appOnly = false) {
             label.append(caption, input); parent.append(label);
             return;
         }
+        if (name === "uncensorfix_controls" && target?.widgets?.some(w => w.name === "embedded_weights")) {
+            // Saved panels still name the old composition widget; show the weights selector in its place.
+            field(parent, path, "embedded_weights", "Embedded weights");
+            if (target.widgets.some(item => item.name === "uncensorfix_strength")) {
+                field(parent, path, "uncensorfix_strength", "Weights strength");
+            }
+            return;
+        }
         const widget = target?.widgets?.find(w => w.name === name);
         // Defaults belong to the workflow/node schema. Rendering a panel must
         // preserve a saved seed policy, including older workflows using Fixed.
@@ -330,7 +346,7 @@ function install(node, appOnly = false) {
                         && item.path.every((id, index) => path[index] === id));
                 const presetNode = presetControl ? resolve(presetControl.path) : target;
                 const preset = presetNode?.widgets?.find(item => item.name === "compatibility_preset")?.value;
-                const legacyActive = WEIGHT_PRESETS.includes(preset);
+                const legacyActive = LEGACY_WEIGHT_PRESETS.includes(preset);
                 // Old workflows serialized LoRA-only modes here. Outside the
                 // legacy UncensorFix preset those values are stale and can make
                 // the backend do something different from the visible panel.

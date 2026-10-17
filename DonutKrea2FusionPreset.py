@@ -30,6 +30,7 @@ PRESET_REBALANCE_BYPASS_3 = "Rebalance + Bypass 3"
 PRESET_BALANCED = "Balanced"
 PRESET_BALANCED_RAW_NAG = "Balanced + raw NAG"
 PRESET_BALANCED_ENHANCER = "Balanced + Enhancer"
+PRESET_NEUTRAL = "Neutral"
 PRESET_UNCENSORFIX = "UncensorFix"
 PRESET_REFUSAL_V1 = "Refusal Reduction v1"
 PRESET_REFUSAL_V2 = "Refusal Reduction v2"
@@ -49,10 +50,13 @@ SIMPLE_PRESET_TO_LEGACY = {
     PRESET_BALANCED_RAW_NAG: base.PRESET_DONUT_BALANCED_RAW_NAG,
     PRESET_BALANCED_ENHANCER: base.PRESET_DONUT_BALANCED_ENHANCER,
 }
-SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + (
-    PRESET_UNCENSORFIX, PRESET_REFUSAL_V1, PRESET_REFUSAL_V2,
-)
+# Neutral keeps the fusion settings unchanged so embedded weights can be used on their own.
 LEGACY_PRESET_TO_SIMPLE = {legacy: simple for simple, legacy in SIMPLE_PRESET_TO_LEGACY.items()}
+SIMPLE_PRESET_TO_LEGACY[PRESET_NEUTRAL] = base.PRESET_MANUAL
+# Weights used to be presets. They stay accepted so saved workflows and API
+# prompts validate; the editor hides them and moves them to embedded_weights.
+LEGACY_WEIGHT_PRESETS = (PRESET_UNCENSORFIX, PRESET_REFUSAL_V1, PRESET_REFUSAL_V2)
+SIMPLE_PRESETS = (PRESET_OFF,) + tuple(SIMPLE_PRESET_TO_LEGACY) + LEGACY_WEIGHT_PRESETS
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX] = PRESET_UNCENSORFIX
 LEGACY_PRESET_TO_SIMPLE[LEGACY_TEACHERFIX_SHORT] = PRESET_UNCENSORFIX
 
@@ -106,6 +110,15 @@ EMBEDDED_LORA_PRESETS = {
     LEGACY_TEACHERFIX_SHORT: UNCENSORFIX_LORA,
     PRESET_REFUSAL_V1: REFUSAL_V1_LORA,
     PRESET_REFUSAL_V2: REFUSAL_V2_LORA,
+}
+
+# Independent weights selector; None applies no embedded weights.
+WEIGHTS_NONE = "None"
+EMBEDDED_WEIGHTS = {
+    WEIGHTS_NONE: None,
+    "UncensorFix": UNCENSORFIX_LORA,
+    "Refusal Reduction v1": REFUSAL_V1_LORA,
+    "Refusal Reduction v2": REFUSAL_V2_LORA,
 }
 
 
@@ -256,9 +269,10 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         required = dict(schema["required"])
         required["compatibility_preset"] = _preset_combo_spec(
             required["compatibility_preset"],
-            "Select a preset. UncensorFix uses embedded weights and stays selected when "
-            "its controls are edited. Off passes the input model and conditioning through "
-            "unchanged, preserving upstream LoRAs and stored control values.",
+            "Select the fusion settings. Neutral leaves the fusion unchanged. Embedded weights "
+            "(UncensorFix, Refusal Reduction) are chosen separately with embedded_weights. "
+            "Off passes the input model and conditioning through unchanged, preserving upstream "
+            "LoRAs and stored control values.",
         )
         spec = required["tap_strength"]
         settings = dict(spec[1]) if len(spec) > 1 and isinstance(spec[1], dict) else {}
@@ -277,7 +291,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         optional["uncensorfix_controls"] = ([FUSION_ONLY, FUSION_WITH_WEIGHTS, FUSION_WITH_LORA, *UNCENSORFIX_CONTROL_MODES], {
             "default": FUSION_ONLY,
             "tooltip": "Fusion only applies the visible fusion settings. Fusion + UncensorFix weights also applies "
-                       "embedded UncensorFix weights with any preset. Old LoRA modes remain for saved workflows.",
+                       "the weights chosen in embedded_weights with any preset. Old LoRA modes remain for saved workflows.",
         })
         optional["execution_mode"] = (list(UNCENSORFIX_EXECUTION_MODES), {
             "default": "Comfy patches",
@@ -288,7 +302,7 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
         })
         optional["uncensorfix_strength"] = ("FLOAT", {
             "default": 1.0, "min": -20.0, "max": 20.0, "step": 0.05,
-            "tooltip": "UncensorFix weight strength, independent of tap/fusion strength.",
+            "tooltip": "Strength of the embedded weights, independent of tap/fusion strength.",
         })
         optional["nag_match_taps"] = ("BOOLEAN", {
             "default": True,
@@ -306,12 +320,18 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
             "default": False,
             "tooltip": "EXPERIMENT: run NAG's two text streams through one txtfusion call when their token lengths match. Off keeps the upstream two-call path.",
         })
+        optional["embedded_weights"] = (list(EMBEDDED_WEIGHTS), {
+            "default": "UncensorFix",
+            "tooltip": "Embedded weights applied with any fusion preset, independent of it. They are applied "
+                       "when the composition is Fusion + weights; None applies no weights. Pick Neutral as "
+                       "the preset to use the weights without changing the fusion settings.",
+        })
         return {**schema, "required": required, "optional": optional}
 
     def apply(
         self, *args, ui_mode=UI_MODE_ADVANCED,
         uncensorfix_controls=UNCENSORFIX_LORA_ONLY,
-        execution_mode="Comfy patches", uncensorfix_strength=None,
+        execution_mode="Comfy patches", uncensorfix_strength=None, embedded_weights="UncensorFix",
         nag_text_energy_compensation=False, nag_batch_txtfusion=False, **kwargs,
     ):
         if ui_mode not in UI_MODES:
@@ -357,13 +377,18 @@ class DonutKrea2FusionControl(base.DonutKrea2FusionControl):
                 fallback = kwargs.get("tap_strength", 1.0) if uncensorfix_controls == FUSION_WITH_LORA else 1.0
                 strength = float(fallback if uncensorfix_strength is None else uncensorfix_strength)
                 fused_model = result[0]
-                lora = EMBEDDED_LORA_PRESETS.get(preset, UNCENSORFIX_LORA)
-                result[0], count, source = _apply_uncensorfix(fused_model, strength, execution_mode, lora)
-                result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(result[0], fused_model)
-                result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
-                               f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
-                if lora is not UNCENSORFIX_LORA:
-                    result[-1] += f"\nembedded_lora={lora.label}"
+                if embedded_weights not in EMBEDDED_WEIGHTS:
+                    raise ValueError(f"Unknown embedded weights: {embedded_weights}")
+                # Refusal Reduction used to be a preset; 3.3.0 workflows still name it there.
+                lora = EMBEDDED_LORA_PRESETS[preset] if preset in (PRESET_REFUSAL_V1, PRESET_REFUSAL_V2) \
+                    else EMBEDDED_WEIGHTS[embedded_weights]
+                if lora is not None:
+                    result[0], count, source = _apply_uncensorfix(fused_model, strength, execution_mode, lora)
+                    result[0] = getattr(base, "copy_fusion_budget", lambda dst, src: dst)(result[0], fused_model)
+                    result[-1] += (f"\nuncensorfix_targets={count}; uncensorfix_strength={strength:g}; "
+                                   f"uncensorfix_source={source}; uncensorfix_execution_mode={execution_mode}")
+                    if lora is not UNCENSORFIX_LORA:
+                        result[-1] += f"\nembedded_lora={lora.label}"
             result[-1] += f"\nuncensorfix_controls={uncensorfix_controls}"
             return tuple(result)
         if preset in EMBEDDED_LORA_PRESETS:

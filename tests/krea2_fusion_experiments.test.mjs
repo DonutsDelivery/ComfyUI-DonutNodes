@@ -60,8 +60,8 @@ test("experimental preset choices and recipes are applied to a Fusion node", () 
   assert.ok(names.includes("Experiment · soft tensor RMS 0.75"));
 
   preset.value = "Experiment · NAG-friendly mean"; preset.callback(preset.value);
-  assert.equal(widget(fusion, "uncensorfix_controls").value, "Fusion only",
-    "switching away from UncensorFix must clear its weight composition");
+  assert.equal(widget(fusion, "uncensorfix_controls").value, "Fusion + UncensorFix weights",
+    "embedded weights are independent of the fusion preset");
   assert.equal(widget(fusion, "tap_normalization").value, "mean_gain");
   assert.equal(widget(fusion, "tap_strength").value, 1);
   assert.equal(widget(fusion, "tap_formula").value, "scale_around_1");

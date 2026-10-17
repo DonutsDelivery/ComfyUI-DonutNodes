@@ -71,8 +71,6 @@ function applyExperiment(node, name) {
     if (tapWeights) tapWeights.value = CLASSIC;
     const projectorWeights = widget(node, "projector_layer_weights");
     if (projectorWeights) projectorWeights.value = NEUTRAL;
-    const composition = widget(node, "uncensorfix_controls");
-    if (composition) composition.value = "Fusion only";
     if (preset) preset.value = name;
   } finally {
     node._donutApplyingKrea2Preset = false;

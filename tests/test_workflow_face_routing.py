@@ -56,6 +56,17 @@ class WorkflowFaceRoutingTests(unittest.TestCase):
                     self.assertIsInstance(values[18], int)   # prompt_set_index
                     self.assertEqual(values[19], "fixed")    # control_after_generate
 
+    def test_fusion_control_saved_values_end_with_the_embedded_weights(self):
+        # embedded_weights is the newest widget, after txtfusion_rms_guard.
+        for path in WORKFLOWS:
+            with self.subTest(path):
+                node = face_branch(path, 1118)[0][1118]
+                values, named = node["widgets_values"], node["widgets_values_named"]
+                self.assertEqual(list(named)[-2:], ["txtfusion_rms_guard", "embedded_weights"])
+                self.assertEqual(values[-2:], [named["txtfusion_rms_guard"], "UncensorFix"])
+                self.assertEqual(named["uncensorfix_controls"], "Fusion + UncensorFix weights")
+                self.assertEqual(len(values), len(named))
+
 
 if __name__ == "__main__":
     unittest.main()

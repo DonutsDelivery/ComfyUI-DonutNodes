@@ -31,7 +31,7 @@ BASE_NAMES = {
 }
 SHORT_NAMES = ["Off", "Custom", "Bypass 2", "Bypass 3", "Rebalance", "Enhancer",
                "Rebalance + Enhancer", "Rebalance + Bypass 2", "Rebalance + Bypass 3",
-               "Balanced", "Balanced + raw NAG", "Balanced + Enhancer", "UncensorFix",
+               "Balanced", "Balanced + raw NAG", "Balanced + Enhancer", "Neutral", "UncensorFix",
                "Refusal Reduction v1", "Refusal Reduction v2"]
 LEGACY_WIDGETS = ["model", "conditioning_in_1", "compatibility_preset", "tap_method",
                   "tap_profile", "per_layer_weights", "tap_strength", "tap_formula",
@@ -233,6 +233,43 @@ class EmbeddedUncensorFixTests(unittest.TestCase):
             model=FakeModel(self.factors), conditioning_in_1=object(), compatibility_preset="Balanced",
             uncensorfix_controls="Fusion + UncensorFix weights")
         self.assertIn("uncensorfix_targets=33", result[-1])
+
+    def test_embedded_weights_are_chosen_independently_of_the_preset(self):
+        cases = (("UncensorFix", 33, self.factors), ("Refusal Reduction v1", 32, self.refusal_v2),
+                 ("Refusal Reduction v2", 35, self.refusal_v2))
+        for preset in ("Neutral", "Rebalance", "Balanced + Enhancer"):
+            for weights, expected, factors in cases:
+                with self.subTest(preset=preset, weights=weights):
+                    result = self.module.DonutKrea2FusionControl().apply(
+                        model=FakeModel(factors), conditioning_in_1=object(), compatibility_preset=preset,
+                        uncensorfix_controls="Fusion + UncensorFix weights", embedded_weights=weights)
+                    self.assertEqual(len(result[0].patches), expected)
+                    self.assertIn(f"uncensorfix_targets={expected}", result[-1])
+
+    def test_embedded_weights_none_and_fusion_only_apply_nothing(self):
+        with mock.patch.object(self.module, "_uncensorfix_factors", side_effect=AssertionError("data accessed")), \
+                mock.patch.object(self.module, "_refusal_v2_factors", side_effect=AssertionError("data accessed")), \
+                mock.patch.object(self.module, "_refusal_v1_factors", side_effect=AssertionError("data accessed")):
+            for controls, weights in (("Fusion + UncensorFix weights", "None"),
+                                      ("Fusion only", "UncensorFix"), ("Fusion only", "Refusal Reduction v2")):
+                with self.subTest(controls=controls, weights=weights):
+                    result = self.module.DonutKrea2FusionControl().apply(
+                        model=FakeModel(self.factors), conditioning_in_1=object(), compatibility_preset="Neutral",
+                        uncensorfix_controls=controls, embedded_weights=weights)
+                    self.assertEqual(result[0].patches, {})
+                    self.assertNotIn("uncensorfix_targets", result[-1])
+
+    def test_unknown_embedded_weights_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unknown embedded weights"):
+            self.module.DonutKrea2FusionControl().apply(
+                model=FakeModel(self.factors), conditioning_in_1=object(), compatibility_preset="Neutral",
+                uncensorfix_controls="Fusion + UncensorFix weights", embedded_weights="Other")
+
+    def test_embedded_weights_widget_is_appended_after_every_older_widget(self):
+        optional = self.module.DonutKrea2FusionControl.INPUT_TYPES()["optional"]
+        self.assertEqual(list(optional)[-1], "embedded_weights")
+        self.assertEqual(optional["embedded_weights"][0], ["None", "UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"])
+        self.assertEqual(optional["embedded_weights"][1]["default"], "UncensorFix")
 
     def test_refusal_v2_rejects_a_model_missing_its_targets(self):
         model = FakeModel(self.refusal_v1)  # no projector or txtmlp targets

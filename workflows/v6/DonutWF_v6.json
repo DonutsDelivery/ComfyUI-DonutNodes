@@ -8134,7 +8134,8 @@
               true,
               false,
               false,
-              false
+              false,
+              "UncensorFix"
             ],
             "widgets_values_named": {
               "compatibility_preset": "Rebalance",
@@ -8159,7 +8160,8 @@
               "nag_match_taps": true,
               "nag_text_energy_compensation": false,
               "nag_batch_txtfusion": false,
-              "txtfusion_rms_guard": false
+              "txtfusion_rms_guard": false,
+              "embedded_weights": "UncensorFix"
             }
           },
           {

@@ -4,12 +4,19 @@ const NODE_NAME = "DonutKrea2FusionControl";
 const SIMPLE = "Simple";
 const ADVANCED = "Advanced";
 const CUSTOM = "Custom";
+const NEUTRAL = "Neutral";
 const UNCENSORFIX = "UncensorFix";
 const REFUSAL_V1 = "Refusal Reduction v1";
 const REFUSAL_V2 = "Refusal Reduction v2";
-// Active embedded weight patches, not settings labels: they keep neutral fusion
-// settings and set the composition that applies the preset's weights.
-const WEIGHT_PRESETS = new Set([UNCENSORFIX, REFUSAL_V1, REFUSAL_V2]);
+const WEIGHTS_NONE = "None";
+const WEIGHTS_ON = "Fusion + UncensorFix weights";
+const WEIGHTS_OFF = "Fusion only";
+// Embedded weights used to be presets. They are a separate selector now; these
+// old preset values only exist so saved workflows still load and migrate.
+const LEGACY_WEIGHT_PRESETS = new Set([UNCENSORFIX, REFUSAL_V1, REFUSAL_V2]);
+// Compositions that apply weights via the selector. The old LoRA-only modes
+// belong to the legacy preset path and are left alone.
+const COMPOSITIONS = new Set([WEIGHTS_OFF, WEIGHTS_ON, "Fusion + LoRA"]);
 
 const TAP_DONUT = "Donut 12-tap gains";
 const TAP_REBALANCE = "nova452 Rebalance operation";
@@ -177,7 +184,7 @@ const SIMPLE_PRESETS = {
     fusion_method: FUSION_ENHANCER,
     fusion_strength: 1.0,
   },
-  [UNCENSORFIX]: {
+  [NEUTRAL]: {
     tap_method: TAP_DONUT,
     tap_profile: "off",
     tap_strength: 1.0,
@@ -192,8 +199,6 @@ const SIMPLE_PRESETS = {
     fusion_strength: 1.0,
   },
 };
-
-SIMPLE_PRESETS[REFUSAL_V1] = SIMPLE_PRESETS[REFUSAL_V2] = SIMPLE_PRESETS[UNCENSORFIX];
 
 for (const preset of Object.values(SIMPLE_PRESETS)) {
   if (preset.nag_match_taps === undefined) preset.nag_match_taps = true;
@@ -289,7 +294,9 @@ function syncSimpleStrength(node, presetName = widget(node, "compatibility_prese
 
 function applySimplePreset(node, name) {
   name = simplifyPresetName(name);
-  const values = name === "Off" && widget(node, "uncensorfix_controls") ? SIMPLE_PRESETS[UNCENSORFIX] : SIMPLE_PRESETS[name];
+  // An old weights preset (still loadable) means the neutral fusion settings.
+  const neutral = name === "Off" && widget(node, "uncensorfix_controls") || LEGACY_WEIGHT_PRESETS.has(name);
+  const values = neutral ? SIMPLE_PRESETS[NEUTRAL] : SIMPLE_PRESETS[name];
   if (!values) return;
 
   node._donutApplyingKrea2Preset = true;
@@ -303,12 +310,43 @@ function applySimplePreset(node, name) {
   } finally {
     node._donutApplyingKrea2Preset = false;
   }
+}
+
+// Weights are chosen by one selector. The old composition widget is kept in sync
+// (and hidden) because saved workflows and the backend still read it.
+function syncEmbeddedWeights(node) {
+  const weights = widget(node, "embedded_weights");
   const composition = widget(node, "uncensorfix_controls");
-  if (composition) composition.value = WEIGHT_PRESETS.has(name) ? "Fusion + UncensorFix weights" : "Fusion only";
+  const preset = widget(node, "compatibility_preset");
+  if (!weights || !composition) return;
+  const legacyPreset = simplifyPresetName(preset?.value);
+  if (COMPOSITIONS.has(composition.value)) {
+    if (LEGACY_WEIGHT_PRESETS.has(legacyPreset)) {
+      weights.value = composition.value === WEIGHTS_OFF ? WEIGHTS_NONE : legacyPreset;
+      preset.value = NEUTRAL;
+    } else if (composition.value === WEIGHTS_OFF) {
+      weights.value = WEIGHTS_NONE;
+    }
+    composition.value = weights.value === WEIGHTS_NONE ? WEIGHTS_OFF : WEIGHTS_ON;
+    hideWidget(composition);
+  }
+  const strength = widget(node, "uncensorfix_strength");
+  if (strength) {
+    strength.label = "weights_strength";
+    if (weights.value === WEIGHTS_NONE && COMPOSITIONS.has(composition.value)) hideWidget(strength);
+    else showWidget(strength);
+  }
+  // Weights are not presets any more; keep an old value listed only while it still drives a legacy workflow.
+  if (preset?.options?.values) {
+    preset._donutAllPresets ||= [...preset.options.values];
+    preset.options.values = preset._donutAllPresets.filter(
+      name => !LEGACY_WEIGHT_PRESETS.has(name) || name === preset.value);
+  }
 }
 
 function updateModeVisibility(node) {
   normalizePresetWidget(node);
+  syncEmbeddedWeights(node);
   const mode = widget(node, "ui_mode")?.value ?? ADVANCED;
   if (mode === SIMPLE) {
     for (const name of ADVANCED_WIDGETS) {
@@ -336,7 +374,7 @@ function updateModeVisibility(node) {
       visible.add("tap_normalization");
     }
   }
-  if (WEIGHT_PRESETS.has(preset)) visible.add("tap_strength");
+  if (LEGACY_WEIGHT_PRESETS.has(preset)) visible.add("tap_strength");
 
   if (projectorMethod === PROJECTOR_DONUT) {
     visible.add("projector_profile");
@@ -391,6 +429,20 @@ app.registerExtension({
         };
       }
 
+      const weightsWidget = widget(node, "embedded_weights");
+      if (weightsWidget) {
+        const previous = weightsWidget.callback;
+        weightsWidget.callback = function () {
+          const callbackResult = previous?.apply(this, arguments);
+          const composition = widget(node, "uncensorfix_controls");
+          if (composition && COMPOSITIONS.has(composition.value)) {
+            composition.value = weightsWidget.value === WEIGHTS_NONE ? WEIGHTS_OFF : WEIGHTS_ON;
+          }
+          scheduleVisibility(node);
+          return callbackResult;
+        };
+      }
+
       if (presetWidget) {
         const previous = presetWidget.callback;
         presetWidget.callback = function (value) {
@@ -435,6 +487,7 @@ app.registerExtension({
         };
       }
 
+      syncEmbeddedWeights(node);
       scheduleVisibility(node);
       return result;
     };
@@ -443,6 +496,7 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const result = onConfigure?.apply(this, arguments);
       normalizePresetWidget(this);
+      syncEmbeddedWeights(this);
       if (widget(this, "ui_mode")?.value === SIMPLE) syncSimpleStrength(this);
       scheduleVisibility(this);
       return result;

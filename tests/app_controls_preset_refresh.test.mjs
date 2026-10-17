@@ -155,6 +155,63 @@ test("workflow panel refreshes dependent Fusion controls after a preset selectio
   assert.equal(composition.value, "Fusion only");
 });
 
+test("workflow panel shows the embedded weights selector where the old composition control was", () => {
+  let extension, Panel;
+  const deferred = [];
+  const fusion = { widgets: [], graph: { beforeChange() {}, afterChange() {} }, setDirtyCanvas() {} };
+  const add = (name, value, values = []) => {
+    const widget = { name, value, callback() {}, options: { values } };
+    fusion.widgets.push(widget); return widget;
+  };
+  const composition = add("uncensorfix_controls", "Fusion only");
+  const weights = add("embedded_weights", "None", ["None", "UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"]);
+  add("uncensorfix_strength", 1);
+  const group = { subgraph: { getNodeById: id => id === 1118 ? fusion : undefined }, widgets: [], graph: fusion.graph, setDirtyCanvas() {} };
+  class LGraphNode {
+    constructor(title) { this.title = title; this.widgets = []; this.properties = {}; this.size = [460, 510]; }
+    addDOMWidget(name, type, element, options) { const widget = { name, type, element, options }; this.widgets.push(widget); return widget; }
+    setDirtyCanvas() {}
+  }
+  const context = vm.createContext({
+    app: { rootGraph: { getNodeById: id => id === 1014 ? group : undefined }, registerExtension(value) { extension = value; } },
+    ...panelImports, ...vaeImports,
+    api: {}, LGraphNode, LiteGraph: { registerNodeType(_name, type) { Panel = type; } },
+    document: { activeElement: null, createElement: tag => new Element(tag) },
+    IntersectionObserver: class { observe() {} disconnect() {} },
+    queueMicrotask(callback) { deferred.push(callback); }, crypto: { randomUUID: () => "test" },
+    createLoraService: () => ({}), decodeRows: () => [], moveRow: () => [],
+    createLoraToolbar: () => new Element("div"), renderLoraInformation: () => ({}),
+    weightControl: (title, get, set) => {
+      const element = new Element("input"); element.setAttribute("aria-label", title);
+      element.events.input = () => set(Number(element.value));
+      return {element, refresh: () => { element.value = get(); }};
+    }, vectorControl: () => ({}), promptTools: () => ({}), wildcardLibrary: () => new Element("div"),
+    fitModule() {}, fitTextarea() {}, scheduleLayout() {},
+  });
+  const source = fs.readFileSync(new URL("../web/donut_app_controls.js", import.meta.url), "utf8")
+    .replace(/^import .*;\n/gm, "");
+  vm.runInContext(source, context);
+  extension.registerCustomNodes();
+  const panel = new Panel();
+  panel.properties.donut_app_controls = { groups: [{ title: "UncensorFix", controls: [
+    { path: [1014, 1118], widget: "uncensorfix_controls", title: "Uncensorfix controls" },
+  ] }] };
+  panel._donutAppControls.render();
+  const root = panel._donutAppControls.root;
+  assert.equal(findControl(root, "Uncensorfix controls"), undefined, "the old composition select is gone");
+  const selector = findControl(root, "Embedded weights");
+  assert.equal(selector.value, "None");
+  assert.ok(findControl(root, "Weights strength"));
+
+  selector.value = "Refusal Reduction v2";
+  selector.events.change();
+  assert.equal(weights.value, "Refusal Reduction v2");
+  assert.equal(composition.value, "Fusion + UncensorFix weights");
+  selector.value = "None";
+  selector.events.change();
+  assert.equal(composition.value, "Fusion only");
+});
+
 test("global NAG alpha schedule migrates saved values on reload and mirrors edits to hires and face", () => {
   let extension, Panel;
   activePanels = [];

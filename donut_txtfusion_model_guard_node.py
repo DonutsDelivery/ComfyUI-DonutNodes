@@ -15,9 +15,14 @@ class DonutKrea2FusionControl(_Fusion):
     @classmethod
     def INPUT_TYPES(cls):
         schema = deepcopy(super().INPUT_TYPES())
-        schema.setdefault("optional", {})["txtfusion_rms_guard"] = ("BOOLEAN", {
+        optional = schema.setdefault("optional", {})
+        optional["txtfusion_rms_guard"] = ("BOOLEAN", {
             "default": False, "tooltip": TIP,
         })
+        # Saved workflows store widget values by position and already end with the
+        # guard value, so the newest widget has to stay behind it.
+        if "embedded_weights" in optional:
+            optional["embedded_weights"] = optional.pop("embedded_weights")
         return schema
 
     def apply(self, *args, txtfusion_rms_guard=False, **kwargs):

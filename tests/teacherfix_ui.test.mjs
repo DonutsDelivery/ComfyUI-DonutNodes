@@ -97,7 +97,9 @@ test("applying a different preset does not keep UncensorFix selected", () => {
 const modeSource = fs.readFileSync(new URL("../web/donut_krea2_fusion_simple_mode.js", import.meta.url), "utf8")
   .replace(/^import .*;\n/m, "");
 
-function makeCombinedNode(preset, mode, reverse, extraWidgets = []) {
+const PRESET_NAMES = ["Off", "Custom", "Bypass 2", "Neutral", "UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"];
+
+function makeCombinedNode(preset, mode, reverse, extraWidgets = [], initial = {}) {
   const extensions = [];
   const tasks = [];
   const context = vm.createContext({
@@ -114,7 +116,9 @@ function makeCombinedNode(preset, mode, reverse, extraWidgets = []) {
         name, type: "number", value: 1, computeSize: () => [100, 20],
       }));
       widget(this, "compatibility_preset").value = preset;
+      widget(this, "compatibility_preset").options = { values: [...PRESET_NAMES] };
       widget(this, "ui_mode").value = mode;
+      for (const [name, value] of Object.entries(initial)) widget(this, name).value = value;
     }
     computeSize() { return [400, 400]; }
     setSize(value) { this.size = value; }
@@ -248,24 +252,77 @@ for (const reverse of [false, true]) {
   }
 }
 
+const WEIGHT_WIDGETS = ["uncensorfix_controls", "embedded_weights", "uncensorfix_strength"];
+const ON = "Fusion + UncensorFix weights";
+
 for (const mode of ["Simple", "Advanced"]) {
-  for (const preset of ["Refusal Reduction v1", "Refusal Reduction v2"]) {
-    test(`combined extensions: ${mode} ${preset} keeps neutral fusion and applies its weights`, () => {
-      const { node, flush } = makeCombinedNode(preset, mode, false, ["uncensorfix_controls"]);
-      edit(node, "compatibility_preset", preset);
+  test(`${mode}: embedded weights are chosen independently of the fusion preset`, () => {
+    const { node, flush } = makeCombinedNode("Rebalance", mode, false, WEIGHT_WIDGETS,
+      { uncensorfix_controls: "Fusion only", embedded_weights: "UncensorFix" });
+    node.onConfigure();
+    flush();
+    // A new node shows what is applied: no weights.
+    assert.equal(widget(node, "embedded_weights").value, "None");
+    assert.equal(widget(node, "uncensorfix_controls").value, "Fusion only");
+    assert.equal(widget(node, "uncensorfix_controls").hidden, true);
+    assert.equal(widget(node, "uncensorfix_strength").hidden, true);
+    for (const weights of ["Refusal Reduction v1", "Refusal Reduction v2", "UncensorFix"]) {
+      edit(node, "embedded_weights", weights);
       flush();
-      assert.equal(widget(node, "compatibility_preset").value, preset);
-      assert.equal(widget(node, "tap_profile").value, "off");
-      assert.equal(widget(node, "projector_profile").value, "off");
-      assert.equal(widget(node, "fusion_method").value, "Standard Krea2 fusion");
-      assert.equal(widget(node, "uncensorfix_controls").value, "Fusion + UncensorFix weights");
-      assert.equal(widget(node, "tap_strength").hidden, false);
-      edit(node, "tap_strength", .75);
-      flush();
-      assert.equal(widget(node, "compatibility_preset").value, preset);
+      assert.equal(widget(node, "uncensorfix_controls").value, ON, weights);
+      assert.equal(widget(node, "uncensorfix_strength").hidden, false, weights);
+      // Changing the fusion preset leaves the weights alone, in both directions.
       edit(node, "compatibility_preset", "Bypass 2");
       flush();
-      assert.equal(widget(node, "uncensorfix_controls").value, "Fusion only");
+      assert.equal(widget(node, "embedded_weights").value, weights);
+      assert.equal(widget(node, "uncensorfix_controls").value, ON);
+      assert.equal(widget(node, "projector_method").value, "Krea2FilterBypass 2vector diff");
+    }
+    edit(node, "embedded_weights", "None");
+    flush();
+    assert.equal(widget(node, "uncensorfix_controls").value, "Fusion only");
+    assert.equal(widget(node, "uncensorfix_strength").hidden, true);
+    edit(node, "compatibility_preset", "Neutral");
+    flush();
+    assert.equal(widget(node, "tap_profile").value, "off");
+    assert.equal(widget(node, "projector_profile").value, "off");
+    assert.equal(widget(node, "fusion_method").value, "Standard Krea2 fusion");
+    assert.equal(widget(node, "embedded_weights").value, "None");
+  });
+
+  for (const [saved, weights] of [["UncensorFix", "UncensorFix"], ["TeacherFix", "UncensorFix"],
+    ["Refusal Reduction v1", "Refusal Reduction v1"], ["Refusal Reduction v2", "Refusal Reduction v2"]]) {
+    test(`${mode}: a saved ${saved} preset becomes the Neutral preset plus its weights`, () => {
+      const { node, flush } = makeCombinedNode(saved, mode, false, WEIGHT_WIDGETS,
+        { uncensorfix_controls: ON, embedded_weights: "UncensorFix" });
+      node.onConfigure();
+      flush();
+      assert.equal(widget(node, "compatibility_preset").value, "Neutral");
+      assert.equal(widget(node, "embedded_weights").value, weights);
+      assert.equal(widget(node, "uncensorfix_controls").value, ON);
+      assert.ok(!widget(node, "compatibility_preset").options.values.some(
+        name => ["UncensorFix", "Refusal Reduction v1", "Refusal Reduction v2"].includes(name)),
+        "weights are no longer listed as presets");
     });
   }
+
+  test(`${mode}: a saved weights preset with the weights switched off migrates to no weights`, () => {
+    const { node, flush } = makeCombinedNode("Refusal Reduction v2", mode, false, WEIGHT_WIDGETS,
+      { uncensorfix_controls: "Fusion only", embedded_weights: "UncensorFix" });
+    node.onConfigure();
+    flush();
+    assert.equal(widget(node, "compatibility_preset").value, "Neutral");
+    assert.equal(widget(node, "embedded_weights").value, "None");
+    assert.equal(widget(node, "uncensorfix_controls").value, "Fusion only");
+  });
+
+  test(`${mode}: the old LoRA-only modes keep their legacy preset untouched`, () => {
+    const { node, flush } = makeCombinedNode("UncensorFix", mode, false, WEIGHT_WIDGETS,
+      { uncensorfix_controls: "LoRA only", embedded_weights: "UncensorFix" });
+    node.onConfigure();
+    flush();
+    assert.equal(widget(node, "compatibility_preset").value, "UncensorFix");
+    assert.equal(widget(node, "uncensorfix_controls").value, "LoRA only");
+    assert.ok(widget(node, "compatibility_preset").options.values.includes("UncensorFix"));
+  });
 }

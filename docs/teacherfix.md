@@ -1,5 +1,8 @@
 # Embedded UncensorFix preset
 
+> Since 3.3.1 UncensorFix is an option of the `embedded_weights` selector, not a fusion preset; saved
+> `UncensorFix` presets load as the Neutral preset with these weights. See `refusal-reduction.md`.
+
 UncensorFix lives in the existing Donut Krea2 Fusion Control node. Its numerical
 factors ship as `assets/uncensorfix.f32`, loaded by `uncensorfix_weights.py`.
 The raw little-endian float32 bytes retain the same SHA-256 as the former

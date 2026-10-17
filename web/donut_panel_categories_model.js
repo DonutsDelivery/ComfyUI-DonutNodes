@@ -52,7 +52,7 @@ function classify(role, group, control) {
     const title = cleanTitle(original), w = control.widget || '';
     const advanced = group.advanced === true;
     if (role === 'models') {
-        if (/^uncensorfix_/.test(w)) return bucket('UncensorFix', 70.5);
+        if (/^uncensorfix_/.test(w)) return bucket('Embedded weights', 70.5);
         if (/Fusion/.test(title)) {
             if (!advanced) return bucket('Fusion', 70);
             if (/^tap_|^per_layer_weights$/.test(w)) return bucket('Fusion · image taps', 71, true);
