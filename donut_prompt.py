@@ -270,8 +270,41 @@ class DonutText:
 
 
 
+def _running_prompt():
+    """The API prompt the executor is running, or None when it cannot be identified."""
+    try:
+        from server import PromptServer
+        queue = PromptServer.instance.prompt_queue
+        getter = getattr(queue, "get_current_queue_volatile", None) or queue.get_current_queue
+        running, _ = getter()
+    except Exception:
+        return None
+    if len(running) != 1 or len(running[0]) < 3 or not isinstance(running[0][2], dict):
+        return None
+    return running[0][2]
+
+
+def consumed_outputs(prompt, unique_id):
+    """Sorted output slots of ``unique_id`` linked into other nodes, or None if unknown."""
+    if unique_id is None or not isinstance(prompt, dict) or str(unique_id) not in prompt:
+        return None
+    used = set()
+    for node in prompt.values():
+        inputs = node.get("inputs") if isinstance(node, dict) else None
+        for value in (inputs or {}).values():
+            if isinstance(value, list) and len(value) == 2 and str(value[0]) == str(unique_id):
+                used.add(value[1])
+    return tuple(sorted(used))
+
+
 class DonutPromptConditioning:
-    """One encoding boundary; retain face/full prompts and raw/zeroed negatives."""
+    """One encoding boundary; retain face/full prompts and raw/zeroed negatives.
+
+    Conditioning outputs nothing consumes are not encoded (they return None).
+    IS_CHANGED includes the consumed slots, so wiring one up later re-runs the
+    node instead of reusing a cached None. If the running prompt cannot be
+    read, every output is encoded as before.
+    """
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
@@ -286,7 +319,7 @@ class DonutPromptConditioning:
             "native_reference_a": ("IMAGE",), "native_reference_b": ("IMAGE",),
             "prompt_sets_json": ("STRING", {"default": "[]", "multiline": True, "dynamicPrompts": False}),
             "prompt_set_index": ("INT", {"default": 1, "min": 1, "max": 2**53 - 1, "control_after_generate": True}),
-        }}
+        }, "hidden": {"unique_id": "UNIQUE_ID"}}
     RETURN_TYPES = ("STRING", "STRING", "STRING", "CONDITIONING", "CONDITIONING", "CONDITIONING", "CONDITIONING")
     RETURN_NAMES = ("full_text", "face_text", "edit_negative", "positive", "face_positive", "negative_zeroed", "negative_raw")
     FUNCTION = "encode"
@@ -295,7 +328,8 @@ class DonutPromptConditioning:
 
     def encode(self, clip, face, scene, negative, edit_negative="", separator="", text_seed=0,
                native_reference_enabled=False, native_reference_a=None, native_reference_b=None,
-               prompt_sets_json="[]", prompt_set_index=0, krea_prompt_weights=False, **variance_options):
+               prompt_sets_json="[]", prompt_set_index=0, krea_prompt_weights=False, unique_id=None,
+               **variance_options):
         from nodes import CLIPTextEncode, ConditioningZeroOut
         selected, selected_index = select_prompt_set(
             prompt_sets_json, prompt_set_index,
@@ -330,22 +364,32 @@ class DonutPromptConditioning:
             raise ValueError("Prompt weights support text-only conditioning; turn Reference Guidance off.")
         # Keep resolved weighted text as output 0 for attention patching, while
         # encoding its cleaned text before existing variance/fusion transforms.
-        positive = encode_once(clean_weighted_text(full) if krea_prompt_weights else full, bool(references))
+        consumed = consumed_outputs(_running_prompt(), unique_id)
+
+        def wanted(*slots):
+            return consumed is None or any(slot in consumed for slot in slots)
+
+        positive = face_positive = raw = zeroed = None
+        if wanted(3):
+            positive = encode_once(clean_weighted_text(full) if krea_prompt_weights else full, bool(references))
         # Native references guide the full-image generation/upscale path, not
         # each face crop. Vision tokens cannot be removed by filtering metadata
         # after encoding, so build face conditioning through the text-only path.
         # Identity editing still uses FaceDetailer's explicit reference inputs.
-        face_positive = encode_once(face)
-        raw = encode_once(negative)
+        if wanted(4):
+            face_positive = encode_once(face)
+        if wanted(5, 6):
+            raw = encode_once(negative)
+            zeroed = ConditioningZeroOut().zero_out(raw)[0]
         positive, face_positive = enhance_prompt_pair(positive, face_positive, **variance_options)
-        zeroed = ConditioningZeroOut().zero_out(raw)[0]
         ui = {"text": [full], "donut_final_prompt": [full]}
         if selected_index is not None:
             ui["donut_prompt_set"] = [selected_index + 1]
         return {"ui": ui, "result": (full, face, edit_negative, positive, face_positive, zeroed, raw)}
 
     @classmethod
-    def IS_CHANGED(cls, edit_negative="", text_seed=0, prompt_sets_json="[]", prompt_set_index=0, **kwargs):
+    def IS_CHANGED(cls, edit_negative="", text_seed=0, prompt_sets_json="[]", prompt_set_index=0,
+                   unique_id=None, **kwargs):
         selected, selected_index = select_prompt_set(
             prompt_sets_json, prompt_set_index,
             {"face": kwargs.get("face", ""), "scene": kwargs.get("scene", ""), "negative": kwargs.get("negative", "")},
@@ -355,7 +399,8 @@ class DonutPromptConditioning:
             if selected_index and selected_index > 0 else
             tuple(selected[key] for key in ("face", "scene", "negative"))
         )
-        return directory_fingerprint(), selected_index, expanded, expand_text(edit_negative or "", text_seed or 0)
+        return (directory_fingerprint(), selected_index, expanded, expand_text(edit_negative or "", text_seed or 0),
+                consumed_outputs(_running_prompt(), unique_id))
 
 
 NODE_CLASS_MAPPINGS = {"DonutText": DonutText, "DonutPromptConditioning": DonutPromptConditioning}

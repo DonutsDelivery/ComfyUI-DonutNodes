@@ -227,7 +227,7 @@ class DonutForwardMirrorTests(unittest.TestCase):
         model.calls = calls
         return model
 
-    def test_forward_uses_fused_text_and_keeps_upstream_block_loop(self):
+    def test_forward_uses_fused_text_stage(self):
         model = self._fake_model()
         upstream = self._upstream_stub()
         pos, neg = torch.ones(1, 12, 2560), torch.zeros(1, 8, 2560)
@@ -492,6 +492,136 @@ class DonutForwardMirrorTests(unittest.TestCase):
             _reject_unsupported_attention_hooks({
                 "patches": {"attn1_output_patch": [object()]},
             })
+
+
+def _stub_attention_modules():
+    """Real CPU attention plus a position-dependent RoPE stand-in."""
+    import torch.nn.functional as F
+
+    attention = types.ModuleType("comfy.ldm.modules.attention")
+    attention.optimized_attention_masked = lambda q, k, v, heads, mask=None, skip_reshape=False, transformer_options=None: (
+        F.scaled_dot_product_attention(q, k, v).transpose(1, 2).reshape(q.shape[0], q.shape[2], -1)
+    )
+    flux_math = types.ModuleType("comfy.ldm.flux.math")
+    flux_math.apply_rope = lambda q, k, freqs: (q * freqs, k * freqs)
+    return {"comfy.ldm.modules.attention": attention, "comfy.ldm.flux.math": flux_math}
+
+
+def _reference_nag_block(block, positive_text, negative_text, image, vec, positive_freqs,
+                         negative_freqs, phi, tau, alpha, transformer_options, guidance, modules):
+    """Upstream krea2-nag 1.0.2 ``_nag_block``: two full passes, the baseline."""
+    import torch.nn.functional as F
+
+    def raw_attention(attn, x, freqs):
+        q = attn.wq(x).unflatten(-1, (attn.heads, -1)).transpose(1, 2)
+        k = attn.wk(x).unflatten(-1, (attn.kvheads, -1)).transpose(1, 2)
+        v = attn.wv(x).unflatten(-1, (attn.kvheads, -1)).transpose(1, 2)
+        gate = attn.gate(x)
+        q, k = attn.qknorm(q, k)
+        q, k = modules["comfy.ldm.flux.math"].apply_rope(q, k, freqs)
+        repeat = attn.heads // attn.kvheads
+        k, v = k.repeat_interleave(repeat, dim=1), v.repeat_interleave(repeat, dim=1)
+        return modules["comfy.ldm.modules.attention"].optimized_attention_masked(q, k, v, attn.heads), gate
+
+    prescale, preshift, pregate, postscale, postshift, postgate = block.mod(vec)
+    pos_len, neg_len = positive_text.shape[1], negative_text.shape[1]
+    positive = torch.cat((positive_text, image), dim=1)
+    negative = torch.cat((negative_text, image), dim=1)
+    pos_raw, pos_gate = raw_attention(block.attn, (1 + prescale) * block.prenorm(positive) + preshift, positive_freqs)
+    neg_raw, neg_gate = raw_attention(block.attn, (1 + prescale) * block.prenorm(negative) + preshift, negative_freqs)
+    guided = guidance(pos_raw[:, pos_len:], neg_raw[:, neg_len:], phi=phi, tau=tau, alpha=alpha)
+    pos_raw = torch.cat((pos_raw[:, :pos_len], guided), dim=1)
+    positive = positive + pregate * block.attn.wo(pos_raw * F.sigmoid(pos_gate))
+    negative_text = negative_text + pregate * block.attn.wo(neg_raw[:, :neg_len] * F.sigmoid(neg_gate[:, :neg_len]))
+    positive = positive + postgate * block.mlp((1 + postscale) * block.postnorm(positive) + postshift)
+    negative_text = negative_text + postgate * block.mlp((1 + postscale) * block.postnorm(negative_text) + postshift)
+    return positive[:, :pos_len], negative_text, positive[:, pos_len:]
+
+
+class FusedNagBlockTests(unittest.TestCase):
+    # No torch.manual_seed: it lazily imports torch._dynamo, which breaks when
+    # another test's patch.dict(sys.modules) later drops it. Any weights work.
+    def _block(self, dim=32, heads=4, kvheads=2):
+        lin = lambda out: torch.nn.Linear(dim, out, bias=False)
+        attn = types.SimpleNamespace(
+            heads=heads, kvheads=kvheads,
+            wq=lin(dim), wk=lin(dim // heads * kvheads), wv=lin(dim // heads * kvheads),
+            gate=lin(dim), wo=lin(dim),
+            qknorm=lambda q, k: (torch.nn.functional.normalize(q, dim=-1), torch.nn.functional.normalize(k, dim=-1)),
+        )
+        up, down = torch.nn.Linear(dim, 2 * dim), torch.nn.Linear(2 * dim, dim)
+        return types.SimpleNamespace(
+            attn=attn,
+            mod=lambda vec: vec.chunk(6, dim=-1),
+            prenorm=torch.nn.LayerNorm(dim), postnorm=torch.nn.LayerNorm(dim),
+            mlp=lambda x: down(torch.nn.functional.silu(up(x))),
+        )
+
+    @staticmethod
+    def _guidance(positive, negative, phi, tau, alpha):
+        guided = positive * phi - negative * (phi - 1)
+        ratio = guided.norm(dim=-1, keepdim=True) / positive.norm(dim=-1, keepdim=True)
+        guided = guided * torch.clamp(ratio, max=tau) / ratio
+        return guided * alpha + positive * (1 - alpha)
+
+    def test_matches_two_pass_upstream_block_with_position_dependent_rope(self):
+        from donut_nag_txtfusion import fused_nag_block
+
+        block, modules = self._block(), _stub_attention_modules()
+        pos, neg, image = torch.randn(2, 5, 32), torch.randn(2, 3, 32), torch.randn(2, 7, 32)
+        vec = torch.randn(2, 1, 6 * 32) * 0.1
+        pos_freqs = torch.rand(1, 1, 12, 1) + 0.5
+        neg_freqs = torch.cat((torch.rand(1, 1, 3, 1) + 0.5, pos_freqs[:, :, 5:]), dim=2)
+        args = (block, pos, neg, image, vec, pos_freqs, neg_freqs, 4.0, 2.5, 0.45, {})
+        with torch.no_grad(), patch.dict(sys.modules, modules):
+            expected = _reference_nag_block(*args, self._guidance, modules)
+            actual = fused_nag_block(*args, guidance=self._guidance)
+        for name, want, got in zip(("positive_text", "negative_text", "image"), expected, actual):
+            with self.subTest(output=name):
+                self.assertEqual(want.shape, got.shape)
+                torch.testing.assert_close(got, want, rtol=1e-5, atol=1e-5)
+
+    def test_each_linear_runs_once_per_block(self):
+        from donut_nag_txtfusion import fused_nag_block
+
+        block, calls = self._block(), []
+        for name in ("wq", "wk", "wv", "gate", "wo"):
+            layer = getattr(block.attn, name)
+            layer.register_forward_hook(lambda module, inputs, output, name=name: calls.append(name))
+        with torch.no_grad(), patch.dict(sys.modules, _stub_attention_modules()):
+            fused_nag_block(block, torch.randn(1, 5, 32), torch.randn(1, 3, 32), torch.randn(1, 7, 32),
+                            torch.zeros(1, 1, 6 * 32), None, None, 4.0, 2.5, 0.45, {}, guidance=self._guidance)
+        self.assertEqual(sorted(calls), ["gate", "wk", "wo", "wq", "wv"])
+
+
+class FusedForwardRoutingTests(unittest.TestCase):
+    def _run(self, *args, edit_mode=False, **kwargs):
+        state = types.SimpleNamespace(negative_context=torch.zeros(1, 1, 1), phi=4.0, tau=2.5,
+                                      alpha=.45, sigma_start=1000.0, sigma_end=0.0)
+        upstream = types.SimpleNamespace(_nag_is_active=lambda options, state: True,
+                                         normalized_attention_guidance=lambda *a, **k: None)
+        original = lambda executor, *a, **k: "upstream"
+        wrapper = _composable_nag_wrapper(original, state, upstream, edit_mode=edit_mode)
+        executor = _extension.WrapperExecutor.new_class_executor(lambda *a, **k: "base", object(), [wrapper])
+        with patch.dict(sys.modules, {"comfy": _comfy, "comfy.patcher_extension": _extension}), \
+                patch("donut_nag_txtfusion.donut_nag_forward", return_value="fused") as fused:
+            return executor.execute(*args, **kwargs), fused
+
+    def test_active_t2i_uses_fused_forward_with_upstream_text_stage(self):
+        result, fused = self._run(torch.zeros(1, 4, 2, 2), "t", "context", {})
+        self.assertEqual(result, "fused")
+        self.assertIs(fused.call_args.kwargs["donut_text"], False)
+
+    def test_edit_mixed_cfg_and_reference_latents_keep_upstream_wrapper(self):
+        for name, args, kwargs, edit_mode in (
+            ("edit", (torch.zeros(1, 4, 2, 2), "t", "context", {}), {}, True),
+            ("cfg", (torch.zeros(1, 4, 2, 2), "t", "context", {"cond_or_uncond": [0, 1]}), {}, False),
+            ("refs", (torch.zeros(1, 4, 2, 2), "t", "context", {}), {"ref_latents": [object()]}, False),
+        ):
+            with self.subTest(case=name):
+                result, fused = self._run(*args, edit_mode=edit_mode, **kwargs)
+                self.assertEqual(result, "upstream")
+                fused.assert_not_called()
 
 
 class FusionBudgetFlagTests(unittest.TestCase):

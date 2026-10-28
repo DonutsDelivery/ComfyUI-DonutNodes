@@ -49,8 +49,10 @@ def enhance_prompt_pair(positive, face_positive, *, variance_enabled=False,
                     seed=variance_seed, mask_starts_at=variance_mask_starts_at,
                     mask_percent=variance_mask_percent, log_to_console=variance_log_to_console,
                     noise_distribution=variance_noise_distribution, granularity=variance_granularity)
-    general = apply_seed_variance(positive, settings)
-    face = apply_seed_variance(face_positive, {**settings, "seed": (variance_seed + 1) % (1 << 64)})
+    # Either side may be None when DonutPromptConditioning skipped an unused output.
+    general = None if positive is None else apply_seed_variance(positive, settings)
+    face = None if face_positive is None else apply_seed_variance(
+        face_positive, {**settings, "seed": (variance_seed + 1) % (1 << 64)})
     return general, face
 
 

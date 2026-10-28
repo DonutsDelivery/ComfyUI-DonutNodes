@@ -107,6 +107,67 @@ def _repeat_batch(tensor, batch):
     return comfy.utils.repeat_to_batch_size(tensor, batch)
 
 
+def _attend(attn, q, k, v, freqs, transformer_options):
+    from comfy.ldm.flux.math import apply_rope
+    from comfy.ldm.modules.attention import optimized_attention_masked
+
+    if freqs is not None:
+        q, k = apply_rope(q, k, freqs)
+    if attn.kvheads != attn.heads:
+        repeat = attn.heads // attn.kvheads
+        k = k.repeat_interleave(repeat, dim=1)
+        v = v.repeat_interleave(repeat, dim=1)
+    return optimized_attention_masked(
+        q, k, v, attn.heads, skip_reshape=True, transformer_options=transformer_options,
+    )
+
+
+def fused_nag_block(block, positive_text, negative_text, image, vec, positive_freqs,
+                    negative_freqs, phi, tau, alpha, transformer_options, *, guidance):
+    """Upstream ``_nag_block`` math with one call per linear layer.
+
+    Upstream runs the image tokens through Q/K/V/gate twice and calls every
+    linear once per text stream. Image rows are identical in both passes and
+    every op except attention is per-token, so the rows
+    [positive_text, image, negative_text] share one projection, output and MLP
+    call; only attention runs twice. On low-VRAM cards each extra linear call
+    also streams its weights again, which made NAG about 70% slower per step.
+    """
+    import torch.nn.functional as F
+
+    prescale, preshift, pregate, postscale, postshift, postgate = block.mod(vec)
+    pos_len = positive_text.shape[1]
+    neg_len = negative_text.shape[1]
+    split = pos_len + image.shape[1]
+    attn = block.attn
+
+    x = torch.cat((positive_text, image, negative_text), dim=1)
+    pre = (1 + prescale) * block.prenorm(x) + preshift
+    q = attn.wq(pre).unflatten(-1, (attn.heads, -1)).transpose(1, 2)
+    k = attn.wk(pre).unflatten(-1, (attn.kvheads, -1)).transpose(1, 2)
+    v = attn.wv(pre).unflatten(-1, (attn.kvheads, -1)).transpose(1, 2)
+    gate = attn.gate(pre)
+    del pre
+    q, k = attn.qknorm(q, k)
+
+    def negative_rows(value):
+        return torch.cat((value[:, :, split:], value[:, :, pos_len:split]), dim=2)
+
+    pos_raw = _attend(attn, q[:, :, :split], k[:, :, :split], v[:, :, :split],
+                      positive_freqs, transformer_options)
+    neg_raw = _attend(attn, negative_rows(q), negative_rows(k), negative_rows(v),
+                      negative_freqs, transformer_options)
+    del q, k, v
+
+    guided = guidance(pos_raw[:, pos_len:], neg_raw[:, neg_len:], phi=phi, tau=tau, alpha=alpha)
+    raw = torch.cat((pos_raw[:, :pos_len], guided, neg_raw[:, :neg_len]), dim=1)
+    del pos_raw, neg_raw, guided
+
+    x = x + pregate * attn.wo(raw * F.sigmoid(gate))
+    x = x + postgate * block.mlp((1 + postscale) * block.postnorm(x) + postshift)
+    return x[:, :pos_len], x[:, split:], x[:, pos_len:split]
+
+
 def donut_nag_forward(
     model,
     x,
@@ -118,18 +179,22 @@ def donut_nag_forward(
     tau,
     alpha,
     upstream,
+    donut_text=True,
 ):
-    """Mirror of upstream ``krea2_nag_forward`` with the text stage swapped.
+    """Mirror of upstream ``krea2_nag_forward`` using ``fused_nag_block``.
 
-    The only intended difference is ``_fused_text``: tap-energy compensation
-    and equal-length batching happen before ``txtfusion``. Everything after
-    the two text streams (blocks, ROPE, guidance, output crop) calls the
-    upstream helpers, so upstream math is not forked.
+    With ``donut_text`` the text stage is ``_fused_text`` (tap-energy
+    compensation and equal-length batching before ``txtfusion``); otherwise it
+    is upstream's two ``txtmlp(txtfusion())`` calls. Guidance math stays
+    upstream's ``normalized_attention_guidance``.
     """
     from einops import rearrange
     from comfy.ldm.flux.layers import timestep_embedding
 
-    _nag_block = upstream._nag_block
+    guidance = getattr(upstream, "normalized_attention_guidance", None)
+
+    def _nag_block(*args):
+        return fused_nag_block(*args, guidance=guidance)
 
     temporal = x.ndim == 5
     temporal_shape = None
@@ -151,9 +216,17 @@ def donut_nag_forward(
     t = model.tmlp(timestep_embedding(timesteps, model.tdim).unsqueeze(1).to(image.dtype))
     tvec = model.tproj(t)
 
-    positive_text, negative_text = _fused_text(
-        model, positive_context, negative_context, transformer_options, nag_alpha=alpha,
-    )
+    if donut_text:
+        positive_text, negative_text = _fused_text(
+            model, positive_context, negative_context, transformer_options, nag_alpha=alpha,
+        )
+    else:
+        positive_text = model.txtmlp(
+            model.txtfusion(positive_context, mask=None, transformer_options=transformer_options)
+        )
+        negative_text = model.txtmlp(
+            model.txtfusion(negative_context, mask=None, transformer_options=transformer_options)
+        )
 
     positive_len = positive_text.shape[1]
     negative_len = negative_text.shape[1]
@@ -311,6 +384,25 @@ def _state_from_wrapper(wrapper):
     return None
 
 
+def _uses_fused_forward(state, upstream, args, kwargs):
+    """Whether an active T2I call can skip upstream's two-pass block loop.
+
+    Mixed CFG batches and reference latents stay on the upstream wrapper,
+    which raises its own errors for them.
+    """
+    if len(args) < 3 or not callable(getattr(upstream, "normalized_attention_guidance", None)):
+        return False
+    if getattr(state, "negative_context", None) is None:
+        return False
+    options = _nag_transformer_options(args, kwargs)
+    if any(branch != 0 for branch in options.get("cond_or_uncond", [0])):
+        return False
+    ref_latents = kwargs.get("ref_latents")
+    if ref_latents is None and len(args) >= 5 and not isinstance(args[4], dict):
+        ref_latents = args[4]
+    return not ref_latents
+
+
 def _composable_nag_wrapper(original, state, upstream, *, edit_mode=False):
     """Keep the upstream active/inactive routing inside the remaining chain."""
     if getattr(original, "_donut_nag_composable", False):
@@ -335,6 +427,14 @@ def _composable_nag_wrapper(original, state, upstream, *, edit_mode=False):
             # fallback. The T2I wrapper instead delegates to the native forward.
             # Give both a real executor whose continuation cannot repeat the
             # downstream wrappers we already ran around this terminal.
+            if active and not edit_mode and _uses_fused_forward(state, upstream, forward_args, forward_kwargs):
+                forward_x, forward_t, forward_context = forward_args[:3]
+                return donut_nag_forward(
+                    executor.class_obj, forward_x, forward_t, forward_context,
+                    state.negative_context,
+                    _nag_transformer_options(forward_args, forward_kwargs),
+                    state.phi, state.tau, state.alpha, upstream, donut_text=False,
+                )
             terminal_executor = comfy.patcher_extension.WrapperExecutor.new_class_executor(
                 executor.original, executor.class_obj, [original], idx=0,
             )
