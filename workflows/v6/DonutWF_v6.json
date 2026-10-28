@@ -280,7 +280,7 @@
     },
     {
       "id": 63,
-      "type": "SaveImage",
+      "type": "DonutImageSave",
       "pos": [
         0,
         4494
@@ -306,11 +306,17 @@
           "name": "images",
           "type": "IMAGE",
           "links": []
+        },
+        {
+          "name": "files",
+          "shape": 6,
+          "type": "STRING",
+          "links": []
         }
       ],
       "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.75",
+        "cnr_id": "donutnodes",
+        "Node name for S&R": "DonutImageSave",
         "ue_properties": {
           "widget_ue_connectable": {},
           "version": "7.8",
@@ -319,10 +325,34 @@
         "dmc_final_output": false
       },
       "widgets_values": [
-        "ComfyUI"
+        "output",
+        "ComfyUI",
+        "_",
+        5,
+        false,
+        "png",
+        300,
+        100,
+        false,
+        false,
+        false,
+        true,
+        true
       ],
       "widgets_values_named": {
-        "filename_prefix": "ComfyUI"
+        "root": "output",
+        "filename_prefix": "ComfyUI",
+        "filename_delimiter": "_",
+        "filename_number_padding": 5,
+        "filename_number_start": false,
+        "extension": "png",
+        "dpi": 300,
+        "quality": 100,
+        "optimize_image": false,
+        "lossless_webp": false,
+        "overwrite_mode": false,
+        "embed_workflow": true,
+        "show_previews": true
       }
     },
     {

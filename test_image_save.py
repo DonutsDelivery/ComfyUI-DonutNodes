@@ -2,20 +2,23 @@
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
 import torch
 from PIL import Image
+import DonutImageSave as save_module
 from DonutImageSave import DonutImageSave, args
 
 
-class ImageSaveTests(unittest.TestCase):
+class SaveTestCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
         self.patches = [patch('folder_paths.get_output_directory', return_value=str(self.root / 'output')),
                         patch('folder_paths.get_temp_directory', return_value=str(self.root / 'temp')),
+                        patch('folder_paths.get_user_directory', return_value=str(self.root / 'user')),
                         patch.object(args, 'disable_metadata', False)]
         for p in self.patches:
             p.start()
@@ -27,6 +30,8 @@ class ImageSaveTests(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
+
+class ImageSaveTests(SaveTestCase):
     def test_webp_numbering_batch_and_repeat(self):
         options = dict(filename_prefix='Final/453968006882751', filename_delimiter='',
                        filename_number_padding=1, extension='webp', quality=100)
@@ -93,6 +98,66 @@ class ImageSaveTests(unittest.TestCase):
             with self.assertRaisesRegex(OSError, 'disk full'):
                 self.node.save_images(self.images[:1])
         self.assertEqual(list((self.root / 'output').iterdir()), [])
+
+
+    def test_percent_variables_expand_without_listing_the_folder(self):
+        with patch('folder_paths.get_save_image_path', side_effect=AssertionError('lists the folder')):
+            out = self.node.save_images(self.images[:1], filename_prefix='%width%x%height%/img')
+        self.assertEqual(Path(out['result'][1][0]).relative_to(self.root / 'output').as_posix(), '16x12/img_0001.png')
+
+
+class BackgroundSaveTests(SaveTestCase):
+    """Saves nothing consumes are written after the node returns."""
+    def drain(self):
+        save_module._writer.submit(lambda: None).result(timeout=30)
+
+    def save(self, prompt, **options):
+        return self.node.save_images(self.images, filename_prefix='Final/img', extension='webp',
+                                     prompt=prompt, unique_id='64', **options)
+
+    def test_node_returns_before_a_blocked_disk_write(self):
+        release = threading.Event()
+        original = save_module._write_numbered
+
+        def slow(data, job):
+            release.wait(30)
+            return original(data, job)
+
+        with patch.object(save_module, '_write_numbered', slow):
+            out = self.save({'64': {'inputs': {}}})
+            self.assertEqual(out['result'][1], [])
+            self.assertFalse((self.root / 'output' / 'Final').exists())
+            previews = out['ui']['images']
+            self.assertEqual([p['type'] for p in previews], ['temp', 'temp'])
+            for preview in previews:
+                self.assertTrue((self.root / 'temp' / preview['filename']).is_file())
+            release.set()
+            self.drain()
+        names = sorted(p.name for p in (self.root / 'output' / 'Final').iterdir())
+        self.assertEqual(names, ['img_0001.webp', 'img_0002.webp'])
+        self.assertEqual(list((self.root / 'user' / save_module.STAGING_NAME).iterdir()), [])
+
+    def test_consumed_files_output_saves_before_returning(self):
+        out = self.save({'64': {'inputs': {}}, '9': {'inputs': {'paths': ['64', 1]}}})
+        self.assertEqual([Path(p).name for p in out['result'][1]], ['img_0001.webp', 'img_0002.webp'])
+        self.assertEqual(out['ui']['images'][0]['type'], 'output')
+
+    def test_staged_save_left_by_a_restart_is_delivered(self):
+        with patch.object(save_module._writer, 'submit'):
+            self.save({'64': {'inputs': {}}}, show_previews=False)
+        staged = sorted((self.root / 'user' / save_module.STAGING_NAME).glob('*.json'))
+        self.assertEqual(len(staged), 2)
+        save_module._resume_staged_saves()
+        self.drain()
+        self.assertEqual(sorted(p.name for p in (self.root / 'output' / 'Final').iterdir()),
+                         ['img_0001.webp', 'img_0002.webp'])
+
+    def test_failed_background_write_keeps_the_staged_image(self):
+        with patch.object(save_module, '_write_numbered', side_effect=OSError('disk full')), \
+                self.assertLogs(level='ERROR'):
+            self.save({'64': {'inputs': {}}})
+            self.drain()
+        self.assertEqual(len(list((self.root / 'user' / save_module.STAGING_NAME).glob('*.data'))), 2)
 
 
 if __name__ == '__main__':
