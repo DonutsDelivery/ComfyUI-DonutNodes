@@ -11,6 +11,24 @@ except ImportError:
     from donut_nag_txtfusion import install_donut_nag_experiment
 
 
+def anchor_stage_patcher(model):
+    """Point a stage-local patcher's fallback at the long-lived root patcher.
+
+    ComfyUI falls back to a loaded patcher's parent when the patcher is freed.
+    A cancelled stage frees its temporary clones together through the
+    traceback's cycle collection, so the parent is already gone and ComfyUI
+    keeps a dead entry that forces a full gc.collect() on every later model
+    load until restart.
+    """
+    root = getattr(model, "parent", None)
+    if root is None:
+        return model
+    while root.parent is not None:
+        root = root.parent
+    model.parent = root
+    return model
+
+
 def nag_input_types():
     return {
         "nag_enabled": ("BOOLEAN", {"default": False, "tooltip": "Apply Krea2 NAG inside sampling (requires krea2-nag). Uses CFG 1; Turbo negative conditioning stays zeroed."}),
@@ -114,7 +132,7 @@ def apply_krea2_nag(model, negative, *, nag_enabled=False, nag_negative=None,
         sigma_end=nag_sigma_end,
     )
     record_nag_preparation(patched, node_class, arguments, nag_negative is not None)
-    return patched
+    return anchor_stage_patcher(patched)
 
 
 def apply_krea2_nag_scheduled(model, negative, nag_options, **patch_options):
@@ -144,7 +162,7 @@ def apply_krea2_nag_scheduled(model, negative, nag_options, **patch_options):
         return apply_krea2_nag(model, negative, **options, **patch_options)
     with capture_nag_preparations():
         patched = apply_krea2_nag(model, negative, **options, **patch_options)
-        return install_stage_nag_schedule(patched, request)
+        return anchor_stage_patcher(install_stage_nag_schedule(patched, request))
 
 
 def sampler_negative(negative, turbo_mode):
