@@ -5,6 +5,7 @@ Provides endpoints for configuration management and LoRA browser
 that can be called from the JavaScript frontend.
 """
 
+import asyncio
 import json
 import os
 import hashlib
@@ -303,7 +304,7 @@ def register_routes():
                 return web.json_response({"error": "LoRA not found"}, status=404)
 
             # Get hash
-            file_hash = compute_lora_hash_for_lookup(lora_path)
+            file_hash = await asyncio.to_thread(compute_lora_hash_for_lookup, lora_path)
             if not file_hash:
                 return web.json_response({
                     "name": lora_name,
@@ -320,7 +321,7 @@ def register_routes():
 
             # If not cached, fetch from CivitAI
             if info is None:
-                info = cache.get_or_fetch_info(file_hash, download_preview=True)
+                info = await asyncio.to_thread(cache.get_or_fetch_info, file_hash, download_preview=True)
 
             if info:
                 # Get preview images using cache helper methods
@@ -342,7 +343,7 @@ def register_routes():
                 collage_path = cache.get_preview_collage_path(file_hash)
                 if not collage_path:
                     # Create collage if doesn't exist
-                    cache.create_preview_collage(info, max_images=4)
+                    await asyncio.to_thread(cache.create_preview_collage, info, max_images=4)
                     collage_path = cache.get_preview_collage_path(file_hash)
 
                 return web.json_response({
@@ -484,7 +485,8 @@ def register_routes():
             api_key = config.get("civitai", {}).get("api_key")
 
             # Perform search
-            result = search_models(
+            result = await asyncio.to_thread(
+                search_models,
                 query=query,
                 types=types_list,
                 sort=sort,
@@ -522,7 +524,7 @@ def register_routes():
             config = load_config()
             api_key = config.get("civitai", {}).get("api_key")
 
-            result = get_model_by_id(model_id, api_key=api_key)
+            result = await asyncio.to_thread(get_model_by_id, model_id, api_key=api_key)
 
             if result:
                 return web.json_response(result)
@@ -572,7 +574,7 @@ def register_routes():
 
                 try:
                     # Fetch current model info from CivitAI
-                    model_data = get_model_by_id(model_id, api_key=api_key)
+                    model_data = await asyncio.to_thread(get_model_by_id, model_id, api_key=api_key)
 
                     if model_data and model_data.get("modelVersions"):
                         # First version is the latest
@@ -1144,8 +1146,8 @@ def register_routes():
                 except Exception:
                     cache = None
             hash_cache_dir = str(cache.cache_dir / "hashes") if cache else None
-            sha = get_or_compute_hash(path, hash_type="SHA256",
-                                      use_cache=True, cache_dir=hash_cache_dir)
+            sha = await asyncio.to_thread(get_or_compute_hash, path, hash_type="SHA256",
+                                          use_cache=True, cache_dir=hash_cache_dir)
             return web.json_response({"hash": sha})
         except Exception as e:
             return web.json_response({"hash": "", "error": str(e)}, status=500)

@@ -34,9 +34,16 @@ def validate_civitai_url(url: str) -> str:
     return url
 
 
+CONNECT_TIMEOUT = 5
+
+
 def civitai_request(method: str, url: str, *, headers=None, data=None, timeout: int = 30, stream: bool = False):
     """Request a trusted CivitAI URL and validate every redirect destination."""
     current_url = validate_civitai_url(url)
+    if isinstance(timeout, (int, float)):
+        # Fail fast when a firewall silently drops the connection; keep the
+        # full timeout for reading the response.
+        timeout = (min(CONNECT_TIMEOUT, timeout), timeout)
 
     for _ in range(MAX_REDIRECTS + 1):
         response = requests.request(

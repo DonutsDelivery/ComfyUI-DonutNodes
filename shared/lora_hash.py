@@ -21,13 +21,13 @@ except ImportError:
     HAS_BLAKE3 = False
 
 
-def compute_sha256(file_path: str, chunk_size: int = 8192) -> str:
+def compute_sha256(file_path: str, chunk_size: int = 1024 * 1024) -> str:
     """
     Compute full SHA256 hash of a file.
 
     Args:
         file_path: Path to the file
-        chunk_size: Size of chunks to read (default 8KB)
+        chunk_size: Size of chunks to read (default 1MB)
 
     Returns:
         Uppercase hex string of SHA256 hash
@@ -161,6 +161,17 @@ def _get_cache_filename(file_path: str) -> str:
     return f"{stem}_{path_hash}.hash"
 
 
+def _fallback_cache_dir() -> Optional[str]:
+    """Central hash cache used when the sidecar next to a LoRA can't be
+    written (read-only or shared model folders). Without it every load
+    would re-hash the whole file."""
+    try:
+        from .civitai_api import get_cache
+        return str(get_cache().cache_dir / "hashes")
+    except Exception:
+        return None
+
+
 def get_cached_hash(file_path: str, cache_dir: Optional[str] = None) -> Optional[Dict[str, str]]:
     """
     Check if we have cached hashes for this file.
@@ -183,6 +194,10 @@ def get_cached_hash(file_path: str, cache_dir: Optional[str] = None) -> Optional
         cache_file = Path(cache_dir) / _get_cache_filename(file_path)
 
     if not cache_file.exists():
+        if cache_dir is None:
+            fallback = _fallback_cache_dir()
+            if fallback:
+                return get_cached_hash(file_path, fallback)
         return None
 
     try:
@@ -229,6 +244,13 @@ def save_hash_cache(file_path: str, hashes: Dict[str, str], cache_dir: Optional[
             json.dump(cache_data, f, indent=2)
         return True
     except OSError:
+        if cache_dir is None:
+            fallback = _fallback_cache_dir()
+            if fallback:
+                try:
+                    return save_hash_cache(file_path, hashes, fallback)
+                except OSError:
+                    return False
         return False
 
 
@@ -258,7 +280,8 @@ def compute_single_hash(file_path: str, hash_type: str) -> str:
 
 
 def get_or_compute_hash(file_path: str, hash_type: str = "SHA256",
-                        use_cache: bool = True, cache_dir: Optional[str] = None) -> str:
+                        use_cache: bool = True, cache_dir: Optional[str] = None,
+                        compute: bool = True) -> str:
     """
     Get hash from cache or compute it.
 
@@ -269,6 +292,7 @@ def get_or_compute_hash(file_path: str, hash_type: str = "SHA256",
         hash_type: Type of hash ("SHA256", "AutoV2", "BLAKE3", "CRC32")
         use_cache: Whether to use/update cache
         cache_dir: Directory for cache files
+        compute: If False, only return a cached hash ("" when there is none)
 
     Returns:
         Hash value as uppercase hex string
@@ -277,6 +301,8 @@ def get_or_compute_hash(file_path: str, hash_type: str = "SHA256",
         cached = get_cached_hash(file_path, cache_dir)
         if cached and hash_type in cached:
             return cached[hash_type]
+    if not compute:
+        return ""
 
     # Only compute the requested hash for speed
     hash_value = compute_single_hash(file_path, hash_type)

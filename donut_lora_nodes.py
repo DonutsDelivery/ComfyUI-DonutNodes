@@ -487,11 +487,12 @@ class DonutLoRAStack:
 
         def _maybe_add(slot_idx, sw, name, mw, cw, bv, expected_hash=""):
             if sw == "On" and name != "None":
-                # Resolve LoRA (handles renamed/moved files + auto-download from Civitai)
+                # Resolve LoRA (handles renamed/moved files; auto-downloads from
+                # Civitai only when lookup is On)
                 resolved_path, source = resolve_lora(
                     name,
                     expected_hash=expected_hash or None,
-                    auto_download=True,
+                    auto_download=civitai_lookup == "On",
                     api_key=civitai_api_key if civitai_api_key else None,
                 )
 

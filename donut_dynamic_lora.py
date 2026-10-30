@@ -95,7 +95,9 @@ def build_dynamic_stack(slots_json, model_type="Auto", global_block_vector="", c
                     path = folder_paths.get_full_path("loras", resolved_name)
                     if path and Path(path).is_file():
                         try:
-                            file_hash = hash_fn(path, use_cache=True)
+                            # Lookup Off: reuse a cached hash, never hash the whole file.
+                            file_hash = hash_fn(path, use_cache=True,
+                                                compute=civitai_lookup == "On") or file_hash
                         except (OSError, ValueError) as exc:
                             logging.getLogger(__name__).warning("LoRA metadata hash unavailable for %s: %s", resolved_name, exc)
             metadata.append({"id": row["id"], "lora_name": row["lora_name"], "lora_hash": file_hash,

@@ -230,6 +230,10 @@ class CivitAIModelInfo:
         return ", ".join(self.trained_words) if self.trained_words else ""
 
 
+MISS_RETRY_SECONDS = 600
+_lookup_misses: Dict[str, float] = {}
+
+
 def _rate_limit():
     """Enforce rate limiting between API requests."""
     global _last_request_time
@@ -819,9 +823,16 @@ class CivitAICache:
         if cached is not None:
             return cached
 
+        # Don't re-ask CivitAI about a hash that just failed (unknown model,
+        # or no network): every LoRA load would wait on it again.
+        missed_at = _lookup_misses.get(file_hash)
+        if missed_at is not None and time.time() - missed_at < MISS_RETRY_SECONDS:
+            return None
+
         # Fetch from API
         info = fetch_model_by_hash(file_hash, api_key=api_key)
         if info is None:
+            _lookup_misses[file_hash] = time.time()
             return None
 
         # Cache the result
