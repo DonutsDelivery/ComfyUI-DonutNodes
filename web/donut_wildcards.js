@@ -93,23 +93,50 @@ export function wildcardLibrary() {
     const nameLabel = el("label"), textLabel = el("label");
     nameLabel.append(el("span", "Name · invoke with name*"), name);
     textLabel.append(el("span", "Options · one per line"), text);
-    let revision = 0;
+    let revision = 0, loading = false, saving = false;
+    const updateControls = () => {
+        name.disabled = text.disabled = save.disabled = loading || saving;
+        select.disabled = fresh.disabled = saving;
+    };
     select.onchange = async () => {
-        if (!select.value) return;
+        if (saving) return;
         const current = ++revision;
+        if (!select.value) {
+            loading = false; updateControls(); status.textContent = "";
+            return;
+        }
+        loading = true; updateControls(); status.textContent = `Loading ${select.value}…`;
         try {
             const data = await request(`/donut/wildcards/file?name=${encodeURIComponent(select.value)}`);
             if (current !== revision) return;
             name.value = data.name; text.value = data.text; status.textContent = ""; fitTextarea(text);
-        } catch (error) { status.textContent = error.message; }
+        } catch (error) {
+            if (current === revision) status.textContent = error.message;
+        } finally {
+            if (current === revision) { loading = false; updateControls(); }
+        }
     };
-    fresh.onclick = () => { ++revision; select.value = ""; name.value = text.value = status.textContent = ""; name.focus(); };
+    fresh.onclick = () => {
+        if (saving) return;
+        ++revision; loading = false; updateControls();
+        select.value = ""; name.value = text.value = status.textContent = ""; name.focus();
+    };
     save.onclick = async () => {
+        if (loading || saving) return;
+        const draft = {name:name.value.trim(), text:text.value};
+        saving = true; updateControls(); status.textContent = `Saving ${draft.name}…`;
         try {
-            const data = await request("/donut/wildcards/file", {name:name.value.trim(), text:text.value});
-            catalog = undefined; await populate(select); select.value = data.name;
-            status.textContent = `Saved ${data.name}*. Ready to insert into any prompt.`;
-        } catch (error) { status.textContent = error.message; }
+            const data = await request("/donut/wildcards/file", draft);
+            const confirmation = `Saved ${data.name}* to ${data.path}. Ready to insert into any prompt.`;
+            status.textContent = confirmation;
+            catalog = undefined;
+            try {
+                await populate(select); select.value = data.name;
+            } catch (error) {
+                status.textContent = `${confirmation} Could not refresh the wildcard list: ${error.message}`;
+            }
+        } catch (error) { status.textContent = `Could not save ${draft.name}: ${error.message}`; }
+        finally { saving = false; updateControls(); }
     };
     populate(select).then(data => { location.textContent = `Saved as .txt files in ${data.directory}`; }).catch(error => { status.textContent = error.message; });
     root.append(el("p", "Create reusable choices here. Insert a token in a prompt, or type haircolor*. Choices resolve when you generate; the shared seed controls the result."), select, fresh, nameLabel, textLabel, save, status, location);
