@@ -7,6 +7,7 @@ filters are whole-word OR matches, and each nesting pass restarts the seed.
 from __future__ import annotations
 
 from datetime import datetime
+from difflib import get_close_matches
 from functools import lru_cache
 from pathlib import Path
 import json
@@ -78,6 +79,34 @@ def _file_lines(name, roots):
                 raise ValueError(f"Empty wildcard file: {path}")
             return lines
     return None
+
+
+def _missing_wildcard_error(name, roots):
+    message = f"Wildcard not found: {name!r}; searched {', '.join(map(str, roots))}"
+    # Search only the configured roots, and never silently substitute a file.
+    # A typo must not change deterministic prompt expansion or path validation.
+    candidates = {}
+    for root in roots:
+        try:
+            root = Path(root).resolve()
+            if not root.is_dir():
+                continue
+            for path in sorted(root.rglob("*.txt")):
+                if path.is_file() and path.resolve().is_relative_to(root):
+                    candidate = path.relative_to(root).with_suffix("").as_posix()
+                    if re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_/-]*", candidate):
+                        candidates.setdefault(candidate.casefold(), set()).add(candidate)
+        except OSError:
+            # Suggestions are best effort; retain the original missing-file error.
+            continue
+    normalized = name.replace("\\", "/").casefold()
+    if len(normalized) <= 256:
+        matches = get_close_matches(normalized, sorted(candidates), n=3, cutoff=0.75)
+        suggestions = [candidate for match in matches for candidate in sorted(candidates[match])][:3]
+        if suggestions:
+            tokens = ", ".join(f"{candidate}*" for candidate in suggestions)
+            message += f"; did you mean {tokens}? Use the exact saved wildcard name."
+    return ValueError(message)
 
 
 def _macros(text, prompt, extra_pnginfo, now):
@@ -165,7 +194,7 @@ def expand_text(text, seed=0, max_depth=128, missing="error", *, roots=None, pro
             lines = _file_lines(name, roots)
             if lines is None:
                 if missing == "error":
-                    raise ValueError(f"Wildcard not found: {name!r}; searched {', '.join(map(str, roots))}")
+                    raise _missing_wildcard_error(name, roots)
                 return match[0] if missing == "keep" else ""
             replaced = True
             current = offset
