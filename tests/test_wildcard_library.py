@@ -33,6 +33,38 @@ class WildcardFilesTests(unittest.TestCase):
         self.assertEqual(library.expand_text('haircolor*', 1, roots=[self.root]), 'green hair')
         self.assertEqual(list(self.root.glob('*.tmp')), [])
 
+    def test_saved_names_resolve_and_typo_suggests_exact_token(self):
+        first = library.save_wildcard('forenames', 'Alice\nEmma')
+        last = library.save_wildcard('surnames', 'Hart\nStone')
+        self.assertEqual(first.name, 'forenames.txt')
+        self.assertEqual(last.name, 'surnames.txt')
+        self.assertEqual(library.expand_text('forenames* surnames*', 0, roots=[self.root]), 'Alice Stone')
+        self.assertEqual(library.expand_text('__forenames__ __surnames__', 0, roots=[self.root]), 'Alice Stone')
+        for token in ('fornames*', '__fornames__', 'FORENAMES*'):
+            with self.subTest(token=token):
+                with self.assertRaisesRegex(ValueError, r'did you mean forenames\*'):
+                    library.expand_text(token, roots=[self.root])
+        self.assertEqual(library.expand_text('fornames*', missing='keep', roots=[self.root]), 'fornames*')
+        self.assertEqual(library.expand_text('fornames*', missing='empty', roots=[self.root]), '')
+
+    def test_missing_name_without_close_match(self):
+        library.save_wildcard('haircolor', 'red')
+        with self.assertRaises(ValueError) as caught:
+            library.expand_text('zzzzz*', roots=[self.root])
+        self.assertIn("Wildcard not found: 'zzzzz'", str(caught.exception))
+        self.assertNotIn('did you mean', str(caught.exception))
+
+    def test_missing_nested_name_suggests_contained_file_only(self):
+        library.save_wildcard('clothes/shirt', 'linen')
+        outside = Path(self.directory.name) / 'outside'
+        outside.mkdir()
+        (outside / 'shrit.txt').write_text('outside')
+        (self.root / 'escape').symlink_to(outside)
+        with self.assertRaisesRegex(ValueError, r'did you mean clothes/shirt\*'):
+            library.expand_text('clothes/shrit*', roots=[self.root])
+        with self.assertRaisesRegex(ValueError, 'escapes'):
+            library.expand_text('escape/shrit*', roots=[self.root])
+
     def test_nested_names_and_path_containment(self):
         self.assertTrue(library.save_wildcard('clothes/shirt', 'linen').is_file())
         for name in ('../outside','a/../../outside','/absolute','bad.name','a//b'):
